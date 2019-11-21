@@ -2190,7 +2190,7 @@ algorithm
       list<DAE.ComponentRef> conditions, solveCr;
       list<SimCode.SimEqSystem> resEqs;
       DAE.ComponentRef left, varOutput;
-      DAE.Exp e1, e2, varexp, exp_, start, cond, prevarexp;
+      DAE.Exp e1, e2, varexp, exp_, start, cond, prevarexp, iterExp;
       DAE.Ident iter;
       BackendDAE.WhenEquation whenEquation, elseWhen;
       Option<BackendDAE.WhenEquation> oelseWhen;
@@ -2217,7 +2217,7 @@ algorithm
         ({SimCode.SES_SIMPLE_ASSIGN(iuniqueEqIndex, cr, e2, source, eqAttr)}, iuniqueEqIndex + 1, itempvars);
 
     // for equation that may result from -d=-nfScalarize
-    case BackendDAE.FOR_EQUATION(iter = varexp, start = start, stop = cond, source = source, attr = eqAttr)
+    case BackendDAE.FOR_EQUATION(iter = iterExp, start = start, stop = cond, source = source, attr = eqAttr)
       algorithm
         (e1, e2) := match eqn.body
           case BackendDAE.EQUATION(exp = e1, scalar = e2) then
@@ -2228,17 +2228,20 @@ algorithm
             Error.addInternalError("Unsupported FOR_EQUATION: " + BackendDump.equationString(eqn)  + " ToDo: generalize SimEqSystem.SES_FOR_LOOP with embedded SimEqSystem.", sourceInfo());
           then fail();
         end match;
-        DAE.CREF(componentRef = DAE.CREF_IDENT(ident = iter)) := varexp;
+        DAE.CREF(componentRef = DAE.CREF_IDENT(ident = iter)) := iterExp;
         cr := ComponentReference.crefApplySubs(v.varName, {DAE.INDEX(DAE.CREF(DAE.CREF_IDENT(iter, DAE.T_INTEGER_DEFAULT, {}), DAE.T_INTEGER_DEFAULT))});
+        varexp := Expression.crefExp(cr);
+        varexp := if BackendVariable.isStateVar(v) then Expression.expDer(varexp) else varexp;
+        cr := if BackendVariable.isStateVar(v) then ComponentReference.crefPrefixDer(cr) else cr;
         BackendDAE.SHARED(functionTree = funcs) := shared;
         try
-          (exp_, asserts, solveEqns, solveCr) := ExpressionSolve.solve2(e1, e2, Expression.crefExp(cr), SOME(funcs), SOME(iuniqueEqIndex), true, BackendDAEUtil.isSimulationDAE(shared));
+          (exp_, asserts, solveEqns, solveCr) := ExpressionSolve.solve2(e1, e2, varexp, SOME(funcs), SOME(iuniqueEqIndex), true, BackendDAEUtil.isSimulationDAE(shared));
         else
           Error.addInternalError("solving FOR_EQUATION body: " + BackendDump.equationString(eqn.body)  + "\nfor variable: " + ComponentReference.printComponentRefStr(cr) + ".", sourceInfo());
           fail();
         end try;
       then
-        ({SimCode.SES_FOR_LOOP(iuniqueEqIndex, varexp, start, cond, cr, exp_, source, eqAttr)}, iuniqueEqIndex + 1, itempvars);
+        ({SimCode.SES_FOR_LOOP(iuniqueEqIndex, iterExp, start, cond, cr, exp_, source, eqAttr)}, iuniqueEqIndex + 1, itempvars);
 
     // solved equation
     case BackendDAE.SOLVED_EQUATION(exp=e2, source=source, attr=eqAttr)

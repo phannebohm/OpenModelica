@@ -3901,6 +3901,7 @@ algorithm
       Boolean b;
       DAE.FunctionTree funcs;
       BackendDAE.Shared shared;
+      list<DAE.Subscript> subscriptLst;
     case DAE.CALL(path=Absyn.IDENT(name = "der"), expLst={DAE.CALL(path=Absyn.IDENT(name = "der"), expLst={DAE.CREF(componentRef=cr)})})
       equation
         str = ComponentReference.crefStr(cr);
@@ -3929,6 +3930,22 @@ algorithm
         (varlst, _) = BackendVariable.getVar(cr, vars);
         vars = updateStatesVars(vars, varlst, false);
       then (e1, vars);
+    // case for FOR_LOOP
+    case (DAE.CALL(path=Absyn.IDENT(name = "der"), expLst={e1 as DAE.CREF(componentRef=cr)}))
+      equation
+        // Throw away indices before searching var and add $DER
+        subscriptLst = matchcontinue cr
+          local
+            list<DAE.Subscript> sl;
+          case DAE.CREF_QUAL(subscriptLst=sl) then sl;
+          case DAE.CREF_IDENT(subscriptLst=sl) then sl;
+        end matchcontinue;
+        false = listEmpty(subscriptLst); // stattdessen rekursiv alle inneren crefs prüfen und erst stoppen wenn subs nicht leer
+        cr = ComponentReference.crefStripIterSub(cr);
+        (v, _) = BackendVariable.getVarSingle(cr, vars);
+        (vars, _) = updateStatesVar(vars, v, e1);
+      then (exp,vars);
+    // exp is not a cref -> differentiate
     case (DAE.CALL(path=Absyn.IDENT(name = "der"), expLst={e1}))
       equation
         (e2, shared) = Differentiate.differentiateExpTime(e1, vars, Mutable.access(inShared));
