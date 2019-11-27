@@ -300,6 +300,7 @@ algorithm
       list<list<BackendDAE.Equation>> eqnslst;
       list<DAE.Statement> statementLst;
       DAE.Expand expand;
+      BackendDAE.Equation forEq, body;
       BackendDAE.WhenEquation whenEqn;
       BackendDAE.EquationAttributes eqAttr;
 
@@ -411,6 +412,14 @@ algorithm
 
       then
         (BackendDAE.WHEN_EQUATION(size, whenEqn, source, eqAttr), funcs);
+
+    case forEq as BackendDAE.FOR_EQUATION()
+      algorithm
+        (body, funcs) := differentiateEquationFragile(forEq.body, inDiffwrtCref, inInputData, inDiffType, inFunctionTree);
+        forEq.body := body;
+      then
+        (forEq, funcs);
+
     else equation
       Error.addSourceMessage(Error.NON_EXISTING_DERIVATIVE, {BackendDump.equationString(inEquation), ComponentReference.crefStr(inDiffwrtCref)}, sourceInfo());
      then fail();
@@ -1360,7 +1369,6 @@ algorithm
       DAE.FunctionTree funcs;
 
       Integer i;
-      Boolean b;
 
       list<Boolean> blst;
       list<DAE.ComponentRef> crefs;
@@ -1408,11 +1416,11 @@ algorithm
         cr = ComponentReference.createDifferentiatedCrefName(cr, inDiffwrtCref, matrixName);
         res = Expression.makeCrefExp(cr, tp);
 
-        b = ComponentReference.crefEqual(DAE.CREF_IDENT("$",DAE.T_REAL_DEFAULT,{}), inDiffwrtCref);
-        (zero,_) = Expression.makeZeroExpression(Expression.arrayDimension(tp));
-        res = if b then zero else res;
+        if ComponentReference.crefEqual(DAE.CREF_IDENT("$",DAE.T_REAL_DEFAULT,{}), inDiffwrtCref) then
+          (res,_) = Expression.makeZeroExpression(Expression.arrayDimension(tp));
+        end if;
       then
-        (res,  inFunctionTree);
+        (res, inFunctionTree);
 
     /* Differentiate with respect to DAE.CREF_IDENT(ident="$") demands zero expressions */
     case (DAE.CALL(path=Absyn.IDENT(name = "der"),expLst = {e}), DAE.CREF_IDENT(ident="$"), _, _, _)
