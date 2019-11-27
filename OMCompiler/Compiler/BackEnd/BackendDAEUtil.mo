@@ -1819,18 +1819,18 @@ only to get the functionsTree.
   output BackendDAE.EqSystem oSyst;
 
 protected
-   array<Integer> ass1, ass2;
-   BackendDAE.Variables v;
-   BackendDAE.EqSystem syst;
-   BackendDAE.Variables iVars = BackendVariable.listVar(iVarlst);
-   BackendDAE.EquationArray ordererdEqs, arrEqs;
-   list<Integer> indx_lst_v, indx_lst_e, ind_mark, statevarindx_lst;
-   array<Integer> indx_arr;
-   list<BackendDAE.Equation> el;
-   list<BackendDAE.Var> vl;
+  array<Integer> ass1, ass2;
+  BackendDAE.Variables v;
+  BackendDAE.EqSystem syst;
+  BackendDAE.Variables iVars = BackendVariable.listVar(iVarlst);
+  BackendDAE.EquationArray ordererdEqs, arrEqs;
+  list<Integer> indx_lst_v, indx_lst_e, ind_mark, statevarindx_lst;
+  array<Integer> indx_arr;
+  list<BackendDAE.Equation> el;
+  list<BackendDAE.Var> vl;
 
-   DAE.FunctionTree funcs;
-   BackendDAE.IncidenceMatrix m;
+  DAE.FunctionTree funcs;
+  BackendDAE.IncidenceMatrix m;
 algorithm
   oSyst := match iSyst
     case syst as BackendDAE.EQSYSTEM( orderedEqs=ordererdEqs, orderedVars=v,
@@ -1861,7 +1861,7 @@ algorithm
         syst.orderedVars := BackendVariable.listVar1(vl);
         syst.orderedEqs := arrEqs;
         syst.stateSets := {};
-      then BackendDAEUtil.clearEqSyst(syst);
+      then clearEqSyst(syst);
   end match;
 end reduceEqSystem;
 
@@ -7748,7 +7748,7 @@ algorithm
 
     case (BackendDAE.EQSYSTEM(matching=BackendDAE.NO_MATCHING()), (matchingAlgorithmfunc,_), (sssHandler,_,_,_)) equation
       //BackendDump.dumpEqSystem(isyst, "causalizeDAEWork");
-      //print("SystemSize: " + intString(systemSize(isyst)));
+      //print("SystemSize: " + intString(systemSize(isyst)) + "\n");
       funcs = getFunctions(ishared);
       (syst,_,_,mapEqnIncRow,mapIncRowEqn) = getIncidenceMatrixScalar(isyst,BackendDAE.SOLVABLE(), SOME(funcs));
       match_opts = Util.getOptionOrDefault(inMatchingOptions,(BackendDAE.INDEX_REDUCTION(), BackendDAE.EXACT()));

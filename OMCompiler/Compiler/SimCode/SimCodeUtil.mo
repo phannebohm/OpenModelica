@@ -2231,8 +2231,10 @@ algorithm
         DAE.CREF(componentRef = DAE.CREF_IDENT(ident = iter)) := iterExp;
         cr := ComponentReference.crefApplySubs(v.varName, {DAE.INDEX(DAE.CREF(DAE.CREF_IDENT(iter, DAE.T_INTEGER_DEFAULT, {}), DAE.T_INTEGER_DEFAULT))});
         varexp := Expression.crefExp(cr);
-        varexp := if BackendVariable.isStateVar(v) then Expression.expDer(varexp) else varexp;
-        cr := if BackendVariable.isStateVar(v) then ComponentReference.crefPrefixDer(cr) else cr;
+        if BackendVariable.isStateVar(v) then
+          cr := ComponentReference.crefPrefixDer(cr);
+          varexp := Expression.expDer(varexp);
+        end if;
         BackendDAE.SHARED(functionTree = funcs) := shared;
         try
           (exp_, asserts, solveEqns, solveCr) := ExpressionSolve.solve2(e1, e2, varexp, SOME(funcs), SOME(iuniqueEqIndex), true, BackendDAEUtil.isSimulationDAE(shared));
