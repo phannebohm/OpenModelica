@@ -112,10 +112,11 @@ protected protected function hashSubscripts "help function, hashing subscripts m
   output Integer hash;
 algorithm
   hash := match(tp,subs)
-  case(_,{}) then 0;
-  // TODO: Currently, the types of component references are wrong, they consider the subscripts but they should not.
-  // For example, given Real a[10,10];  the component reference 'a[1,2]' should have type Real[10,10] but it has type Real.
-  else hashSubscripts2(List.fill(1,listLength(subs)),/*DAEUtil.expTypeArrayDimensions(tp),*/subs,1);
+    case (_, _) guard(not Flags.isSet(Flags.NF_SCALARIZE)) then 0;
+    case (_,{}) then 0;
+    // TODO: Currently, the types of component references are wrong, they consider the subscripts but they should not.
+    // For example, given Real a[10,10];  the component reference 'a[1,2]' should have type Real[10,10] but it has type Real.
+    else hashSubscripts2(List.fill(1,listLength(subs)),/*DAEUtil.expTypeArrayDimensions(tp),*/subs,1);
   end match;
 end hashSubscripts;
 
