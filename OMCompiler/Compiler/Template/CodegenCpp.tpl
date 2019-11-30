@@ -9875,10 +9875,7 @@ template equationString(SimEqSystem eq, Context context, Text &varDecls, SimCode
      throw ModelicaSimulationError(ALGLOOP_EQ_SYSTEM,"Mixed systems are not supported yet");
     >>
   case e as SES_FOR_LOOP(__)
-    then
-    <<
-    FOR LOOPS ARE NOT IMPLEMENTED
-    >>
+    then equationForLoop(e, context, &varDecls, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation, assignToStartValues)
   case e as SES_IFEQUATION(__)
     then
     <<
@@ -11547,7 +11544,7 @@ template equationLinearOrNonLinear(SimEqSystem eq, Context context,Text &varDecl
 end equationLinearOrNonLinear;
 
 
-template equationForLoop(SimEqSystem eq, Context context, Text &varDecls, SimCode simCode, Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation, Boolean assignToStartValues)
+template equationForLoop(SimEqSystem eq, Context context, Text &varDecls, SimCode simCode, Text &extraFuncs, Text &extraFuncsDecl, Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation, Boolean assignToStartValues)
 ::=
   match eq
     case SES_FOR_LOOP(__) then
