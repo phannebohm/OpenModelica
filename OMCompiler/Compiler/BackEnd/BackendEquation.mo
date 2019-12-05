@@ -1737,6 +1737,8 @@ algorithm
       list<Integer> ds;
       Integer size, start, stop, recordSize;
       list<BackendDAE.Equation> eqnsfalse;
+      DAE.Exp startExp, stopExp;
+      BackendDAE.Variables emptyGKV;
 
     case BackendDAE.EQUATION()
     then 1;
@@ -1768,7 +1770,12 @@ algorithm
       size = equationLstSize(eqnsfalse);
     then size;
 
-    case BackendDAE.FOR_EQUATION(start = DAE.ICONST(start), stop = DAE.ICONST(stop)) equation
+    case BackendDAE.FOR_EQUATION(start = startExp, stop = stopExp) equation
+      // phannebohm: TODO this is a problem, we need the globalKnownVars here...
+      // also with nested for loops the outer iterator is "globally known"
+      emptyGKV = BackendDAE.VARIABLES(arrayCreate(0, {}), BackendDAE.VARIABLE_ARRAY(0, arrayCreate(0, NONE())), 0, 0);
+      start = BackendDAEUtil.expInt(startExp, emptyGKV);
+      stop = BackendDAEUtil.expInt(stopExp, emptyGKV);
       size = (stop - start + 1) * equationSize(eq.body);
     then size;
 
