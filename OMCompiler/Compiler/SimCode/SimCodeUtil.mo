@@ -363,9 +363,7 @@ algorithm
       FlagsUtil.setConfigEnum(Flags.SYM_SOLVER, 0);
     end if;
 
-    if not (Config.simCodeTarget() == "omsic" or
-            Config.simCodeTarget() == "omsicpp")
-    then
+    if not (Config.simCodeTarget() == "omsic" or Config.simCodeTarget() == "omsicpp") then
       (uniqueEqIndex, odeEquations, algebraicEquations, localKnownVars, allEquations, equationsForZeroCrossings, tempvars,
         equationSccMapping, eqBackendSimCodeMapping, backendMapping, sccOffset) :=
            createEquationsForSystems(contSysts, shared, uniqueEqIndex, zeroCrossings, tempvars, 1, backendMapping, true);
@@ -642,7 +640,7 @@ algorithm
     execStat("simCode: some other stuff during SimCode phase");
 
 
-     if ((Config.simCodeTarget() <> "Cpp") and (Config.simCodeTarget()<>"omsicpp"))then
+    if (Config.simCodeTarget() <> "Cpp") and (Config.simCodeTarget() <> "omsicpp") then
       reasonableSize := Util.nextPrime(10+integer(1.4*(BackendDAEUtil.equationArraySizeBDAE(inBackendDAE)+BackendDAEUtil.equationArraySizeBDAE(inInitDAE)+listLength(parameterEquations))));
       eqCache := HashTableSimCodeEqCache.emptyHashTableSized(reasonableSize);
 
@@ -4717,7 +4715,6 @@ algorithm
     case (NONE())
       then true;
     case (SOME((_,_,{},{},{},_)))
-      equation
       then true;
     else
       false;

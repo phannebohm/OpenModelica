@@ -243,7 +243,7 @@ case SIMCODE(modelInfo=MODELINFO(__)) then
   class <%lastIdentOfPath(modelInfo.name)%>Jacobian : public <%lastIdentOfPath(modelInfo.name)%>
   {
   <% (jacobianMatrixes |> JAC_MATRIX(columns=mat) hasindex index0 =>
-       (mat |> JAC_COLUMN(columnEqns=eqs) =>  generatefriendAlgloops(eqs,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace) ;separator="\n")
+       (mat |> JAC_COLUMN(columnEqns=eqs) =>  generatefriendAlgloops(eqs, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace);separator="\n")
      ;separator="")
   %>
   public:
@@ -11296,10 +11296,10 @@ case SES_SIMPLE_ASSIGN(__) then
     >>
   else
   match exp
-  case CREF(ty = t as  T_ARRAY(__)) then
+  case CREF(ty = t as T_ARRAY(__)) then
     <<
     //Array assign
-    <%cref1(cref, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace,context,varDecls, stateDerVectorName, useFlatArrayNotation)%> = <%expPart%>;
+    <%cref1(cref, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, context, varDecls, stateDerVectorName, useFlatArrayNotation)%> = <%expPart%>;
     >>
   else
     let startValueType = crefStartValueType(cref)
