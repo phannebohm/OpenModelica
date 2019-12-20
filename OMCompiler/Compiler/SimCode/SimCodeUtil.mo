@@ -4686,10 +4686,11 @@ algorithm
       SimCode.HashTableCrefToSimVar crefSimVarHT;
       SimCode.JacobianMatrix tmpJac;
       list<String> matrixnames;
+      HashTableCrefSimVar.HashTable ht;
     case (_, _, _)
-      equation
+      algorithm
         // b = FlagsUtil.disableDebug(Flags.EXEC_STAT);
-        crefSimVarHT = createCrefToSimVarHT(inModelInfo);
+        crefSimVarHT := createCrefToSimVarHT(inModelInfo);
         // The jacobian code requires single systems;
         // I did not rewrite it to take advantage of any parallelism in the code
 
@@ -4697,11 +4698,18 @@ algorithm
         // For dataReconciliation F is set in earlier order which cause index problem for linearization matrix and hence identify if
         // dataReconciliation is involved and pass the matrix names
         if Util.isSome(shared.dataReconciliationData) then
-           matrixnames={"A", "B", "C", "D"};
+           matrixnames := {"A", "B", "C", "D"};
         else
-           matrixnames={"A", "B", "C", "D", "F"};
+           matrixnames := {"A", "B", "C", "D", "F"};
         end if;
-        (res, ouniqueEqIndex) = createSymbolicJacobianssSimCode(inSymjacs, crefSimVarHT, iuniqueEqIndex, matrixnames, {});
+        (res, ouniqueEqIndex) := createSymbolicJacobianssSimCode(inSymjacs, crefSimVarHT, iuniqueEqIndex, matrixnames, {});
+        for r in res loop
+          if isSome(r.crefsHT) then
+            SOME(ht) := r.crefsHT;
+            print("crefsHT\n");
+            BaseHashTable.dumpHashTable(ht);
+          end if;
+        end for;
         // _ = FlagsUtil.set(Flags.EXEC_STAT, b);
       then (res,ouniqueEqIndex);
   end match;

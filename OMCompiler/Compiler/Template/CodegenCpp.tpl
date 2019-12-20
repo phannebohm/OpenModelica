@@ -266,7 +266,7 @@ case SIMCODE(modelInfo=MODELINFO(__)) then
     >>
     %>
     <%
-    let jacobianvars = (jacobianMatrixes |> JAC_MATRIX(matrixName=name) hasindex index0 =>
+    let jacobianvars = (jacobianMatrixes |> JAC_MATRIX(matrixName=name, columns=cols, seedVars=seedVars, crefsHT=SOME(ht)) hasindex index0 =>
       <<
 
       <%matrixreturntype%> _<%name%>jacobian;
@@ -275,6 +275,17 @@ case SIMCODE(modelInfo=MODELINFO(__)) then
       ublas::vector<double> _<%name%>jac_x;
       int* _<%name%>ColorOfColumn;
       int  _<%name%>MaxColors;
+
+      /* TODO here: pointer mapping for for-loops? (StatArrayDim) */
+      /*seed vars*/
+      <%seedVars |> var =>
+        jacVariableDefine(var, true, createDebugCode, true)
+        ;separator="\n"%>
+      /*other jac vars*/
+      <%cols |> JAC_COLUMN(columnVars=vars) =>
+        (vars |> var =>
+          jacVariableDefine(var, true, createDebugCode, true)
+        ;separator="\n");separator=""%>
       >>
     ;separator="\n";empty)
     <<
@@ -291,6 +302,41 @@ case SIMCODE(modelInfo=MODELINFO(__)) then
   >>
 end simulationJacobianHeaderFile;
 
+template jacVariableDefine(SimVar simVar, Boolean useFlatArrayNotation, Boolean createDebugCode, Boolean createRefVar)
+::=
+match simVar
+  case SIMVAR(varKind=BackendDAE.SEED_VAR(), name=name, numArrayElement={}, arrayCref=NONE(), type_=type_, index=index, matrixName=matrixName) then
+    if createDebugCode then
+      '<%variableType(type_)%><%if createRefVar then '&' else ''%> <%cref(name,useFlatArrayNotation)%>;'
+    else
+      if createRefVar then
+        '#define <%cref(name,useFlatArrayNotation)%> _<%matrixName%>jac_x(<%index%>)'
+      else
+        '<%variableType(type_)%> <%cref(name,useFlatArrayNotation)%>;'
+  case SIMVAR(varKind=BackendDAE.JAC_VAR(), name=name, numArrayElement={}, arrayCref=NONE(), type_=type_, index=index, matrixName=matrixName) then
+    if createDebugCode then
+      '<%variableType(type_)%><%if createRefVar then '&' else ''%> <%cref(name,useFlatArrayNotation)%>;'
+    else
+      if createRefVar then
+        '#define <%cref(name,useFlatArrayNotation)%> _<%matrixName%>jac_y(<%index%>)'
+      else
+        '<%variableType(type_)%> <%cref(name,useFlatArrayNotation)%>;'
+  case SIMVAR(varKind=BackendDAE.JAC_DIFF_VAR(), name=name, numArrayElement={}, arrayCref=NONE(), type_=type_, index=index, matrixName=matrixName) then
+    if createDebugCode then
+      '<%variableType(type_)%><%if createRefVar then '&' else ''%> <%cref(name,useFlatArrayNotation)%>;'
+    else
+      if createRefVar then
+        '#define <%cref(name,useFlatArrayNotation)%> _<%matrixName%>jac_tmp(<%index%>)'
+      else
+        '<%variableType(type_)%> <%cref(name,useFlatArrayNotation)%>;'
+
+  /* newInst with arrays */
+  case v as SIMVAR(type_ = T_ARRAY(), numArrayElement=num, name=name, matrixName=matrixName) then
+    let& dims = buffer "" /*BUFD*/
+    let varName = arraycref2(name, dims)
+    let typeString = expTypeShort(type_)
+    'StatArrayDim<%listLength(num)%><<%typeString%>, <%List.lastN(num, listLength(num));separator=","%>, <%createRefVar%>> <%varName%>;'
+end jacVariableDefine;
 
 template simulationStateSelectionHeaderFile(SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace)
  "Generates code for header file for simulation target."
@@ -11564,7 +11610,7 @@ template equationForLoop(SimEqSystem eq, Context context, Text &varDecls, SimCod
         <%if isArrayType(crefTypeFull(cref)) then
           '<%crefPart%>.assign(<%expPart%>);'
         else
-          '<%crefPart%> = <%expPart%>;'%>
+          '<%crefPart%> = <%expPart%>; /* for-equaiton body? */'%>
       }
       >>
 end equationForLoop;

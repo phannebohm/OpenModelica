@@ -385,7 +385,7 @@ case component as CREF(componentRef=cr, ty=ty) then
           'arrayGet(<%arrName%>,<%dimsValuesStr%>) /* DAE.CREF */'
         else
          <<
-         <%arrName%>(<%dimsValuesStr%>)
+         <%arrName%>(<%dimsValuesStr%>/* iterator index? */)
          >>
     else
       // The array subscript denotes a slice
