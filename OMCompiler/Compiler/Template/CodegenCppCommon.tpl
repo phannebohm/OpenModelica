@@ -241,7 +241,7 @@ template representationCref(ComponentRef inCref, SimCode simCode ,Text& extraFun
       match var
         case SIMVAR(index=-2) then
           // unknown in cref2simvar, e.g. local in a function, iterator or time
-          '<%localCref(inCref, useFlatArrayNotation)%>'
+          '<%localCref(inCref, useFlatArrayNotation)%>/*unknown*/'
         else
           match context
             case ALGLOOP_CONTEXT(genInitialisation = false, genJacobian=false) then
@@ -253,7 +253,7 @@ template representationCref(ComponentRef inCref, SimCode simCode ,Text& extraFun
             else
               '<%cref(inCref, useFlatArrayNotation)%>'
     else
-      '<%contextSystem(context)%><%cref(inCref, useFlatArrayNotation)%>'
+      '<%contextSystem(context)%><%cref(inCref, useFlatArrayNotation)%>/*param?*/'
 end representationCref;
 
 template crefToCStrWithoutIndexOperator(ComponentRef cr)

@@ -706,8 +706,8 @@ case SIMCODE(modelInfo = MODELINFO(__)) then
 
    <%lastIdentOfPath(modelInfo.name)%>Jacobian::~<%lastIdentOfPath(modelInfo.name)%>Jacobian()
    {
-   if(_AColorOfColumn)
-     delete []  _AColorOfColumn;
+     if(_AColorOfColumn)
+       delete [] _AColorOfColumn;
    }
 
    <%functionAnalyticJacobians(modelInfo,jacobianMatrixes, simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)%>
@@ -12861,7 +12861,6 @@ template functionAnalyticJacobians2(list<JacobianMatrix> JacobianMatrixes,String
 */
   <<
   <%initialjacMats%>
-
   >>
 
   //<%jacMats%>
@@ -12881,14 +12880,14 @@ case {} then
 case _ then
   match sparsepattern
   case _ then
-  match matrixname
-  case "A" then
+    match matrixname
+    case "A" then
       let colorArray = (colorList |> (indexes) hasindex index0 =>
-      let colorCol = ( indexes |> i_index =>
-        '_<%matrixname%>ColorOfColumn[<%i_index%>] = <%intAdd(index0,1)%>; '
+        let colorCol = ( indexes |> i_index =>
+          '_<%matrixname%>ColorOfColumn[<%i_index%>] = <%intAdd(index0,1)%>;'
+          ;separator="\n")
+        '<%colorCol%>'
         ;separator="\n")
-      '<%colorCol%>'
-      ;separator="\n")
       let index_ = listLength(seedVars)
       <<
         if(_AColorOfColumn)
@@ -12899,10 +12898,8 @@ case _ then
         /* write color array */
         <%colorArray%>
       >>
-   end match
-   end match
-
-
+    end match
+  end match
 end match
 end initialAnalyticJacobians2;
 
@@ -12970,12 +12967,12 @@ match matrixname
 end match
 end mkSparseFunctionHeader;
 
-template initialAnalyticJacobians(Integer indexJacobian, list<JacobianColumn> jacobianColumn, list<SimVar> seedVars, String matrixName, list<tuple<Integer,list<Integer>>> sparsepattern, list<list<Integer>> colorList, SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace)
- "Generates function that initialize the sparse-pattern for a jacobain matrix"
+template initialAnalyticJacobians(Integer indexJacobian, list<JacobianColumn> jacobianColumn, list<SimVar> seedVars, String matrixName, list<tuple<Integer,list<Integer>>> sparsepattern, list<list<Integer>> colorList, SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl,Text extraFuncsNamespace)
+ "Generates function that initialize the sparse-pattern for a jacobian matrix"
 ::=
   match simCode
   case SIMCODE(modelInfo = MODELINFO(__)) then
-    let classname =  lastIdentOfPath(modelInfo.name)
+    let classname = lastIdentOfPath(modelInfo.name)
 
     match seedVars
       case {} then ""
@@ -12992,7 +12989,7 @@ template initialAnalyticJacobians(Integer indexJacobian, list<JacobianColumn> ja
           let type = getConfigString(MATRIX_FORMAT)
           let matrixinit =  match type
           case ("dense") then
-            'ublas::zero_matrix<double> (<%indexColumn%>,<%index_%>)'
+            'ublas::zero_matrix<double>(<%indexColumn%>,<%index_%>)'
           case ("sparse") then
             '<%indexColumn%>,<%index_%>,<%sp_size_index%>'
           else "A matrix type is not supported"
@@ -13009,14 +13006,14 @@ template initialAnalyticJacobians(Integer indexJacobian, list<JacobianColumn> ja
 end initialAnalyticJacobians;
 
 
-template functionAnalyticJacobians(ModelInfo modelInfo,list<JacobianMatrix> JacobianMatrixes, SimCode simCode, Text& extraFuncs,
-                                   Text& extraFuncsDecl,Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
+template functionAnalyticJacobians(ModelInfo modelInfo, list<JacobianMatrix> JacobianMatrixes, SimCode simCode, Text& extraFuncs,
+                                   Text& extraFuncsDecl, Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
  "Generates Matrixes for Linear Model."
 ::=
 
   match modelInfo
   case MODELINFO(name=name) then
-  let classname =  lastIdentOfPath(name)
+  let classname = lastIdentOfPath(name)
   let &varDecls = buffer "" /*BUFD*/
 
   let jacMats = (JacobianMatrixes |> JAC_MATRIX(columns=mat, seedVars=vars, matrixName=name, sparsity=sparsepattern, coloredCols=colorList, maxColorCols=maxColor, jacobianIndex=jacIndex, partitionIndex=partIdx) =>
@@ -13039,20 +13036,15 @@ template functionAnalyticJacobians(ModelInfo modelInfo,list<JacobianMatrix> Jaco
        (mat |> JAC_COLUMN(columnEqns=eqs) =>  generateAlgloopSolvers(modelInfo,eqs,simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace) ;separator="")
       ;separator="")
 
-
-
 <<
 
 <%jacMats%>
 
 void <%classname%>Jacobian::initialize()
 {
-   //create Algloopsolver for analytical Jacobians
-   <%jacalgloopsystems%>
-   <%jacalgloopsolvers%>
-
-
-
+  //create Algloopsolver for analytical Jacobians
+  <%jacalgloopsystems%>
+  <%jacalgloopsolvers%>
 }
 >>
 end functionAnalyticJacobians;
@@ -13060,121 +13052,121 @@ end functionAnalyticJacobians;
 
 
 
-template functionJac(list<SimEqSystem> jacEquations, String matrixName, Integer partIdx, SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
+template functionJac(list<SimEqSystem> jacEquations, String matrixName, Integer partIdx, SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
  "Generates function in simulation file."
 ::=
   match simCode
   case SIMCODE(modelInfo = MODELINFO(__)) then
-  let classname =  lastIdentOfPath(modelInfo.name)
-  let &varDecls = buffer "" /*BUFD*/
-  let eqns_ = (jacEquations |> eq =>
-    equation_(eq, contextJacobian, &varDecls, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
-    ;separator="\n")
-  <<
-  void <%classname%>Jacobian::calc<%matrixName%>JacobianColumn()
-  {
-    <%if intGt(partIdx, 0) then 'const int clockIndex = <%partIdx%>;'%>
-    <%varDecls%>
-    <%eqns_%>
-  }
-  >>
+    let classname = lastIdentOfPath(modelInfo.name)
+    let &varDecls = buffer "" /*BUFD*/
+    let eqns_ = (jacEquations |> eq =>
+      equation_(eq, contextJacobian, &varDecls, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
+      ;separator="\n")
+    <<
+    void <%classname%>Jacobian::calc<%matrixName%>JacobianColumn()
+    {
+      <%if intGt(partIdx, 0) then 'const int clockIndex = <%partIdx%>;'%>
+      <%varDecls%>
+      <%eqns_%>
+    }
+    >>
   end match
-
 end functionJac;
 
 
 template generateMatrix(Integer indexJacobian, list<JacobianColumn> jacobianColumn, list<SimVar> seedVars, String matrixname,
                         SparsityPattern sparsepattern, list<list<Integer>>colorList, Integer maxColor, Integer partIdx,
-                        SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
+                        SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
  "Generates Matrixes for Linear Model."
 ::=
-   match simCode
-   case SIMCODE(modelInfo = MODELINFO(__)) then
-         generateJacobianMatrix(modelInfo, indexJacobian, jacobianColumn, seedVars, matrixname, sparsepattern, colorList, partIdx, maxColor, simCode , &extraFuncs , &extraFuncsDecl,  extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
-   end match
+  match simCode
+  case SIMCODE(modelInfo = MODELINFO(__)) then
+    generateJacobianMatrix(modelInfo, indexJacobian, jacobianColumn, seedVars, matrixname, sparsepattern, colorList, partIdx, maxColor, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
+  end match
 end generateMatrix;
-
 
 template generateJacobianMatrix(ModelInfo modelInfo, Integer indexJacobian, list<JacobianColumn> jacobianColumn, list<SimVar> seedVars,
                                 String matrixName, SparsityPattern sparsepattern, list<list<Integer>> colorList, Integer partIdx,
-                                Integer maxColor, SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace,
+                                Integer maxColor, SimCode simCode, Text& extraFuncs, Text& extraFuncsDecl, Text extraFuncsNamespace,
                                 Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
  "Generates Matrixes for Linear Model."
 ::=
 match simCode
 case SIMCODE(modelInfo = MODELINFO(__)) then
-let type = getConfigString(MATRIX_FORMAT)
-  let matrixreturntype =  match type
+  let type = getConfigString(MATRIX_FORMAT)
+  let matrixreturntype = match type
     case ("dense") then
-     "matrix_t"
+      "matrix_t"
     case ("sparse") then
-     "sparsematrix_t"
+      "sparsematrix_t"
     else "A matrix type is not supported"
-    end match
-let classname = lastIdentOfPath(modelInfo.name)
-match jacobianColumn
-case {} then
-  <<
-  void <%classname%>Jacobian::calc<%matrixName%>JacobianColumn()
-  {
-    throw ModelicaSimulationError(MATH_FUNCTION, "Symbolic jacobians not is activated");
-
-  }
-
-  <%matrixreturntype%>&  <%classname%>Jacobian::get<%matrixName%>Jacobian()
-  {
-    throw ModelicaSimulationError(MATH_FUNCTION, "Symbolic jacobians not is activated");
-  }
-  >>
-case _ then
-  match colorList
+  end match
+  let classname = lastIdentOfPath(modelInfo.name)
+  match jacobianColumn
   case {} then
-  <<
-  void <%classname%>Jacobian::calc<%matrixName%>JacobianColumn()
-  {
-    throw ModelicaSimulationError(MATH_FUNCTION, "Symbolic jacobians not is activated");
-  }
-
-  <%matrixreturntype%>&  <%classname%>Jacobian::get<%matrixName%>Jacobian()
-  {
-    throw ModelicaSimulationError(MATH_FUNCTION, "Symbolic jacobians not is activated");
-  }
-  >>
-case _ then
-  let jacMats = (jacobianColumn |> JAC_COLUMN(columnEqns=eqs) =>
-    functionJac(eqs, matrixName, partIdx, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
-    ;separator="\n")
-  let indexColumn = (jacobianColumn |> JAC_COLUMN(numberOfResultVars=nRows) =>
-    '<%nRows%>'
-    ;separator="\n")
-  let eqsCount = (jacobianColumn |> JAC_COLUMN(columnEqns=eqs) =>
-    listLength(eqs)
-    ;separator="+")
-  let jacvals = if stringEq(eqsCount, "0") then '' else
-    (sparsepattern |> (index,indexes) hasindex index0 =>
-      let jaccol = ( indexes |> i_index hasindex index1 =>
-        (match indexColumn case "1" then '_<%matrixName%>jacobian(0,<%index%>) = _<%matrixName%>jac_y(0);'
-           else '_<%matrixName%>jacobian(<%i_index%>,<%index%>) = _<%matrixName%>jac_y(<%i_index%>);'
-           )
-        ;separator="\n")
     <<
-    <%if intEq(index0, 1) then 'SystemLockFreeVariables slfv(this);'%>
-    _<%matrixName%>jac_x(<%index0%>) = 1;
-    calc<%matrixName%>JacobianColumn();
-    _<%matrixName%>jac_x.clear();
-    <%jaccol%>
-    >>
-    ;separator="\n")
-  <<
-  <%jacMats%>
+    void <%classname%>Jacobian::calc<%matrixName%>JacobianColumn()
+    {
+      throw ModelicaSimulationError(MATH_FUNCTION, "Symbolic jacobian <%matrixName%> is not activated");
+    }
 
-  <%matrixreturntype%>&  <%classname%>Jacobian::get<%matrixName%>Jacobian()
-  {
-    /*Index <%indexJacobian%>*/
-    <%jacvals%>
-    return _<%matrixName%>jacobian;
-  }
-  >>
+    <%matrixreturntype%>& <%classname%>Jacobian::get<%matrixName%>Jacobian()
+    {
+      throw ModelicaSimulationError(MATH_FUNCTION, "Symbolic jacobian <%matrixName%> is not activated");
+    }
+    >>
+  case _ then
+    match colorList
+    case {} then
+      <<
+      void <%classname%>Jacobian::calc<%matrixName%>JacobianColumn()
+      {
+        throw ModelicaSimulationError(MATH_FUNCTION, "Symbolic jacobian <%matrixName%> is not activated");
+      }
+
+      <%matrixreturntype%>& <%classname%>Jacobian::get<%matrixName%>Jacobian()
+      {
+        throw ModelicaSimulationError(MATH_FUNCTION, "Symbolic jacobian <%matrixName%> is not activated");
+      }
+      >>
+    case _ then
+      let jacMats = (jacobianColumn |> JAC_COLUMN(columnEqns=eqs) =>
+        functionJac(eqs, matrixName, partIdx, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
+        ;separator="\n")
+      let indexColumn = (jacobianColumn |> JAC_COLUMN(numberOfResultVars=nRows) =>
+        '<%nRows%>'
+        ;separator="\n")
+      let eqsCount = (jacobianColumn |> JAC_COLUMN(columnEqns=eqs) =>
+        listLength(eqs)
+        ;separator="+")
+      let jacvals = if stringEq(eqsCount, "0") then '' else
+        (sparsepattern |> (index,indexes) hasindex index0 =>
+          let jaccol = ( indexes |> i_index hasindex index1 =>
+            (match indexColumn
+              case "1" then
+                '_<%matrixName%>jacobian(0,<%index%>) = _<%matrixName%>jac_y(0);'
+              else
+                '_<%matrixName%>jacobian(<%i_index%>,<%index%>) = _<%matrixName%>jac_y(<%i_index%>);'
+            )
+            ;separator="\n")
+        <<
+        <%if intEq(index0, 1) then 'SystemLockFreeVariables slfv(this);'%>
+        _<%matrixName%>jac_x(<%index0%>) = 1;
+        calc<%matrixName%>JacobianColumn();
+        _<%matrixName%>jac_x.clear();
+        <%jaccol%>
+        >>
+        ;separator="\n")
+      <<
+      <%jacMats%>
+
+      <%matrixreturntype%>& <%classname%>Jacobian::get<%matrixName%>Jacobian()
+      {
+        /*Index <%indexJacobian%>*/
+        <%jacvals%>
+        return _<%matrixName%>jacobian;
+      }
+      >>
 
 /*
   (match indexColumn case "1" then ' _<%matrixName%>jacobian(<%crefWithoutIndexOperator(cref)%>$pDER<%matrixName%>$indexdiff,0) = _<%matrixName%>jac_y(0); //1 <%cref(cref)%>'
