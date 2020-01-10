@@ -14198,7 +14198,7 @@ protected
   DAE.ComponentRef badcref;
 algorithm
   try
-    SimCode.SIMCODE(crefToSimVarHT = crefToSimVarHT)  := simCode;
+    SimCode.SIMCODE(crefToSimVarHT = crefToSimVarHT) := simCode;
     outSimVar := simVarFromHT(inCref, crefToSimVarHT);
   else
     //print("cref2simvar: " + ComponentReference.printComponentRefStr(inCref) + " not found!\n");

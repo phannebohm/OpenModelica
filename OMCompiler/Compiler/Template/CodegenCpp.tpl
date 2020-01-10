@@ -276,7 +276,6 @@ case SIMCODE(modelInfo=MODELINFO(__)) then
       int* _<%name%>ColorOfColumn;
       int  _<%name%>MaxColors;
 
-      /* TODO here: pointer mapping for for-loops? (StatArrayDim) */
       /*seed vars*/
       <%seedVars |> var =>
         jacVariableDefine(var, true, createDebugCode, true)
@@ -8451,7 +8450,7 @@ template variableType(DAE.Type type)
   match type
   case T_REAL(__)        then "double"
   case T_STRING(__)      then "string"
-  case T_INTEGER(__)         then "int"
+  case T_INTEGER(__)     then "int"
   case T_BOOL(__)        then "bool"
   case T_ENUMERATION(__) then "int"
   case T_COMPLEX(complexClassType=EXTERNAL_OBJ(__)) then "void*"
@@ -11610,7 +11609,7 @@ template equationForLoop(SimEqSystem eq, Context context, Text &varDecls, SimCod
         <%if isArrayType(crefTypeFull(cref)) then
           '<%crefPart%>.assign(<%expPart%>);'
         else
-          '<%crefPart%> = <%expPart%>; /* for-equaiton body? */'%>
+          '<%crefPart%> = <%expPart%>; /* for-equation body? */'%>
       }
       >>
 end equationForLoop;
