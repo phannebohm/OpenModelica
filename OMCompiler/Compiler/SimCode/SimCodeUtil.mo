@@ -8980,7 +8980,7 @@ algorithm
   for var in inVars loop
     var.index := index;
     outVars := var::outVars;
-    index := index+1;
+    index := index + Types.getDimensionProduct(var.type_);
   end for;
   outVars := Dangerous.listReverseInPlace(outVars);
 end rewriteIndex;
