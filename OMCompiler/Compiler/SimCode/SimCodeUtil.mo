@@ -14216,7 +14216,6 @@ protected
   DAE.ComponentRef cref, badcref;
   SimCodeVar.SimVar sv;
   list<DAE.Subscript> subs;
-  Integer index;
 algorithm
   try
     if BaseHashTable.hasKey(inCref, crefToSimVarHT) then
@@ -14234,8 +14233,12 @@ algorithm
       end if;
 
       sv.variable_index := match sv.variable_index
+        local Integer index;
         case SOME(index)
         then SOME(index + getScalarElementIndex(subs, List.map(sv.numArrayElement, stringInt)) - 1);
+        case NONE() algorithm
+          print("simVarFromHT: sv has no variable_index\n");
+        then NONE();
       end match;
     end if;
     sv := match sv.aliasvar
