@@ -304,37 +304,38 @@ end simulationJacobianHeaderFile;
 template jacVariableDefine(SimVar simVar, Boolean useFlatArrayNotation, Boolean createDebugCode, Boolean createRefVar)
 ::=
 match simVar
-  case SIMVAR(varKind=BackendDAE.SEED_VAR(), name=name, numArrayElement={}, arrayCref=NONE(), type_=type_, index=index, matrixName=matrixName) then
+  case SIMVAR(numArrayElement = {}, arrayCref = NONE()) then
     if createDebugCode then
       '<%variableType(type_)%><%if createRefVar then '&' else ''%> <%cref(name,useFlatArrayNotation)%>;'
     else
       if createRefVar then
-        '#define <%cref(name,useFlatArrayNotation)%> _<%matrixName%>jac_x(<%index%>)'
-      else
-        '<%variableType(type_)%> <%cref(name,useFlatArrayNotation)%>;'
-  case SIMVAR(varKind=BackendDAE.JAC_VAR(), name=name, numArrayElement={}, arrayCref=NONE(), type_=type_, index=index, matrixName=matrixName) then
-    if createDebugCode then
-      '<%variableType(type_)%><%if createRefVar then '&' else ''%> <%cref(name,useFlatArrayNotation)%>;'
-    else
-      if createRefVar then
-        '#define <%cref(name,useFlatArrayNotation)%> _<%matrixName%>jac_y(<%index%>)'
-      else
-        '<%variableType(type_)%> <%cref(name,useFlatArrayNotation)%>;'
-  case SIMVAR(varKind=BackendDAE.JAC_DIFF_VAR(), name=name, numArrayElement={}, arrayCref=NONE(), type_=type_, index=index, matrixName=matrixName) then
-    if createDebugCode then
-      '<%variableType(type_)%><%if createRefVar then '&' else ''%> <%cref(name,useFlatArrayNotation)%>;'
-    else
-      if createRefVar then
-        '#define <%cref(name,useFlatArrayNotation)%> _<%matrixName%>jac_tmp(<%index%>)'
+        let vecname = match varKind
+          case JAC_VAR() then 'y'
+          case JAC_DIFF_VAR() then 'tmp'
+          case SEED_VAR() then 'x'
+          else 'UNKNOWN KIND'
+        '#define <%cref(name,useFlatArrayNotation)%> _<%matrixName%>jac_<%vecname%>(<%index%>)'
       else
         '<%variableType(type_)%> <%cref(name,useFlatArrayNotation)%>;'
 
   /* newInst with arrays */
-  case v as SIMVAR(type_ = T_ARRAY(), numArrayElement=num, name=name, matrixName=matrixName) then
-    let& dims = buffer "" /*BUFD*/
-    let varName = arraycref2(name, dims)
-    let typeString = expTypeShort(type_)
-    'StatArrayDim<%listLength(num)%><<%typeString%>, <%List.lastN(num, listLength(num));separator=","%>, <%createRefVar%>> <%varName%>;'
+  case SIMVAR(type_ = T_ARRAY(), numArrayElement = num) then
+    if createDebugCode then
+      'not yet implemented'
+    else
+      if createRefVar then
+        let vecname = match varKind
+          case JAC_VAR() then 'y'
+          case JAC_DIFF_VAR() then 'tmp'
+          case SEED_VAR() then 'x'
+          else 'UNKNOWN KIND'
+        /* FIXME currently only works for one-dimensional arrays */
+        '#define <%cref(name,useFlatArrayNotation)%>(Idx) _<%matrixName%>jac_<%vecname%>(<%index%>+(Idx)-1)'
+      else
+        let& dims = buffer "" /*BUFD*/
+        let varName = arraycref2(name, dims)
+        let typeString = expTypeShort(type_)
+        'StatArrayDim<%listLength(num)%><<%typeString%>, <%List.lastN(num, listLength(num));separator=","%>, <%createRefVar%>> <%varName%>;'
 end jacVariableDefine;
 
 template simulationStateSelectionHeaderFile(SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace)
