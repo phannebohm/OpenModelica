@@ -232,16 +232,19 @@ template representationCref(ComponentRef inCref, SimCode simCode ,Text& extraFun
     case DAE_RESIDUAL_VAR() then
       '__daeResidual[<%i%>]'
     case JAC_VAR() then
-      '<%contextSystem(context)%>_<%getOption(matrixName)%>jac_y(<%i%>)'
+      //'<%contextSystem(context)%>_<%getOption(matrixName)%>jac_y(<%i%>)'
+      '<%cref(inCref, useFlatArrayNotation)%><%representationCrefSubscripts(inCref, useFlatArrayNotation)%>'
     case JAC_DIFF_VAR() then
-      '<%contextSystem(context)%>_<%getOption(matrixName)%>jac_tmp(<%i%>)'
+      //'<%contextSystem(context)%>_<%getOption(matrixName)%>jac_tmp(<%i%>)'
+      '<%cref(inCref, useFlatArrayNotation)%><%representationCrefSubscripts(inCref, useFlatArrayNotation)%>'
     case SEED_VAR() then
-      '<%contextSystem(context)%>_<%getOption(matrixName)%>jac_x(<%i%>)'
+      //'<%contextSystem(context)%>_<%getOption(matrixName)%>jac_x(<%i%>)'
+      '<%cref(inCref, useFlatArrayNotation)%><%representationCrefSubscripts(inCref, useFlatArrayNotation)%>'
     case VARIABLE() then
       match var
         case SIMVAR(index=-2) then
           // unknown in cref2simvar, e.g. local in a function, iterator or time
-          '<%localCref(inCref, useFlatArrayNotation)%>/*unknown*/'
+          '<%localCref(inCref, useFlatArrayNotation)%>'
         else
           match context
             case ALGLOOP_CONTEXT(genInitialisation = false, genJacobian=false) then
@@ -253,8 +256,32 @@ template representationCref(ComponentRef inCref, SimCode simCode ,Text& extraFun
             else
               '<%cref(inCref, useFlatArrayNotation)%>'
     else
-      '<%contextSystem(context)%><%cref(inCref, useFlatArrayNotation)%>/*param?*/'
+      '<%contextSystem(context)%><%cref(inCref, useFlatArrayNotation)%>'
 end representationCref;
+
+template representationCrefSubscripts(ComponentRef inCref, Boolean useFlatArrayNotation)
+::=
+  match inCref
+    case CREF_IDENT(subscriptLst=subs)
+      then subscriptsToCStr(subs, useFlatArrayNotation)
+    case CREF_QUAL(componentRef=cr, subscriptLst={})
+      then representationCrefSubscripts(cr, useFlatArrayNotation)
+    case CREF_QUAL(componentRef=cr, subscriptLst=subs)
+      then '(<%subs |> s => subscriptToCStr(s) ;separator=","%><%representationCrefSubscriptsHelper(cr, useFlatArrayNotation)%>)'
+end representationCrefSubscripts;
+
+template representationCrefSubscriptsHelper(ComponentRef inCref, Boolean useFlatArrayNotation)
+::=
+  match inCref
+    case CREF_IDENT(subscriptLst={})
+      then ''
+    case CREF_IDENT(subscriptLst=subs)
+      then ',<%subs |> s => subscriptToCStr(s) ;separator=","%>'
+    case CREF_QUAL(componentRef=cr, subscriptLst={})
+      then '<%representationCrefSubscriptsHelper(cr, useFlatArrayNotation)%>'
+    case CREF_QUAL(componentRef=cr, subscriptLst=subs)
+      then ',<%subs |> s => subscriptToCStr(s) ;separator=","%><%representationCrefSubscriptsHelper(cr, useFlatArrayNotation)%>'
+end representationCrefSubscriptsHelper;
 
 template crefToCStrWithoutIndexOperator(ComponentRef cr)
  "Helper function to cref."
