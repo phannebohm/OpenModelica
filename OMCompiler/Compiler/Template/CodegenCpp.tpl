@@ -275,23 +275,25 @@ case SIMCODE(modelInfo=MODELINFO(__)) then
       ublas::vector<double> _<%name%>jac_x;
       int* _<%name%>ColorOfColumn;
       int  _<%name%>MaxColors;
-
-      /*seed vars*/
-      <%seedVars |> var =>
-        jacVariableDefine(var, true, createDebugCode, true)
-        ;separator="\n"%>
-      /*other jac vars*/
-      <%cols |> JAC_COLUMN(columnVars=vars) =>
-        (vars |> var =>
+      <%if not Flags.isSet(NF_SCALARIZE) then
+        <<
+        /*seed vars*/
+        <%seedVars |> var =>
           jacVariableDefine(var, true, createDebugCode, true)
-        ;separator="\n");separator=""%>
+          ;separator="\n"%>
+        /*other jac vars*/
+        <%cols |> JAC_COLUMN(columnVars=vars) =>
+          (vars |> var =>
+            jacVariableDefine(var, true, createDebugCode, true)
+          ;separator="\n");separator=""%>
+        >>
+      %>
       >>
     ;separator="\n";empty)
     <<
     <%jacobianvars%>
     >>
     %>
-
     <%variableDefinitionsJacobians_skip(jacobianMatrixes, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, &jacobianVarsInit, createDebugCode)%>
 
     /*testmaessig aus der Cruntime*/
@@ -329,8 +331,11 @@ match simVar
           case JAC_DIFF_VAR() then 'tmp'
           case SEED_VAR() then 'x'
           else 'UNKNOWN KIND'
-        /* FIXME currently only works for one-dimensional arrays */
-        '#define <%cref(name,useFlatArrayNotation)%>(Idx) _<%matrixName%>jac_<%vecname%>(<%index%>+(Idx)-1)'
+        if Flags.isSet(NF_SCALARIZE) then
+          '#define <%cref(name,useFlatArrayNotation)%> _<%matrixName%>jac_<%vecname%>(<%index%>)'
+        else
+          /* FIXME currently only works for one-dimensional arrays */
+          '#define <%cref(name,useFlatArrayNotation)%>(Idx) _<%matrixName%>jac_<%vecname%>(<%index%>+(Idx)-1)'
       else
         let& dims = buffer "" /*BUFD*/
         let varName = arraycref2(name, dims)

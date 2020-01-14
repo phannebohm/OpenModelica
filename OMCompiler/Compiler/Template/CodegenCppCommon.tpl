@@ -232,14 +232,20 @@ template representationCref(ComponentRef inCref, SimCode simCode ,Text& extraFun
     case DAE_RESIDUAL_VAR() then
       '__daeResidual[<%i%>]'
     case JAC_VAR() then
-      //'<%contextSystem(context)%>_<%getOption(matrixName)%>jac_y(<%i%>)'
-      '<%cref(inCref, useFlatArrayNotation)%><%representationCrefSubscripts(inCref, useFlatArrayNotation)%>'
+      if Flags.isSet(NF_SCALARIZE) then
+        '<%contextSystem(context)%>_<%getOption(matrixName)%>jac_y(<%i%>)'
+      else
+        '<%cref(inCref, useFlatArrayNotation)%><%representationCrefSubscripts(inCref, useFlatArrayNotation)%>'
     case JAC_DIFF_VAR() then
-      //'<%contextSystem(context)%>_<%getOption(matrixName)%>jac_tmp(<%i%>)'
-      '<%cref(inCref, useFlatArrayNotation)%><%representationCrefSubscripts(inCref, useFlatArrayNotation)%>'
+      if Flags.isSet(NF_SCALARIZE) then
+        '<%contextSystem(context)%>_<%getOption(matrixName)%>jac_tmp(<%i%>)'
+      else
+        '<%cref(inCref, useFlatArrayNotation)%><%representationCrefSubscripts(inCref, useFlatArrayNotation)%>'
     case SEED_VAR() then
-      //'<%contextSystem(context)%>_<%getOption(matrixName)%>jac_x(<%i%>)'
-      '<%cref(inCref, useFlatArrayNotation)%><%representationCrefSubscripts(inCref, useFlatArrayNotation)%>'
+      if Flags.isSet(NF_SCALARIZE) then
+        '<%contextSystem(context)%>_<%getOption(matrixName)%>jac_x(<%i%>)'
+      else
+        '<%cref(inCref, useFlatArrayNotation)%><%representationCrefSubscripts(inCref, useFlatArrayNotation)%>'
     case VARIABLE() then
       match var
         case SIMVAR(index=-2) then
