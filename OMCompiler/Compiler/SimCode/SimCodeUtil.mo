@@ -5041,7 +5041,7 @@ algorithm
         v1 := BackendVariable.setVarKind(v1, BackendDAE.JAC_VAR());
         simVar := dlowvarToSimvar(v1, NONE(), inAllVars);
         simVar.index := inResIndex;
-        resIndex := inResIndex + 1;
+        resIndex := inResIndex + Types.getDimensionProduct(simVar.type_);
         simVar.matrixName := SOME(inMatrixName);
         resVars := simVar::resVars;
       else
@@ -5055,7 +5055,7 @@ algorithm
         simVar := dlowvarToSimvar(v1, NONE(), inAllVars);
         simVar.index := inTmpIndex;
         simVar.matrixName := SOME(inMatrixName);
-        tmpIndex := inTmpIndex + 1;
+        tmpIndex := inTmpIndex + Types.getDimensionProduct(simVar.type_);
         tmpVars := simVar::tmpVars;
       end try;
      then
@@ -14229,7 +14229,7 @@ algorithm
         case SOME(index)
         then SOME(index + getScalarElementIndex(subs, List.map(sv.numArrayElement, stringInt)) - 1);
         case NONE() algorithm
-          print("simVarFromHT: sv has no variable_index\n");
+          //print("simVarFromHT: sv has no variable_index\n");
         then NONE();
       end match;
     end if;
