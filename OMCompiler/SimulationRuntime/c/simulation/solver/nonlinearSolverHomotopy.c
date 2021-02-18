@@ -820,7 +820,6 @@ int getAnalyticalJacobianHomotopy(DATA_HOMOTOPY* solverData, double* jac)
   threadData_t *threadData = solverData->threadData;
   int i,j,k,l,ii;
   NONLINEAR_SYSTEM_DATA* systemData = &(data->simulationInfo->nonlinearSystemData[solverData->sysNumber]);
-  const int index = systemData->jacobianIndex;
   ANALYTIC_JACOBIAN* jacobian = &(data->simulationInfo->analyticJacobians[systemData->jacobianIndex]);
 
   memset(jac, 0, (solverData->n)*(solverData->n)*sizeof(double));
@@ -915,6 +914,7 @@ static int getNumericalJacobianHomotopy(DATA_HOMOTOPY* solverData, double *x, do
       x[i] = xsave;
     }
   }
+  /* phi: these two (or three) cases look almost identical */
   return 0;
 }
 
@@ -963,7 +963,6 @@ int wrapper_fvec_constraints(DATA_HOMOTOPY* solverData, double* x, double* f)
  */
 static int wrapper_fvec_der(DATA_HOMOTOPY* solverData, double* x, double* fJac)
 {
-  int i;
   int jacobianIndex = (&(solverData->data->simulationInfo->nonlinearSystemData[solverData->sysNumber]))->jacobianIndex;
   NONLINEAR_SYSTEM_DATA* nonlinsys = &(solverData->data->simulationInfo->nonlinearSystemData[solverData->sysNumber]);
 
@@ -981,7 +980,7 @@ static int wrapper_fvec_der(DATA_HOMOTOPY* solverData, double* x, double* fJac)
     getNumericalJacobianHomotopy(solverData, x, fJac);
   }
 
-  if(ACTIVE_STREAM(LOG_NLS_JAC_TEST))
+  if(ACTIVE_STREAM(LOG_NLS_JAC_TEST)) /* phi: this only needs to be done for analytic jacobian... */
   {
     int n = solverData->n;
     /* debugMatrixDouble(LOG_NLS_JAC_TEST,"analytical jacobian:",fJac, n, n+1); */
