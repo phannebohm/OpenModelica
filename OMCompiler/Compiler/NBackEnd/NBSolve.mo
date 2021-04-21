@@ -179,5 +179,27 @@ protected
     eqn := Equation.setRHS(eqn, Expression.UNARY(uminOp, Expression.MULTARY({numerator},{derivative}, mulOp)));
   end solveLinear;
 
+
+
+  // SOLVE SYSTEM WITH MEMORY
+
+  // transformation
+  // equation -> generic equation f(x,a1,a2,...an) = 0
+
+  // Equivalence graph as a hash table to the end node
+  // generic eqn -> option(solved equation)
+
+  // Steps:
+  // 1. convert eqn to generic
+  // 2. if already in hash table
+  //    -> return solved or unsolvable
+  // else 3. apply rewrite rule(s)
+  // 4. store in hash table
+  // 5. if solved or unsolvable
+  //    -> update previous node to point to this
+  //    -> return solved or unsolvable
+  // else repeat at 3.
+
+
   annotation(__OpenModelica_Interface="backend");
 end NBSolve;
