@@ -749,5 +749,15 @@ public
     b := (Util.intCompare(Integer(scl1), Integer(scl2)) == 0);
   end isCombineableSize;
 
+  function neutralElement
+    input Operator operator;
+    output Integer n;
+  algorithm
+    n := match operator.op
+      case Op.ADD   then 0;
+      case Op.MUL   then 1;
+      else -1;
+    end match;
+  end neutralElement;
 annotation(__OpenModelica_Interface="frontend");
 end NFOperator;

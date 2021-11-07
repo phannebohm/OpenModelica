@@ -572,16 +572,127 @@ algorithm
   end match;
 end simplifySize;
 
+function optInc
+    input Option<Integer> oldValue;
+    output Integer value;
+algorithm
+
+ value := match oldValue
+    local
+      Integer i;
+    case SOME(i) then i+1;
+    else 1;
+  end match;
+end optInc;
+
+function optDec
+    input Option<Integer> oldValue;
+    output Integer value;
+algorithm
+
+ value := match oldValue
+    local
+      Integer i;
+    case SOME(i) then i-1;
+    else -1;
+  end match;
+end optDec;
+
+// Checks if the expression is a multary with multiplication: adds count to arguments; else BINARY(count, exp)
+function packExpr
+    input Operator chainOperator;
+    input output Expression exp;
+    input Integer count;
+algorithm
+  exp := match exp
+    local
+      Operator operator;
+      list<Expression> arguments, inv_arguments;
+      Expression exp1, exp2;
+    case Expression.MULTARY(arguments = arguments,inv_arguments = inv_arguments,operator = operator)
+      guard(NFOperator.MathClassification.MULTIPLICATION == Operator.getMathClassification(operator)
+        and NFOperator.MathClassification.ADDITION == Operator.getMathClassification(chainOperator))
+      then if count > 0 then simplifyMultary(Expression.MULTARY(Expression.INTEGER(count) :: arguments, inv_arguments, operator))
+        else simplifyMultary(Expression.MULTARY(arguments, Expression.INTEGER(count * (-1)) :: inv_arguments, operator));
+    else match chainOperator.op
+      case NFOperator.Op.ADD then if count > 0 then Expression.MULTARY({Expression.INTEGER(count),exp}, {}, NFOperator.makeMul(NFType.REAL()))
+        else Expression.MULTARY({Expression.INTEGER(count * (-1)), exp}, {}, NFOperator.makeMul(NFType.REAL()));
+      case NFOperator.Op.MUL then if count > 0 then Expression.BINARY(exp, NFOperator.makePow(NFType.REAL()),Expression.INTEGER(count))
+        else Expression.BINARY(exp, NFOperator.makePow(NFType.REAL()), Expression.INTEGER(count * (-1)));
+      end match;
+  end match;
+end packExpr;
+
+function mapPowExp
+  input Expression exp1;
+  input output Expression exp2;
+  input Operator temp_opertor;
+  input UnorderedMap<Expression, Expression> powermap;
+  input Integer count;
+  algorithm
+    exp2 := match UnorderedMap.get(exp1, powermap)
+      local
+        list<Expression> texp1, texp2;
+      case NONE() guard(count == 1) then Expression.MULTARY({exp2}, {}, NFOperator.makeAdd(NFType.REAL()));
+      case NONE() guard(count == 0) then Expression.MULTARY({}, {}, NFOperator.makeAdd(NFType.REAL()));
+      case NONE() guard(count == -1) then Expression.MULTARY({}, {exp2}, NFOperator.makeAdd(NFType.REAL()));
+      case NONE() guard(count > 0) then Expression.MULTARY({Expression.MULTARY(Expression.REAL(count) :: {exp2}, {}, NFOperator.makeMul(NFType.REAL()))}, {}, NFOperator.makeAdd(NFType.REAL()));
+      case NONE() guard(count < 0) then Expression.MULTARY({}, {Expression.MULTARY(Expression.REAL(-1*count) :: {exp2}, {}, NFOperator.makeMul(NFType.REAL()))}, NFOperator.makeAdd(NFType.REAL()));
+      case SOME(Expression.MULTARY(arguments = texp1,   inv_arguments = texp2))guard(count == 1) then Expression.MULTARY(exp2 :: texp1, texp2, NFOperator.makeAdd(NFType.REAL()));
+      case SOME(Expression.MULTARY(arguments = texp1,  inv_arguments = texp2))guard(count == 0) then Expression.MULTARY(texp1, texp2, NFOperator.makeAdd(NFType.REAL()));
+      case SOME(Expression.MULTARY(arguments = texp1,  inv_arguments = texp2))guard(count == -1) then Expression.MULTARY(texp1, exp2 :: texp2, NFOperator.makeAdd(NFType.REAL()));
+      case SOME(Expression.MULTARY(arguments = texp1,  inv_arguments = texp2))guard(count > 0)
+        then Expression.MULTARY(Expression.MULTARY({Expression.REAL(count), exp2}, {}, NFOperator.makeMul(NFType.REAL())) :: texp1, texp2, NFOperator.makeAdd(NFType.REAL()));
+      case SOME(Expression.MULTARY(arguments = texp1,  inv_arguments = texp2))guard(count < 0)
+        then Expression.MULTARY(texp1, Expression.MULTARY({Expression.REAL(-1*count), exp2}, {}, NFOperator.makeMul(NFType.REAL())) :: texp2, NFOperator.makeAdd(NFType.REAL()));
+    end match;
+end mapPowExp;
+
+function addmulRealval
+  input output Real realval;
+  input Expression arg;
+  input Operator operator;
+  input Boolean inverted; // True if inverted, False if not
+algorithm
+  realval := match (operator.op, inverted)
+    local
+    case (NFOperator.Op.ADD, false) then realval + getConstantValue(arg, true);
+    case (NFOperator.Op.MUL, false) then realval * getConstantValue(arg, true);
+    case (NFOperator.Op.ADD, true) then realval - getConstantValue(arg, true);
+    case (NFOperator.Op.MUL, true) then realval / getConstantValue(arg, true);
+  end match;
+end addmulRealval;
+
+function checkMultaryOperator
+  input Expression arg;
+  input Operator operator;
+  output Boolean b;
+algorithm
+  b := match arg
+      local
+       Operator temp_operator;
+    case Expression.MULTARY(operator = temp_operator) guard(Operator.compare(temp_operator,operator) == 0) then true;
+    else false;
+  end match;
+
+end checkMultaryOperator;
+
 function simplifyMultary
   input output Expression exp;
 algorithm
   exp := match exp
     local
-      Operator operator;
-      list<Expression> arguments, inv_arguments, const_args, inv_const_args;
-      Expression new_const, tmp, result;
+      Operator operator,temp_operator;
+      list<Expression> arguments, inv_arguments, const_args, inv_const_args, temp_arguments,temp_inv_arguments, texp1, texp2;
+      list<Expression> newarguments, newinv_arguments;
+      Expression new_const, tmp, result, exp1, exp2;
+      String test;
+      Real realval;
       Operator.MathClassification mcl;
-      Boolean useConst, isNegative;
+      Boolean useConst, isNegative, anyReal = true, isPowBinaryMul;
+      UnorderedMap<Expression,Integer> map;
+      UnorderedMap<Expression, Expression> powermap;
+      Integer count;
 
     // empty multary with addition -> 0
     case Expression.MULTARY(arguments = {}, inv_arguments = {}, operator = operator)
@@ -597,7 +708,9 @@ algorithm
     then tmp;
 
     // non-empty multaries
-    case Expression.MULTARY(arguments = arguments, inv_arguments = inv_arguments, operator = operator) algorithm
+    case Expression.MULTARY(arguments = arguments, inv_arguments = inv_arguments, operator = operator)
+      algorithm
+
       // get math classification
       mcl := Operator.getMathClassification(operator);
 
@@ -606,7 +719,118 @@ algorithm
       inv_arguments := list(simplify(arg) for arg in inv_arguments);
       (arguments, inv_arguments, isNegative) := simplifyMultarySigns(arguments, inv_arguments, mcl);
 
+      // new map: expression, count: int
+      map := UnorderedMap.new<Integer>(Expression.hash, Expression.isEqual);
+
+      // realval is the real factor/sum in a multary
+      realval := NFOperator.neutralElement(operator);
+
+      // maps expressions, adds constants
+      for arg in arguments loop
+        // Mupper: arguments, elem: constant
+        if Expression.isConstNumber(arg) then
+          realval := addmulRealval(realval, arg, operator, false);
+        // if operator of the lower multary is the same as in the upper multary, args and invargs get mapped or get added to the realval
+        elseif (checkMultaryOperator(arg, operator)) then
+          Expression.MULTARY(arguments = temp_arguments,inv_arguments = temp_inv_arguments, operator = temp_operator) := arg;
+          for tmp in temp_arguments loop
+            // Mupper: arguments, Mlower: arguments
+            if Expression.isConstNumber(tmp) then
+              realval := addmulRealval(realval, tmp, operator, false);
+            else
+              UnorderedMap.addUpdate(tmp, optInc, map);
+            end if;
+          end for;
+
+          for tmp in temp_inv_arguments loop
+            // Mupper: arguments, Mlower: inv_arguments
+            if Expression.isConstNumber(tmp) then
+              realval := addmulRealval(realval, tmp, operator, true);
+            else
+              UnorderedMap.addUpdate(tmp, optDec, map);
+            end if;
+          end for;
+        else
+          UnorderedMap.addUpdate(arg, optInc, map);
+        end if;
+      end for;
+
+      // same for inv_arguments
+      for invarg in inv_arguments loop
+        // Mupper: inv_arguments, elem: constant
+        if Expression.isConstNumber(invarg) then
+          realval := addmulRealval(realval, invarg, operator, true);
+        // if operator of the lower multary is the same as in the upper multary, args and invargs get mapped or get added to the realval
+        elseif (checkMultaryOperator(invarg, operator)) then
+          Expression.MULTARY(arguments = temp_arguments,inv_arguments = temp_inv_arguments, operator = temp_operator) := invarg;
+          for tmp in temp_arguments loop
+            // Mupper: inv_arguments, Mlower: arguments
+            if Expression.isConstNumber(tmp) then
+              realval := addmulRealval(realval, tmp, operator, true);
+            else
+              UnorderedMap.addUpdate(tmp, optDec, map);
+            end if;
+          end for;
+          // Mupper: inv_arguments, Mlower: inv_arguments
+          for tmp in temp_inv_arguments loop
+            if Expression.isConstNumber(tmp) then
+              realval := addmulRealval(realval, tmp, operator, false);
+            else
+              UnorderedMap.addUpdate(tmp, optInc, map);
+            end if;
+          end for;
+        else
+          UnorderedMap.addUpdate(invarg, optDec, map);
+        end if;
+      end for;
+
+      newarguments := {};
+      newinv_arguments := {};
+      // separate map: base -> (count1 * exponent1 + ...)
+      powermap := UnorderedMap.new<Expression>(Expression.hash, Expression.isEqual);
+
+      // packing of the arguments
+      for elem in UnorderedMap.toList(map) loop
+        (tmp, count) := elem;
+
+        isPowBinaryMul := match tmp
+          case Expression.BINARY(_, NFOperator.OPERATOR(_,NFOperator.Op.POW), _) guard(operator.op == NFOperator.Op.MUL) then true;
+          else false;
+        end match;
+
+        if isPowBinaryMul then
+          Expression.BINARY(exp1 = exp1, operator = temp_operator, exp2 = exp2):= tmp;
+          exp2 := simplify(combineBinaries(exp2)); // apparently the exponent is always a binary, therefore a multary is created and simplified
+          exp2 := mapPowExp(exp1, exp2, temp_operator, powermap, count);
+          UnorderedMap.add(exp1, exp2, powermap);
+        elseif count > 0 then
+          if count == 1 then
+            newarguments := tmp :: newarguments;
+          else
+            newarguments := packExpr(operator, tmp, count) :: newarguments;
+          end if;
+        elseif count < 0 then
+          if count == -1 then
+            newinv_arguments := tmp :: newinv_arguments;
+          else
+            newinv_arguments := packExpr(operator, tmp, count) :: newinv_arguments;
+          end if;
+        end if;
+      end for;
+      // packing of all power terms
+      for elem in UnorderedMap.toList(powermap) loop
+        (exp1, exp2) := elem;
+        // simplifyBinary to insure cases like base^0 or base^1 are covered
+        newarguments := simplifyBinary(Expression.BINARY(exp1, NFOperator.makePow(NFType.REAL()), exp2)) :: newarguments;
+      end for;
+
+      // replacing arguments/inv_arguments
+      arguments := newarguments;
+      inv_arguments := newinv_arguments;
+
+      /*
       // split them into constant and non constant arguments
+
       (const_args, arguments) := List.splitOnTrue(arguments, Expression.isConstNumber);
       (inv_const_args, inv_arguments) := List.splitOnTrue(inv_arguments, Expression.isConstNumber);
 
@@ -614,19 +838,37 @@ algorithm
       new_const := combineConstantNumbers(const_args, inv_const_args, mcl);
 
       // return combined multary expression and check for trivial replacements
-
+      */
       // check if the constant is used
       useConst := match mcl
-        case NFOperator.MathClassification.ADDITION guard(Expression.isZero(new_const)) then false;
-        case NFOperator.MathClassification.MULTIPLICATION guard(Expression.isOne(new_const)) then false;
+        case NFOperator.MathClassification.ADDITION guard(realval == 0.0) then false;
+        case NFOperator.MathClassification.MULTIPLICATION guard(realval == 1.0) then false;
         else true;
+
       end match;
 
+      /*
+      if (realval < 0 and Operator.isDashClassification(Operator.getMathClassification(operator))) then
+        newinv_arguments := Expression.REAL(-1 * realval) :: newinv_arguments;
+      else
+        newarguments := Expression.REAL(realval) :: newarguments;
+      end if;*/
+
       result := match (mcl, arguments, inv_arguments)
+
+        case (_, {}, {}) then Expression.REAL(realval);
+
+        case (NFOperator.MathClassification.MULTIPLICATION, _, _) guard(realval == 0.0) then Expression.REAL(0.0);
+
+        case (_, {tmp}, {}) guard(not useConst) then tmp;
+
+        case (NFOperator.MathClassification.ADDITION, {}, {tmp}) guard(not useConst)
+          then Expression.negate(tmp);
+
         // const + {} - {} = const
         // const * {} / {} = const
-        case (_, {}, {}) then new_const;
-
+//        case (_, {}, {}) then new_const;
+        /*
         // 0 + {cr} - {} = cr
         // 1 * {cr} / {} = cr
         case (_, {tmp}, {}) guard(not useConst) then tmp;
@@ -636,7 +878,7 @@ algorithm
         then Expression.negate(tmp);
 
         // 0 * {...} / {...} = 0
-        case (NFOperator.MathClassification.MULTIPLICATION, _, _) guard(Expression.isZero(new_const)) then new_const;
+        case (NFOperator.MathClassification.MULTIPLICATION, _, _) guard(realval == 0.0) then realval;
 
         // THIS SEEMS LIKE A BAD IDEA STRUCTURALLY
         // apply negative constant to inverse list for addition
@@ -646,12 +888,14 @@ algorithm
         //    inv_arguments = Expression.negate(new_const) :: inv_arguments,
         //    operator      = operator
         //  );
+        */
 
         else Expression.MULTARY(
-            arguments     = if useConst then new_const :: arguments else arguments,
+            arguments     = if useConst then Expression.REAL(realval) :: arguments else arguments,
             inv_arguments = inv_arguments,
             operator      = operator
           );
+
       end match;
 
       // negate the expression if there was an odd number of negative arguments (only multiplication)
@@ -660,7 +904,9 @@ algorithm
     else algorithm
       Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for expression: " + Expression.toString(exp)});
     then fail();
+
   end match;
+
 end simplifyMultary;
 
 function simplifyMultarySigns
@@ -1290,6 +1536,8 @@ algorithm
     // #######################################################
     //      Other expressions that do not get combined
     // #######################################################
+
+    // combine for both arguments
 
     // going deeper on the different expression types
     case (_, Expression.ARRAY()) algorithm

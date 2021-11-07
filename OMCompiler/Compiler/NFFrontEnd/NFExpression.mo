@@ -719,6 +719,7 @@ public
       case UNARY()           then Operator.typeOf(exp.operator);
       case LBINARY()         then Operator.typeOf(exp.operator);
       case LUNARY()          then Operator.typeOf(exp.operator);
+      case MULTARY()         then Operator.typeOf(exp.operator);
       case RELATION()        then Type.copyDims(Operator.typeOf(exp.operator), Type.BOOLEAN());
       case IF()              then exp.ty;
       case CAST()            then exp.ty;
@@ -5073,6 +5074,27 @@ public
     end if;
   end foldReduction2;
 
+  function isBinary
+    input Expression exp;
+    output Boolean isBinary;
+  algorithm
+    isBinary := match exp
+      case Expression.BINARY() then true;
+      else false;
+    end match;
+  end isBinary;
+
+  function isMultary
+    input Expression exp;
+    output Boolean isMultary;
+  algorithm
+    isMultary := match exp
+      case Expression.MULTARY() then true;
+      else false;
+    end match;
+  end isMultary;
+
+
   function isPure
     input Expression exp;
     output Boolean isPure;
@@ -5302,6 +5324,58 @@ public
       else containsShallow(exp, function hasNonArrayIteratorSubscript(iterator = iterator));
     end match;
   end hasNonArrayIteratorSubscript;
+
+public function hash "help function to hashExpMod"
+  input Expression e;
+  input Integer mod;
+  output Integer hash;
+algorithm
+ hash := matchcontinue(e)
+   local
+    Real r;
+    Integer i;
+    Boolean b;
+    String s;
+    Absyn.Path path;
+    Expression e1,e2,e3;
+    Operator op;
+    list<DAE.Exp> expl;
+    list<list<DAE.Exp>> mexpl;
+    ComponentRef cr;
+
+ case(INTEGER(i))                                then stringHashDjb2Mod(intString(i),mod);
+ case(REAL(r))                                then stringHashDjb2Mod(realString(r),mod);
+ case(BOOLEAN(b))                                then stringHashDjb2Mod(boolString(b),mod);
+ case(STRING(s))                                then stringHashDjb2Mod(s,mod);
+ //case(Expression.ENUM_LITERAL(name=path))                  then stringHashDjb2(AbsynUtil.pathString(path));
+ case(CREF(cref=cr))                    then ComponentRef.hash(cr,mod);
+/*
+ case(DAE.BINARY(e1,op,e2))                         then 1 + hashExp(e1)+hashOp(op)+hashExp(e2);
+ case(DAE.UNARY(op,e1))                             then 2 + hashOp(op)+hashExp(e1);
+ case(DAE.LBINARY(e1,op,e2))                        then 3 + hashExp(e1)+hashOp(op)+hashExp(e2);
+ case(DAE.LUNARY(op,e1))                            then 4 + hashOp(op)+hashExp(e1);
+ case(DAE.RELATION(e1,op,e2,_,_))                   then 5 + hashExp(e1)+hashOp(op)+hashExp(e2);
+ case(DAE.IFEXP(e1,e2,e3))                          then 6 + hashExp(e1)+hashExp(e2)+hashExp(e3);
+ case(DAE.CALL(path=path,expLst=expl))              then 7 + stringHashDjb2(AbsynUtil.pathString(path))+List.reduce(List.map(expl,hashExp),intAdd);
+ case(DAE.RECORD(path=path,exps=expl))            then 8 + stringHashDjb2(AbsynUtil.pathString(path))+List.reduce(List.map(expl,hashExp),intAdd);
+ case(DAE.PARTEVALFUNCTION(path=path,expList=expl)) then 9 + stringHashDjb2(AbsynUtil.pathString(path))+List.reduce(List.map(expl,hashExp),intAdd);
+ case(DAE.ARRAY(array=expl))                        then 10 + List.reduce(List.map(expl,hashExp),intAdd);
+ case(DAE.MATRIX(matrix=mexpl))                     then 11 + List.reduce(List.map(List.flatten(mexpl),hashExp),intAdd);
+ case(DAE.RANGE(_,e1,SOME(e2),e3))                  then 12 + hashExp(e1)+hashExp(e2)+hashExp(e3);
+ case(DAE.RANGE(_,e1,NONE(),e3))                    then 13 + hashExp(e1)+hashExp(e3);
+ case(DAE.TUPLE(expl))                              then 14 + List.reduce(List.map(expl,hashExp),intAdd);
+ case(DAE.CAST(_,e1))                               then 15 + hashExp(e1);
+ case(DAE.ASUB(e1,expl))                            then 16 + hashExp(e1)+List.reduce(List.map(expl,hashExp),intAdd);
+ case(DAE.TSUB(e1,i,_))                             then 17 + hashExp(e1)+stringHashDjb2(intString(i));
+ case(DAE.SIZE(e1,SOME(e2)))                        then 18 + hashExp(e1)+hashExp(e2);
+ case(DAE.SIZE(e1,NONE()))                          then 19 + hashExp(e1);
+ // case(DAE.CODE(_,_))                             then 20; // TODO: implement hashing of CODE AST
+ // case(DAE.EMPTY(scope=_))                        then 21; // TODO: implement hashing of EMTPY (needed ?)
+ case(DAE.REDUCTION(info,e1,iters))                 then 22 + hashReductionInfo(info)+hashExp(e1)+List.reduce(List.map(iters,hashReductionIter),intAdd);
+ // TODO: hashing of all MetaModelica extensions*/
+ else stringHashDjb2Mod(toString(e),mod);
+ end matchcontinue;
+end hash;
 
 annotation(__OpenModelica_Interface="frontend");
 end NFExpression;
