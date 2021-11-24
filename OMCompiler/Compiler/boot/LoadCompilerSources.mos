@@ -386,6 +386,7 @@ if true then /* Suppress output */
     "../NFFrontEnd/NFEvalFunction.mo",
     "../NFFrontEnd/NFExpandableConnectors.mo",
     "../NFFrontEnd/NFExpandExp.mo",
+    "../NFFrontEnd/NFEGraph.mo",
     "../NFFrontEnd/NFExpressionIterator.mo",
     "../NFFrontEnd/NFExpression.mo",
     "../NFFrontEnd/NFFlatModel.mo",

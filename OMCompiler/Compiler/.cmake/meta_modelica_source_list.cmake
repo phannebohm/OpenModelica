@@ -316,6 +316,7 @@ set(OMC_MM_BACKEND_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/NFFrontEnd/NFEvalFunction.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NFFrontEnd/NFExpandableConnectors.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NFFrontEnd/NFExpandExp.mo
+    ${CMAKE_CURRENT_SOURCE_DIR}/NFFrontEnd/NFEGraph.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NFFrontEnd/NFExpressionIterator.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NFFrontEnd/NFExpression.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NFFrontEnd/NFFlatModel.mo

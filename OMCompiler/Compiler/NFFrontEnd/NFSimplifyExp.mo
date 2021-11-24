@@ -39,6 +39,7 @@ import Subscript = NFSubscript;
 import NFOperator.Op;
 import NFPrefixes.{Variability, Purity};
 import NFInstNode.InstNode;
+import NFEGraph.*;
 
 protected
 
@@ -679,7 +680,27 @@ end checkMultaryOperator;
 
 function simplifyMultary
   input output Expression exp;
+protected
+  EGraph egraph;
+  ENode temp_node;
+  EClassId id;
 algorithm
+  egraph := EGraph.new();
+
+  temp_node := ENode.NUM(10);
+
+  (egraph,id) := EGraph.add(temp_node,egraph);
+
+  print("New Id " + intString(id)+"\n");
+
+
+  temp_node := ENode.NUM(20);
+
+  (egraph,id) := EGraph.add(temp_node,egraph);
+
+  print("New Id " + intString(id)+"\n");
+
+
   exp := match exp
     local
       Operator operator,temp_operator;
