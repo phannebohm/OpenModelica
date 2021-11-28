@@ -43,8 +43,8 @@ public
                 local
                     Integer num;
                     EClassId id1, id2;
-                case NUM(num) then intMod(num,mod);
-                case ADD(id1,id2) then intMod(100 + id1 * 10 + id2,mod);
+                case NUM(num) then intMod(num, mod);
+                case ADD(id1, id2) then intMod(100 + id1 * 10 + id2, mod);
             end match;
         end hash;
     end ENode;
@@ -73,24 +73,40 @@ public
         function make
             input output UnionFind unionfind;
             output Integer index;
-        protected
-            array<Integer> nodes;
-            Integer nodeCount;
         algorithm
-            UNION_FIND(nodes,nodeCount) := unionfind;
-
-            nodeCount := nodeCount + 1;
-            index := nodeCount;
-
-            if (arrayLength(nodes) < nodeCount) then
-                nodes := Array.expand(realInt(intReal(index) * 1.4), nodes, -1);
+            unionfind.nodeCount := unionfind.nodeCount + 1;
+            index := unionfind.nodeCount;
+            if (arrayLength(unionfind.nodes) < unionfind.nodeCount) then
+                unionfind.nodes := Array.expand(realInt(intReal(index) * 1.4), unionfind.nodes, -1);
             end if;
-
-            nodes[index] := index;
-
-            unionfind := UNION_FIND(nodes,nodeCount);
+            unionfind.nodes[index] := index;
         end make;
+
+        function find
+            input UnionFind unionfind;
+            input output Integer index;
+        algorithm
+            while not (index == unionfind.nodes[index]) loop
+                index := unionfind.nodes[index];
+            end while;
+        end find;
+
+        function union
+            input Integer index1;
+            input Integer index2;
+            input output UnionFind unionfind;
+        protected
+            Integer root1, root2;
+        algorithm
+            root1 := find(unionfind, index1);
+            root2 := find(unionfind, index2);
+            if not (root1 == root2) then
+                unionfind.nodes[root2] := root1;
+            end if;
+        end union;
+
     end UnionFind;
+
 
     encapsulated uniontype EGraph
     import NFEGraph.*;
@@ -108,28 +124,39 @@ public
         end new;
 
         function add
+            "Adds an Enode to the EGraph. If the node is already in the EGraph returns the Enodes id,
+            otherwise adds the id to both maps and extends the unionfind."
             input ENode node;
             input output EGraph graph;
             output EClassId id;
         protected
-            UnorderedMap<ENode,EClassId> hashcons;
-            UnionFind unionfind;
-            UnorderedMap<EClassId,EClass> eclasses;
-            EClass eclass;
+            UnionFind temp;
         algorithm
-            EGRAPH(hashcons,unionfind,eclasses) := graph;
-
             try
-                SOME(id) := UnorderedMap.get(node,hashcons);
+                SOME(id) := UnorderedMap.get(node, graph.hashcons);
             else
-                eclass := ECLASS(arrayCreate(1,node));
-
-                (unionfind,id) := UnionFind.make(unionfind);
-
-
-                graph := EGRAPH(hashcons,unionfind,eclasses);
+                (temp, id) := UnionFind.make(graph.unionfind);
+                graph.unionfind := temp;
+                UnorderedMap.add(node, id, graph.hashcons);
+                UnorderedMap.add(id, ECLASS(arrayCreate(1, node)), graph.eclasses);
             end try;
         end add;
+
+        function find
+            "Returns the root element of an EClassId."
+            input EGraph graph;
+            input output  EClassId id;
+        algorithm
+            id := UnionFind.find(graph.unionfind, id);
+        end find;
+
+        function union
+            input EClassId id1;
+            input EClassId id2;
+            input output EGraph graph;
+        algorithm
+            UnionFind.union(id1, id2, graph.unionfind);
+        end union;
     end EGraph;
 
 

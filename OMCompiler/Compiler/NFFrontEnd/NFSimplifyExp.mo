@@ -683,23 +683,24 @@ function simplifyMultary
 protected
   EGraph egraph;
   ENode temp_node;
-  EClassId id;
+  EClassId id1, id2;
 algorithm
   egraph := EGraph.new();
 
   temp_node := ENode.NUM(10);
 
-  (egraph,id) := EGraph.add(temp_node,egraph);
-
-  print("New Id " + intString(id)+"\n");
-
+  (egraph,id1) := EGraph.add(temp_node,egraph);
 
   temp_node := ENode.NUM(20);
 
-  (egraph,id) := EGraph.add(temp_node,egraph);
-
-  print("New Id " + intString(id)+"\n");
-
+  (egraph,id2) := EGraph.add(temp_node,egraph);
+  print("\n");
+  print(intString(EGraph.find(egraph, id1)) + "\n");
+  print(intString(EGraph.find(egraph, id2)) + "\n");
+  egraph := EGraph.union(id1, id2, egraph);
+  print(intString(EGraph.find(egraph, id1)) + "\n");
+  print(intString(EGraph.find(egraph, id2)) + "\n");
+  print(intString(UnorderedMap.size(egraph.eclasses))+ "\n");
 
   exp := match exp
     local
