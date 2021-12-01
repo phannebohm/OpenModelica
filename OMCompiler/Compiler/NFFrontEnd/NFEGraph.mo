@@ -1,6 +1,7 @@
 encapsulated package NFEGraph
     import DisjointSets;
     import UnorderedMap;
+    import UnorderedSet;
 public
     type EClassId = Integer;
 
@@ -47,6 +48,31 @@ public
                 case ADD(id1, id2) then intMod(100 + id1 * 10 + id2, mod);
             end match;
         end hash;
+
+        function children
+            input ENode node;
+            output list<EClassId> childrenList;
+        algorithm
+            childrenList := match node
+                local
+                    EClassId id1,id2;
+                case (ENode.ADD(id1,id2))
+                    then {id1,id2};
+                else
+                    then {};
+            end match;
+        end children;
+
+        function make
+            input ENode oldEnode;
+            input list<EClassId> children;
+            output ENode node;
+        algorithm
+            node := match oldEnode
+                case NUM(_) then oldEnode;
+                case ADD(_, _) then ADD(listGet(children,1),listGet(children,2));
+            end match;
+        end make;
     end ENode;
 
     uniontype EClass
@@ -54,6 +80,7 @@ public
     public
         record ECLASS
             array<ENode> nodes;
+            list<tuple<ENode,EClassId>> parents;
         end ECLASS;
     end EClass;
 
@@ -95,8 +122,9 @@ public
             input Integer index1;
             input Integer index2;
             input output UnionFind unionfind;
+            output Integer root1;
         protected
-            Integer root1, root2;
+            Integer root2;
         algorithm
             root1 := find(unionfind, index1);
             root2 := find(unionfind, index2);
@@ -115,12 +143,13 @@ public
             UnorderedMap<ENode,EClassId> hashcons;
             UnionFind unionfind;
             UnorderedMap<EClassId,EClass> eclasses;
+            list<EClassId> worklist;
         end EGRAPH;
 
         function new
             output EGraph egraph;
         algorithm
-            egraph := EGraph.EGRAPH(UnorderedMap.new<EClassId>(ENode.hash,ENode.isEqual),UnionFind.new(),UnorderedMap.new<EClass>(intMod,intEq));
+            egraph := EGraph.EGRAPH(UnorderedMap.new<EClassId>(ENode.hash, ENode.isEqual),UnionFind.new(),UnorderedMap.new<EClass>(intMod,intEq),{});
         end new;
 
         function add
@@ -131,6 +160,8 @@ public
             output EClassId id;
         protected
             UnionFind temp;
+            EClass child_class;
+            EClassId child_id;
         algorithm
             try
                 SOME(id) := UnorderedMap.get(node, graph.hashcons);
@@ -138,14 +169,20 @@ public
                 (temp, id) := UnionFind.make(graph.unionfind);
                 graph.unionfind := temp;
                 UnorderedMap.add(node, id, graph.hashcons);
-                UnorderedMap.add(id, ECLASS(arrayCreate(1, node)), graph.eclasses);
+                UnorderedMap.add(id, ECLASS(arrayCreate(1, node),{}), graph.eclasses);
+
+                for child_id in ENode.children(node) loop
+                    child_class := UnorderedMap.getSafe(child_id,graph.eclasses);
+                    child_class.parents := (node,id) :: child_class.parents;
+                    UnorderedMap.add(child_id,child_class,graph.eclasses);
+                end for;
             end try;
         end add;
 
         function find
             "Returns the root element of an EClassId."
             input EGraph graph;
-            input output  EClassId id;
+            input output EClassId id;
         algorithm
             id := UnionFind.find(graph.unionfind, id);
         end find;
@@ -154,12 +191,72 @@ public
             input EClassId id1;
             input EClassId id2;
             input output EGraph graph;
+        protected
+            EClassId new_id;
+            UnionFind temp;
         algorithm
-            UnionFind.union(id1, id2, graph.unionfind);
+            (temp,new_id) := UnionFind.union(id1, id2, graph.unionfind);
+            graph.unionfind := temp;
+            graph.worklist :=  new_id :: graph.worklist;
         end union;
+
+        function canonicalize
+        // new children of an enode will become the root elements of the old children
+            input EGraph graph;
+            input output ENode node;
+        protected
+            list<EClassId> new_ch;
+        algorithm
+            new_ch := list(EGraph.find(graph, id) for id in ENode.children(node));
+            node := ENode.make(node, new_ch);
+        end canonicalize;
+
+        function rebuild
+            input output EGraph graph;
+        protected
+            UnorderedSet<EClassId> todo;
+            EClassId eclassid;
+        algorithm
+            todo := UnorderedSet.new<EClassId>(intMod,intEq);
+            for eclassid in graph.worklist loop
+                UnorderedSet.add(EGraph.find(graph, eclassid), todo);
+            end for;
+            graph := UnorderedSet.fold(todo, EGraph.repair, graph);
+            graph.worklist := {};
+        end rebuild;
+
+        function repair
+            input EClassId eclassid;
+            input output EGraph graph;
+        protected
+            EClass elem;
+            ENode node;
+            EClassId id;
+            UnorderedMap<ENode,EClassId> new_parents;
+        algorithm
+            elem := UnorderedMap.getOrFail(eclassid, graph.eclasses);
+            for tup in elem.parents loop
+                (node, id) := tup;
+                UnorderedMap.remove(node, graph.hashcons);
+                node := EGraph.canonicalize(graph, node);
+                UnorderedMap.add(node, EGraph.find(graph, id), graph.hashcons);
+            end for;
+            new_parents := UnorderedMap.new<EClassId>(ENode.hash, ENode.isEqual);
+
+            elem := UnorderedMap.getOrFail(eclassid, graph.eclasses);
+            for tup in elem.parents loop
+                (node, id) := tup;
+                node := EGraph.canonicalize(graph, node);
+                if UnorderedMap.contains(node, new_parents) then
+                    EGraph.union(id, UnorderedMap.getOrFail(node, new_parents), graph);
+                end if;
+                UnorderedMap.add(node, EGraph.find(graph, id), new_parents);
+            end for;
+            elem.parents := UnorderedMap.toList(new_parents);
+
+            UnorderedMap.add(eclassid,elem,graph.eclasses);
+        end repair;
     end EGraph;
-
-
 
     annotation(__OpenModelica_Interface="frontend");
 end NFEGraph;

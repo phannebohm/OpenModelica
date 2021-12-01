@@ -683,17 +683,19 @@ function simplifyMultary
 protected
   EGraph egraph;
   ENode temp_node;
-  EClassId id1, id2;
+  EClassId id1, id2, id3;
+  EClass clazz;
 algorithm
   egraph := EGraph.new();
 
   temp_node := ENode.NUM(10);
-
   (egraph,id1) := EGraph.add(temp_node,egraph);
 
   temp_node := ENode.NUM(20);
-
   (egraph,id2) := EGraph.add(temp_node,egraph);
+
+  temp_node := ENode.ADD(id1, id2);
+  (egraph,id3) := EGraph.add(temp_node, egraph);
   print("\n");
   print(intString(EGraph.find(egraph, id1)) + "\n");
   print(intString(EGraph.find(egraph, id2)) + "\n");
@@ -701,6 +703,20 @@ algorithm
   print(intString(EGraph.find(egraph, id1)) + "\n");
   print(intString(EGraph.find(egraph, id2)) + "\n");
   print(intString(UnorderedMap.size(egraph.eclasses))+ "\n");
+
+  for i in UnorderedMap.keyList(egraph.hashcons) loop
+    for c in ENode.children(i) loop
+      print("Child: " + intString(c) + "\n");
+    end for;
+  end for;
+
+  egraph := EGraph.rebuild(egraph);
+
+   for i in UnorderedMap.keyList(egraph.hashcons) loop
+    for c in ENode.children(i) loop
+      print("Child: " + intString(c) + "\n");
+    end for;
+  end for;
 
   exp := match exp
     local
