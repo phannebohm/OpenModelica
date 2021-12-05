@@ -1,10 +1,63 @@
 encapsulated package NFEGraph
-    import DisjointSets;
     import UnorderedMap;
     import UnorderedSet;
+    import Array;
+    import NFExpression;
 public
     type EClassId = Integer;
+    type UnaryOp = enumeration(
+        UMINUS,
+        UDIV);
+    type BinaryOp = enumeration(
+        ADD,
+        MUL,
+        POW);
 
+    function binaryOpToNFOperator
+        input BinaryOp bop;
+        output NFOperator op;
+    algorithm
+        op := match bop
+            case BinaryOp.ADD then NFOperator.makeAdd(NFType.REAL());
+        end match;
+    end binaryOpToNFOperator;
+
+    function hashUnaryOp
+        input UnaryOp uop;
+        output Integer hash;
+    algorithm
+        hash := match uop
+            case UnaryOp.UMINUS then 1;
+            case UnaryOp.UDIV then 2;
+            else 3;
+        end match;
+    end hashUnaryOp;
+
+    function hashBinaryOp
+        input BinaryOp bop;
+        output Integer hash;
+    algorithm
+        hash := match bop
+            case BinaryOp.ADD then 1;
+            case BinaryOp.MUL then 2;
+            case BinaryOp.POW then 3;
+            else 4;
+        end match;
+    end hashBinaryOp;
+
+    function compareUnaryOp
+        input UnaryOp uop1, uop2;
+        output Boolean equals;
+    algorithm
+        equals := (uop1 == uop2);
+    end compareUnaryOp;
+
+    function compareBinaryOp
+        input BinaryOp bop1, bop2;
+        output Boolean equals;
+    algorithm
+        equals := (bop1 == bop2);
+    end compareBinaryOp;
 
     encapsulated uniontype ENode
     import NFEGraph.*;
@@ -13,10 +66,20 @@ public
             Integer num;
         end NUM;
 
-        record ADD
+        record SYMBOL
+            String str;
+        end SYMBOL;
+
+        record UNARY
+            EClassId id;
+            UnaryOp op;
+        end UNARY;
+
+        record BINARY
             EClassId id1;
             EClassId id2;
-        end ADD;
+            BinaryOp op;
+        end BINARY;
 
         function isEqual
             input ENode node1;
@@ -27,10 +90,14 @@ public
                 local
                     Integer num1,num2;
                     EClassId id1_1,id1_2,id2_1,id2_2;
+                    BinaryOp bop1, bop2;
+                    UnaryOp uop1, uop2;
                 case (ENode.NUM(num1),ENode.NUM(num2))
                     then num1 == num2;
-                case (ENode.ADD(id1_1,id1_2),ENode.ADD(id2_1,id2_2))
-                    then id1_1 == id2_1 and id1_2 == id2_2;
+                case (ENode.BINARY(id1_1,id1_2,bop1),ENode.BINARY(id2_1,id2_2,bop2))
+                    then id1_1 == id2_1 and id1_2 == id2_2 and compareBinaryOp(bop1, bop2);
+                case (ENode.UNARY(id1_1, uop1), ENode.UNARY(id2_1, uop2))
+                    then id1_1 == id2_1 and compareUnaryOp(uop1, uop2);
                 else false;
             end match;
         end isEqual;
@@ -44,8 +111,11 @@ public
                 local
                     Integer num;
                     EClassId id1, id2;
+                    BinaryOp bop;
+                    UnaryOp uop;
                 case NUM(num) then intMod(num, mod);
-                case ADD(id1, id2) then intMod(100 + id1 * 10 + id2, mod);
+                case BINARY(id1, id2, bop) then intMod(100 + id1 * 10 + id2 + 1000 * hashBinaryOp(bop), mod);
+                case UNARY(id1, uop) then intMod(id1 * 10 + 1000 * hashUnaryOp(uop) + 1, mod);
             end match;
         end hash;
 
@@ -56,8 +126,10 @@ public
             childrenList := match node
                 local
                     EClassId id1,id2;
-                case (ENode.ADD(id1,id2))
+                case (ENode.BINARY(id1,id2,_))
                     then {id1,id2};
+                case (ENode.UNARY(id1, _))
+                    then {id1};
                 else
                     then {};
             end match;
@@ -69,8 +141,12 @@ public
             output ENode node;
         algorithm
             node := match oldEnode
+                local
+                BinaryOp bop;
+                UnaryOp uop;
                 case NUM(_) then oldEnode;
-                case ADD(_, _) then ADD(listGet(children,1),listGet(children,2));
+                case BINARY(_, _, bop) then BINARY(listGet(children,1),listGet(children,2), bop);
+                case UNARY(_, uop) then UNARY(listGet(children, 1), uop);
             end match;
         end make;
     end ENode;
@@ -257,6 +333,92 @@ public
             UnorderedMap.add(eclassid,elem,graph.eclasses);
         end repair;
     end EGraph;
+
+    uniontype Extractor
+    public
+    import NFEGraph.*;
+        record EXTRACTOR
+            EGraph egraph;
+            UnorderedMap<EClassId, ENode> pre;
+            UnorderedMap<EClassId, Integer> dist;
+        end EXTRACTOR;
+
+        function new
+            input EGraph egraph;
+            output Extractor extractor;
+        algorithm
+            extractor := Extractor.EXTRACTOR(egraph, UnorderedMap.new<ENode>(intMod,intEq), UnorderedMap.new<Integer>(intMod,intEq));
+        end new;
+
+        function extract
+            input EClassId id;
+            input output Extractor extractor;
+            output Integer distance;
+        protected
+            EClass eclass;
+            ENode node;
+            EClassId temp_id;
+        algorithm
+            temp_id := EGraph.find(extractor.egraph,id);
+            (distance, extractor) := match (UnorderedMap.get(temp_id, extractor.dist))
+                local
+                    ENode  best_node;
+                    Integer current, best = 0, temp;
+                    Boolean first = true;
+                case (SOME(current))
+                    then (current, extractor);
+                else algorithm
+                    UnorderedMap.add(temp_id, UnorderedMap.size(extractor.egraph.hashcons), extractor.dist);
+                    eclass := UnorderedMap.getOrFail(temp_id ,extractor.egraph.eclasses);
+                    for node in eclass.nodes loop
+                        current := 1;
+                        for class_child in ENode.children(node) loop
+                            (extractor, temp) := extract(class_child,extractor);
+                            current := temp + current;
+                        end for;
+
+                        if current < best or first then
+                            best := current;
+                            best_node := node;
+                            first := false;
+                        end if;
+                    end for;
+                    UnorderedMap.add(temp_id, best, extractor.dist);
+                    UnorderedMap.add(temp_id, best_node, extractor.pre);
+
+                    then (best,extractor);
+                end match;
+        end extract;
+
+        function build
+            input EClassId start;
+            input Extractor extractor;
+            output NFExpression exp;
+        protected
+            EClassId temp_start;
+            ENode node;
+        algorithm
+            temp_start := EGraph.find(extractor.egraph,start);
+            node := UnorderedMap.getOrFail(temp_start,extractor.pre);
+            exp := match node
+                local
+                    Integer num;
+                    EClassId id1,id2;
+                    BinaryOp bop;
+                case ENode.NUM(num)
+                    then NFExpression.INTEGER(num);
+                case ENode.BINARY(id1,id2,bop)
+                    then NFExpression.BINARY(
+                        Extractor.build(id1,extractor),
+                        binaryOpToNFOperator(bop),
+                        Extractor.build(id2,extractor));
+            end match;
+        end build;
+
+
+
+    end Extractor;
+
 
     annotation(__OpenModelica_Interface="frontend");
 end NFEGraph;

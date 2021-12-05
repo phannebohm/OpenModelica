@@ -683,8 +683,10 @@ function simplifyMultary
 protected
   EGraph egraph;
   ENode temp_node;
-  EClassId id1, id2, id3;
+  EClassId id1, id2, id3, id4;
   EClass clazz;
+  Extractor extractor;
+  Integer dist;
 algorithm
   egraph := EGraph.new();
 
@@ -694,29 +696,23 @@ algorithm
   temp_node := ENode.NUM(20);
   (egraph,id2) := EGraph.add(temp_node,egraph);
 
-  temp_node := ENode.ADD(id1, id2);
-  (egraph,id3) := EGraph.add(temp_node, egraph);
-  print("\n");
-  print(intString(EGraph.find(egraph, id1)) + "\n");
-  print(intString(EGraph.find(egraph, id2)) + "\n");
-  egraph := EGraph.union(id1, id2, egraph);
-  print(intString(EGraph.find(egraph, id1)) + "\n");
-  print(intString(EGraph.find(egraph, id2)) + "\n");
-  print(intString(UnorderedMap.size(egraph.eclasses))+ "\n");
+  temp_node := ENode.BINARY(id1, id2, BinaryOp.ADD);
+  (egraph,id4) := EGraph.add(temp_node, egraph);
 
-  for i in UnorderedMap.keyList(egraph.hashcons) loop
-    for c in ENode.children(i) loop
-      print("Child: " + intString(c) + "\n");
-    end for;
-  end for;
+  temp_node := ENode.NUM(30);
+  (egraph,id3) := EGraph.add(temp_node, egraph);
+  //egraph := EGraph.union(id3, id4, egraph);
+  print("\n");
+  print(intString(UnorderedMap.size(egraph.eclasses))+ "\n");
 
   egraph := EGraph.rebuild(egraph);
 
-   for i in UnorderedMap.keyList(egraph.hashcons) loop
-    for c in ENode.children(i) loop
-      print("Child: " + intString(c) + "\n");
-    end for;
-  end for;
+  extractor := Extractor.new(egraph);
+  (extractor,dist) := Extractor.extract(id4, extractor);
+  print("Distance: " + intString(dist)+ "\n");
+
+  print("Expression: " + NFExpression.toString(Extractor.build(id4,extractor))+ "\n");
+
 
   exp := match exp
     local
