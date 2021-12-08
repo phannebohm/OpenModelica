@@ -683,10 +683,12 @@ function simplifyMultary
 protected
   EGraph egraph;
   ENode temp_node;
-  EClassId id1, id2, id3, id4;
+  EClassId id1, id2, id3, id4, id5, id6, id7,id8,id9;
   EClass clazz;
   Extractor extractor;
   Integer dist;
+  Pattern pattern;
+  UnorderedMap<Integer, EClassId> subs;
 algorithm
   egraph := EGraph.new();
 
@@ -697,11 +699,28 @@ algorithm
   (egraph,id2) := EGraph.add(temp_node,egraph);
 
   temp_node := ENode.BINARY(id1, id2, BinaryOp.ADD);
-  (egraph,id4) := EGraph.add(temp_node, egraph);
+  (egraph,id3) := EGraph.add(temp_node, egraph);
 
   temp_node := ENode.NUM(30);
-  (egraph,id3) := EGraph.add(temp_node, egraph);
-  //egraph := EGraph.union(id3, id4, egraph);
+  (egraph,id4) := EGraph.add(temp_node, egraph);
+
+  temp_node := ENode.NUM(40);
+  (egraph,id5) := EGraph.add(temp_node, egraph);
+
+  temp_node := ENode.BINARY(id4, id5, BinaryOp.ADD);
+  (egraph,id6) := EGraph.add(temp_node, egraph);
+
+   temp_node := ENode.NUM(50);
+  (egraph,id7) := EGraph.add(temp_node, egraph);
+
+  temp_node := ENode.NUM(60);
+  (egraph,id8) := EGraph.add(temp_node, egraph);
+
+  temp_node := ENode.BINARY(id4, id5, BinaryOp.ADD);
+  (egraph,id9) := EGraph.add(temp_node, egraph);
+
+  egraph := EGraph.union(id3, id6, egraph);
+  egraph := EGraph.union(id6, id9, egraph);
   print("\n");
   print(intString(UnorderedMap.size(egraph.eclasses))+ "\n");
 
@@ -712,6 +731,13 @@ algorithm
   print("Distance: " + intString(dist)+ "\n");
 
   print("Expression: " + NFExpression.toString(Extractor.build(id4,extractor))+ "\n");
+
+  pattern :=  Pattern.BINARY(Pattern.VAR(1),Pattern.VAR(2), BinaryOp.ADD);
+
+  for subs in Pattern.matchPattern(id6,egraph,pattern) loop
+    print("Subs: \n");
+    print(UnorderedMap.toString(subs,intString,intString) + "\n");
+  end for;
 
 
   exp := match exp

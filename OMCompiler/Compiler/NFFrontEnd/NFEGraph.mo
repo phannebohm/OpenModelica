@@ -155,7 +155,7 @@ public
     import NFEGraph.*;
     public
         record ECLASS
-            array<ENode> nodes;
+            list<ENode> nodes;
             list<tuple<ENode,EClassId>> parents;
         end ECLASS;
     end EClass;
@@ -199,8 +199,7 @@ public
             input Integer index2;
             input output UnionFind unionfind;
             output Integer root1;
-        protected
-            Integer root2;
+            output Integer root2;
         algorithm
             root1 := find(unionfind, index1);
             root2 := find(unionfind, index2);
@@ -245,7 +244,7 @@ public
                 (temp, id) := UnionFind.make(graph.unionfind);
                 graph.unionfind := temp;
                 UnorderedMap.add(node, id, graph.hashcons);
-                UnorderedMap.add(id, ECLASS(arrayCreate(1, node),{}), graph.eclasses);
+                UnorderedMap.add(id, ECLASS({node},{}), graph.eclasses);
 
                 for child_id in ENode.children(node) loop
                     child_class := UnorderedMap.getSafe(child_id,graph.eclasses);
@@ -267,13 +266,31 @@ public
             input EClassId id1;
             input EClassId id2;
             input output EGraph graph;
+            output Boolean changed;
         protected
-            EClassId new_id;
+            EClassId new_id1,new_id2;
+            EClass class1,class2;
             UnionFind temp;
         algorithm
-            (temp,new_id) := UnionFind.union(id1, id2, graph.unionfind);
-            graph.unionfind := temp;
-            graph.worklist :=  new_id :: graph.worklist;
+            (temp,new_id1,new_id2) := UnionFind.union(id1, id2, graph.unionfind);
+
+            changed := not (new_id1 == new_id2);
+
+            if  changed then
+
+                class1 :=  UnorderedMap.getOrFail(new_id1, graph.eclasses);
+                class2 :=  UnorderedMap.getOrFail(new_id2, graph.eclasses);
+
+                class1.parents := listAppend(class1.parents, class2.parents);
+                class1.nodes := listAppend(class1.nodes, class2.nodes);
+
+                UnorderedMap.add(new_id1, class1, graph.eclasses);
+
+                graph.unionfind := temp;
+                graph.worklist :=  new_id1 :: graph.worklist;
+            end if;
+
+
         end union;
 
         function canonicalize
@@ -339,7 +356,7 @@ public
     import NFEGraph.*;
         record EXTRACTOR
             EGraph egraph;
-            UnorderedMap<EClassId, ENode> pre;
+            UnorderedMap<EClassId, ENode> best_nodes;
             UnorderedMap<EClassId, Integer> dist;
         end EXTRACTOR;
 
@@ -384,7 +401,7 @@ public
                         end if;
                     end for;
                     UnorderedMap.add(temp_id, best, extractor.dist);
-                    UnorderedMap.add(temp_id, best_node, extractor.pre);
+                    UnorderedMap.add(temp_id, best_node, extractor.best_nodes);
 
                     then (best,extractor);
                 end match;
@@ -399,7 +416,7 @@ public
             ENode node;
         algorithm
             temp_start := EGraph.find(extractor.egraph,start);
-            node := UnorderedMap.getOrFail(temp_start,extractor.pre);
+            node := UnorderedMap.getOrFail(temp_start,extractor.best_nodes);
             exp := match node
                 local
                     Integer num;
@@ -419,6 +436,88 @@ public
 
     end Extractor;
 
+    encapsulated uniontype Pattern
+    import NFEGraph.*;
+    public
 
+        record VAR
+            Integer id;
+        end VAR;
+
+        record BINARY
+            Pattern child1;
+            Pattern child2;
+            BinaryOp bop;
+        end BINARY;
+
+        record UNARY
+            Pattern child;
+            UnaryOp uop;
+        end UNARY;
+
+        function matchPattern
+            input EClassId id;
+            input EGraph egraph;
+            input Pattern pattern;
+            input list<UnorderedMap<Integer, EClassId>> subs_in = {UnorderedMap.new<EClassId>(intMod,intEq)};
+            output list<UnorderedMap<Integer, EClassId>> subs_out;
+        protected
+            EClass eclass;
+            UnorderedMap<Integer, EClassId> temp_map;
+            list<UnorderedMap<Integer, EClassId>> temp_list,node_list;
+        algorithm
+            eclass := UnorderedMap.getOrFail(EGraph.find(egraph,id),egraph.eclasses);
+            subs_out := {};
+
+            print("Node count List: " + intString(listLength(eclass.nodes)) + "\n");
+
+            for node in eclass.nodes loop
+                node_list := {};
+
+                for map in subs_in loop
+                    node_list := UnorderedMap.copy(map) :: node_list;
+                end for;
+
+                node_list :=  match (pattern, node)
+                    local
+                        Integer varId;
+                        BinaryOp bop1,bop2;
+                        UnaryOp uop1,uop2;
+                        EClassId temp_id1,temp_id2;
+                        Pattern temp_pattern1,temp_pattern2;
+                        Boolean ok;
+                    case (Pattern.VAR(varId), _)
+                        algorithm
+                            temp_list := {};
+                            for temp_map in node_list loop
+                                ok := match UnorderedMap.get(varId,temp_map)
+                                    case SOME(temp_id1) then temp_id1 == id;
+                                    else algorithm
+                                        UnorderedMap.add(varId,id,temp_map);
+                                    then true;
+                                end match;
+
+                                if ok then
+                                    temp_list := temp_map :: temp_list;
+                                end if;
+                            end for;
+
+                        then temp_list;
+                    case (Pattern.BINARY(temp_pattern1,temp_pattern2,bop1),ENode.BINARY(temp_id1,temp_id2,bop2))
+                        guard(bop1 == bop2)
+                        algorithm
+                        then matchPattern(temp_id2,egraph,temp_pattern2, matchPattern(temp_id1,egraph,temp_pattern1,node_list));
+                    case (Pattern.UNARY(temp_pattern1,uop1),ENode.UNARY(temp_id1,uop2))
+                        guard(uop1 == uop2) then matchPattern(temp_id1,egraph,temp_pattern1,node_list);
+                end match;
+
+                print("Temp List: " + intString(listLength(node_list)) + "\n");
+
+                subs_out := listAppend(node_list,subs_out);
+            end for;
+
+
+        end matchPattern;
+    end Pattern;
     annotation(__OpenModelica_Interface="frontend");
 end NFEGraph;
