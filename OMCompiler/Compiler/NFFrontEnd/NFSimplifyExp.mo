@@ -732,7 +732,7 @@ algorithm
 
   print("Expression: " + NFExpression.toString(Extractor.build(id4,extractor))+ "\n");
 
-  pattern :=  Pattern.BINARY(Pattern.VAR(1),Pattern.VAR(2), BinaryOp.ADD);
+  pattern :=  Pattern.BINARY(Pattern.VAR(1),Pattern.NUM(40), BinaryOp.ADD);
 
   for subs in Pattern.matchPattern(id6,egraph,pattern) loop
     print("Subs: \n");

@@ -113,8 +113,10 @@ public
                     EClassId id1, id2;
                     BinaryOp bop;
                     UnaryOp uop;
+                    String symbol;
+                case SYMBOL(symbol) then stringHashDjb2Mod(symbol, mod);
                 case NUM(num) then intMod(num, mod);
-                case BINARY(id1, id2, bop) then intMod(100 + id1 * 10 + id2 + 1000 * hashBinaryOp(bop), mod);
+                case BINARY(id1, id2, bop) then intMod(100 + id1 * 10 + id2 + 1000 * hashBinaryOp(bop) + 2, mod);
                 case UNARY(id1, uop) then intMod(id1 * 10 + 1000 * hashUnaryOp(uop) + 1, mod);
             end match;
         end hash;
@@ -294,7 +296,7 @@ public
         end union;
 
         function canonicalize
-        // new children of an enode will become the root elements of the old children
+        "new children of an enode will become the root elements of the old children"
             input EGraph graph;
             input output ENode node;
         protected
@@ -422,8 +424,10 @@ public
                     Integer num;
                     EClassId id1,id2;
                     BinaryOp bop;
+
                 case ENode.NUM(num)
                     then NFExpression.INTEGER(num);
+
                 case ENode.BINARY(id1,id2,bop)
                     then NFExpression.BINARY(
                         Extractor.build(id1,extractor),
@@ -440,9 +444,17 @@ public
     import NFEGraph.*;
     public
 
+        record NUM
+            Integer value;
+        end NUM;
+
         record VAR
             Integer id;
         end VAR;
+
+        record SYMBOL
+            String str;
+        end SYMBOL;
 
         record BINARY
             Pattern child1;
@@ -468,9 +480,6 @@ public
         algorithm
             eclass := UnorderedMap.getOrFail(EGraph.find(egraph,id),egraph.eclasses);
             subs_out := {};
-
-            print("Node count List: " + intString(listLength(eclass.nodes)) + "\n");
-
             for node in eclass.nodes loop
                 node_list := {};
 
@@ -480,13 +489,16 @@ public
 
                 node_list :=  match (pattern, node)
                     local
-                        Integer varId;
+                        Integer varId, num1, num2;
                         BinaryOp bop1,bop2;
                         UnaryOp uop1,uop2;
                         EClassId temp_id1,temp_id2;
                         Pattern temp_pattern1,temp_pattern2;
+                        String str1, str2;
                         Boolean ok;
+
                     case (Pattern.VAR(varId), _)
+                        // case for some common subexpression: e.g. (3*x + 1) + (3*x + 1) -> 2 * (3*x + 1)
                         algorithm
                             temp_list := {};
                             for temp_map in node_list loop
@@ -503,21 +515,86 @@ public
                             end for;
 
                         then temp_list;
+
+                    case (Pattern.NUM(num1), ENode.NUM(num2))
+                        // case to insure that a number in the pattern corresponds to a enode number
+                        algorithm
+                        if num1 == num2 then temp_list := node_list; else temp_list := {}; end if;
+                        then temp_list;
+
+                    case (Pattern.SYMBOL(str1), ENode.SYMBOL(str2))
+                        // case to insure that a hard coded symbol in the pattern corresponds to a enode symbol
+                        // special case of VAR
+                        algorithm
+                        if str1 == str2 then temp_list := node_list; else temp_list := {}; end if;
+                        then temp_list;
+
+                    // simple recursion
                     case (Pattern.BINARY(temp_pattern1,temp_pattern2,bop1),ENode.BINARY(temp_id1,temp_id2,bop2))
                         guard(bop1 == bop2)
                         algorithm
                         then matchPattern(temp_id2,egraph,temp_pattern2, matchPattern(temp_id1,egraph,temp_pattern1,node_list));
+
                     case (Pattern.UNARY(temp_pattern1,uop1),ENode.UNARY(temp_id1,uop2))
                         guard(uop1 == uop2) then matchPattern(temp_id1,egraph,temp_pattern1,node_list);
                 end match;
 
-                print("Temp List: " + intString(listLength(node_list)) + "\n");
-
                 subs_out := listAppend(node_list,subs_out);
             end for;
 
-
         end matchPattern;
+
+        function apply
+            input Pattern pattern;
+            input UnorderedMap<Integer, EClassId> sub;
+            input output EGraph egraph;
+            output EClassId eclassid;
+        protected
+        ENode temp_node;
+        list<ENode> node_list;
+        algorithm
+            (egraph, eclassid) := match pattern
+            local
+                Integer varId, num;
+                EClassId id1, id2;
+                BinaryOp bop;
+                UnaryOp uop;
+                Pattern temp_pattern1,temp_pattern2;
+                String str;
+            case Pattern.NUM(num) then EGraph.add(ENode.NUM(num), egraph);
+            case Pattern.SYMBOL(str) then EGraph.add(ENode.SYMBOL(str), egraph);
+            case Pattern.BINARY(temp_pattern1, temp_pattern2, bop)
+                algorithm
+                (egraph, id1) := apply(temp_pattern1, sub, egraph);
+                (egraph, id2) := apply(temp_pattern2, sub, egraph);
+                then EGraph.add(ENode.BINARY(id1, id2, bop), egraph);
+            case Pattern.UNARY(temp_pattern1, uop)
+                algorithm
+                (egraph, id1) := apply(temp_pattern1, sub, egraph);
+                then EGraph.add(ENode.UNARY(id1, uop), egraph);
+            case Pattern.VAR(varId) then
+                (egraph, UnorderedMap.getOrFail(varId, sub));
+            end match;
+        end apply;
     end Pattern;
+
+    uniontype Rule
+    import NFEGraph.*;
+    public
+
+        record RULE
+            Pattern pattern_in, pattern_out;
+        end RULE;
+
+        function matchPattern
+            input Rule rule;
+            input EClassId id;
+            input EGraph egraph;
+            output list<UnorderedMap<Integer, EClassId>> subs_out;
+        algorithm
+        subs_out := Pattern.matchPattern(id, egraph, rule.pattern_in);
+        end matchPattern;
+
+    end Rule;
     annotation(__OpenModelica_Interface="frontend");
 end NFEGraph;
