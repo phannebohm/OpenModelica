@@ -681,14 +681,18 @@ end checkMultaryOperator;
 function simplifyMultary
   input output Expression exp;
 protected
-  EGraph egraph;
+  EGraph egraph, egraph_dummy;
   ENode temp_node;
-  EClassId id1, id2, id3, id4, id5, id6, id7,id8,id9;
+  EClassId id1, id2, id3, id4, id5, id6, id7,id8,id9, id10;
   EClass clazz;
   Extractor extractor;
-  Integer dist;
+  Integer dist, counter;
   Pattern pattern;
+  list<UnorderedMap<Integer, EClassId>> maplist;
   UnorderedMap<Integer, EClassId> subs;
+  Rule rule;
+  RuleApplier ruleapplier;
+  Boolean saturated;
 algorithm
   egraph := EGraph.new();
 
@@ -731,13 +735,16 @@ algorithm
   print("Distance: " + intString(dist)+ "\n");
 
   print("Expression: " + NFExpression.toString(Extractor.build(id4,extractor))+ "\n");
-
-  pattern :=  Pattern.BINARY(Pattern.VAR(1),Pattern.NUM(40), BinaryOp.ADD);
-
-  for subs in Pattern.matchPattern(id6,egraph,pattern) loop
-    print("Subs: \n");
-    print(UnorderedMap.toString(subs,intString,intString) + "\n");
-  end for;
+  rule := Rule.RULE(Pattern.BINARY(Pattern.VAR(1),Pattern.VAR(2), BinaryOp.ADD), Pattern.BINARY(Pattern.VAR(2), Pattern.VAR(1), BinaryOp.ADD));
+  ruleapplier := RuleApplier.RULEAPPLIER(UnorderedSet.new(Rule.hash, Rule.isEqual));
+  UnorderedSet.add(rule, ruleapplier.ruleset);
+  saturated := false;
+  counter := 0;
+  while not saturated loop
+    (egraph, saturated) := RuleApplier.matchApplyRules(ruleapplier, egraph);
+    counter := counter + 1;
+  end while;
+  print("Counter: " + intString(counter) + "\n");
 
 
   exp := match exp

@@ -467,6 +467,31 @@ public
             UnaryOp uop;
         end UNARY;
 
+        function hash
+            input Pattern p;
+            input Integer mod;
+            output Integer out;
+        algorithm
+            out := match p
+                local
+                    Integer varId, num;
+                    BinaryOp bop;
+                    UnaryOp uop;
+                    Pattern temp_pattern1,temp_pattern2;
+                    String str;
+                case Pattern.VAR(varId)
+                    then varId;
+                case Pattern.NUM(num)
+                    then num;
+                case Pattern.SYMBOL(str)
+                    then stringHashDjb2Mod(str, mod);
+                case Pattern.BINARY(temp_pattern1, temp_pattern2, bop)
+                    then hash(temp_pattern1, mod) + hash(temp_pattern2, mod) + NFEGraph.hashBinaryOp(bop);
+                case Pattern.UNARY(temp_pattern1, uop)
+                    then hash(temp_pattern1, mod) + NFEGraph.hashUnaryOp(uop);
+            end match;
+        end hash;
+
         function matchPattern
             input EClassId id;
             input EGraph egraph;
@@ -486,7 +511,6 @@ public
                 for map in subs_in loop
                     node_list := UnorderedMap.copy(map) :: node_list;
                 end for;
-
                 node_list :=  match (pattern, node)
                     local
                         Integer varId, num1, num2;
@@ -499,6 +523,7 @@ public
 
                     case (Pattern.VAR(varId), _)
                         // case for some common subexpression: e.g. (3*x + 1) + (3*x + 1) -> 2 * (3*x + 1)
+
                         algorithm
                             temp_list := {};
                             for temp_map in node_list loop
@@ -513,7 +538,6 @@ public
                                     temp_list := temp_map :: temp_list;
                                 end if;
                             end for;
-
                         then temp_list;
 
                     case (Pattern.NUM(num1), ENode.NUM(num2))
@@ -537,6 +561,7 @@ public
 
                     case (Pattern.UNARY(temp_pattern1,uop1),ENode.UNARY(temp_id1,uop2))
                         guard(uop1 == uop2) then matchPattern(temp_id1,egraph,temp_pattern1,node_list);
+                    else {};
                 end match;
 
                 subs_out := listAppend(node_list,subs_out);
@@ -550,30 +575,30 @@ public
             input output EGraph egraph;
             output EClassId eclassid;
         protected
-        ENode temp_node;
-        list<ENode> node_list;
+            ENode temp_node;
+            list<ENode> node_list;
         algorithm
             (egraph, eclassid) := match pattern
-            local
-                Integer varId, num;
-                EClassId id1, id2;
-                BinaryOp bop;
-                UnaryOp uop;
-                Pattern temp_pattern1,temp_pattern2;
-                String str;
-            case Pattern.NUM(num) then EGraph.add(ENode.NUM(num), egraph);
-            case Pattern.SYMBOL(str) then EGraph.add(ENode.SYMBOL(str), egraph);
-            case Pattern.BINARY(temp_pattern1, temp_pattern2, bop)
-                algorithm
-                (egraph, id1) := apply(temp_pattern1, sub, egraph);
-                (egraph, id2) := apply(temp_pattern2, sub, egraph);
-                then EGraph.add(ENode.BINARY(id1, id2, bop), egraph);
-            case Pattern.UNARY(temp_pattern1, uop)
-                algorithm
-                (egraph, id1) := apply(temp_pattern1, sub, egraph);
-                then EGraph.add(ENode.UNARY(id1, uop), egraph);
-            case Pattern.VAR(varId) then
-                (egraph, UnorderedMap.getOrFail(varId, sub));
+                local
+                    Integer varId, num;
+                    EClassId id1, id2;
+                    BinaryOp bop;
+                    UnaryOp uop;
+                    Pattern temp_pattern1,temp_pattern2;
+                    String str;
+                case Pattern.NUM(num) then EGraph.add(ENode.NUM(num), egraph);
+                case Pattern.SYMBOL(str) then EGraph.add(ENode.SYMBOL(str), egraph);
+                case Pattern.BINARY(temp_pattern1, temp_pattern2, bop)
+                    algorithm
+                    (egraph, id1) := apply(temp_pattern1, sub, egraph);
+                    (egraph, id2) := apply(temp_pattern2, sub, egraph);
+                    then EGraph.add(ENode.BINARY(id1, id2, bop), egraph);
+                case Pattern.UNARY(temp_pattern1, uop)
+                    algorithm
+                    (egraph, id1) := apply(temp_pattern1, sub, egraph);
+                    then EGraph.add(ENode.UNARY(id1, uop), egraph);
+                case Pattern.VAR(varId) then
+                    (egraph, UnorderedMap.getOrFail(varId, sub));
             end match;
         end apply;
     end Pattern;
@@ -586,15 +611,71 @@ public
             Pattern pattern_in, pattern_out;
         end RULE;
 
-        function matchPattern
+        function hash
             input Rule rule;
-            input EClassId id;
-            input EGraph egraph;
-            output list<UnorderedMap<Integer, EClassId>> subs_out;
+            input Integer mod;
+            output Integer out;
         algorithm
-        subs_out := Pattern.matchPattern(id, egraph, rule.pattern_in);
-        end matchPattern;
+            out :=  intMod(Pattern.hash(rule.pattern_in, mod) * Pattern.hash(rule.pattern_out, mod) + 1, mod);
+        end hash;
+
+        function isEqual
+            input Rule rule1, rule2;
+            output Boolean equal;
+        algorithm
+            equal := (Rule.hash(rule1, 1000) == Rule.hash(rule2, 1000));
+        end isEqual;
 
     end Rule;
+
+    //TODO: Parsing to Rule, Parsing of NFExpression to ENode
+
+    uniontype RuleApplier
+    import NFEGraph.*;
+    public
+
+        record RULEAPPLIER
+            UnorderedSet<Rule> ruleset; // might be terrible
+        end RULEAPPLIER;
+
+        function matchApplyRules
+            input RuleApplier ruleapplier;
+            input output EGraph egraph;
+            output Boolean saturated;
+        protected
+            list<tuple<Rule, EClassId, list<UnorderedMap<Integer, EClassId>>>> subs;
+            tuple<Rule, EClassId, list<UnorderedMap<Integer, EClassId>>> tup;
+            list<UnorderedMap<Integer, EClassId>> subs_part;
+            UnorderedMap<Integer, EClassId> map;
+            EClassId exId, newId;
+            Rule rule;
+            Boolean changed;
+        algorithm
+            // 1st phase: matching of all rules with all eclasses
+            subs := {};
+            for rule in UnorderedSet.toList(ruleapplier.ruleset) loop
+                for exId in UnorderedMap.keyList(egraph.eclasses) loop
+                    subs_part := Pattern.matchPattern(exId, egraph, rule.pattern_in);
+                    subs := match subs_part
+                        case {} then subs;
+                        else (rule, exId, subs_part) :: subs;
+                    end match;
+                end for;
+            end for;
+            // 2nd phase: applying of the found patterns
+            saturated := true;
+            changed := false;
+            for tup in subs loop
+                (rule, exId, subs_part) := tup;
+                for map in subs_part loop
+                    (egraph, newId) := Pattern.apply(rule.pattern_out, map, egraph);
+                    (egraph, changed) := EGraph.union(exId, newId, egraph);
+                    saturated := saturated and (not changed);
+                end for;
+            end for;
+            egraph := EGraph.rebuild(egraph);
+        end matchApplyRules;
+
+    end RuleApplier;
     annotation(__OpenModelica_Interface="frontend");
 end NFEGraph;
