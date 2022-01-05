@@ -19,6 +19,8 @@ public
     algorithm
         op := match bop
             case BinaryOp.ADD then NFOperator.makeAdd(NFType.REAL());
+            case BinaryOp.MUL then NFOperator.makeMul(NFType.REAL());
+            case BinaryOp.POW then NFOperator.makePow(NFType.REAL());
         end match;
     end binaryOpToNFOperator;
 
@@ -424,15 +426,20 @@ public
                     Integer num;
                     EClassId id1,id2;
                     BinaryOp bop;
-
+                    String sym;
                 case ENode.NUM(num)
                     then NFExpression.INTEGER(num);
+                case ENode.SYMBOL(sym)
+                    then NFExpression.STRING(sym);
 
                 case ENode.BINARY(id1,id2,bop)
                     then NFExpression.BINARY(
                         Extractor.build(id1,extractor),
                         binaryOpToNFOperator(bop),
                         Extractor.build(id2,extractor));
+                else algorithm
+                    print("Else Error");
+                    then fail();
             end match;
         end build;
 
@@ -467,6 +474,77 @@ public
             UnaryOp uop;
         end UNARY;
 
+        function fromStringHelper
+            input output StringReader sr;
+            input output UnorderedMap<String,Integer> vars = UnorderedMap.new<Integer>(stringHashDjb2Mod, stringEqual);
+            output Pattern pattern;
+        protected
+            Integer char, num;
+            String strVar, strOp;
+            BinaryOp bop;
+            UnaryOp uop;
+            Option<BinaryOp> optbop;
+            Option<UnaryOp> optuop;
+            Pattern p1, p2;
+        algorithm
+        (sr, char) := StringReader.consume(sr);
+        if char == stringCharInt("(") then
+            strOp := "";
+            while not (StringReader.getNext(sr) == 32) loop // whitespace
+                (sr, char) := StringReader.consume(sr);
+                strOp := stringAppend(strOp, intStringChar(char));
+            end while;
+            (optbop,optuop) := operatorType(strOp);
+            pattern := match (optbop, optuop)
+                case (SOME(bop), _) algorithm
+                    sr := StringReader.consumeSpaces(sr);
+                    (sr, vars, p1) := fromStringHelper(sr, vars);
+                    sr := StringReader.consumeSpaces(sr);
+                    (sr, vars, p2) := fromStringHelper(sr, vars);
+                    sr := StringReader.consumeSpaces(sr);
+                    (sr, char) := StringReader.consume(sr);
+                    if not (char == stringCharInt(")"))
+                        then fail();
+                    end if;
+                    then Pattern.BINARY(p1, p2, bop);
+
+                case (_, SOME(uop)) algorithm
+                    sr := StringReader.consumeSpaces(sr);
+                    (sr, vars, p1) := fromStringHelper(sr, vars);
+                    sr := StringReader.consumeSpaces(sr);
+                    if not (char == stringCharInt(")"))  then
+                        print("missing ')' \n");
+                        fail();
+                    end if;
+                    then Pattern.UNARY(p1, uop);
+
+                else fail();
+
+            end match;
+
+        elseif char == stringCharInt("?")
+            then
+                strVar := "";
+                while isAlpha(StringReader.getNext(sr)) loop
+                    (sr, char) := StringReader.consume(sr);
+                    strVar := stringAppend(strVar, intStringChar(char));
+                end while;
+                pattern := VAR(UnorderedMap.tryAdd(strVar, UnorderedMap.size(vars), vars));
+        elseif char >= stringCharInt("0") and char <= stringCharInt("9")
+            then
+                num := char - stringCharInt("0");
+                while isNumeric(StringReader.getNext(sr)) loop
+                    (sr, char) := StringReader.consume(sr);
+                    num := 10*num  + char - stringCharInt("0");
+                end while;
+                pattern := Pattern.NUM(num);
+        else
+            print("Unexpected character fail");
+            fail();
+        end if;
+
+        end fromStringHelper;
+
         function hash
             input Pattern p;
             input Integer mod;
@@ -482,7 +560,7 @@ public
                 case Pattern.VAR(varId)
                     then varId;
                 case Pattern.NUM(num)
-                    then num;
+                    then 13*(num + 7);
                 case Pattern.SYMBOL(str)
                     then stringHashDjb2Mod(str, mod);
                 case Pattern.BINARY(temp_pattern1, temp_pattern2, bop)
@@ -590,6 +668,7 @@ public
                 case Pattern.SYMBOL(str) then EGraph.add(ENode.SYMBOL(str), egraph);
                 case Pattern.BINARY(temp_pattern1, temp_pattern2, bop)
                     algorithm
+                    // find of ids?
                     (egraph, id1) := apply(temp_pattern1, sub, egraph);
                     (egraph, id2) := apply(temp_pattern2, sub, egraph);
                     then EGraph.add(ENode.BINARY(id1, id2, bop), egraph);
@@ -616,7 +695,7 @@ public
             input Integer mod;
             output Integer out;
         algorithm
-            out :=  intMod(Pattern.hash(rule.pattern_in, mod) * Pattern.hash(rule.pattern_out, mod) + 1, mod);
+            out :=  intMod(Pattern.hash(rule.pattern_in, mod) + 10*Pattern.hash(rule.pattern_out, mod) + 1, mod);
         end hash;
 
         function isEqual
@@ -626,16 +705,33 @@ public
             equal := (Rule.hash(rule1, 1000) == Rule.hash(rule2, 1000));
         end isEqual;
 
+        function fromString
+            input String pattern_in;
+            input String pattern_out;
+            output Rule rule;
+        protected
+            StringReader sr_in;
+            StringReader sr_out;
+            Pattern p1, p2;
+            UnorderedMap<String,Integer> vars;
+        algorithm
+        sr_in := StringReader.new(pattern_in);
+        sr_out := StringReader.new(pattern_out);
+        (, vars, p1) := Pattern.fromStringHelper(sr_in);
+        (, , p2) := Pattern.fromStringHelper(sr_out, vars);
+        rule := Rule.RULE(p1, p2);
+        end fromString;
+
     end Rule;
 
-    //TODO: Parsing to Rule, Parsing of NFExpression to ENode
+    //TODO: Parsing to Rule, Parsing of NFExpression to ENode + printing of enodes/eclasses
 
     uniontype RuleApplier
     import NFEGraph.*;
     public
 
         record RULEAPPLIER
-            UnorderedSet<Rule> ruleset; // might be terrible
+            UnorderedSet<Rule> ruleset;
         end RULEAPPLIER;
 
         function matchApplyRules
@@ -677,5 +773,88 @@ public
         end matchApplyRules;
 
     end RuleApplier;
+
+    uniontype StringReader
+        record STRINGSTATE
+            Integer bias;
+            String string;
+        end STRINGSTATE;
+
+        function new
+            input String str;
+            output StringReader reader = STRINGSTATE(0, str);
+        end new;
+
+        function consume
+            input output StringReader sr;
+            output Integer char;
+        algorithm
+            sr.bias := sr.bias + 1;
+
+            if sr.bias > stringLength(sr.string) then
+                char := -1;
+            else
+                char := stringGet(sr.string, sr.bias);
+            end if;
+        end consume;
+
+        function getNext
+            input StringReader sr;
+            output Integer char;
+        protected
+            Integer bias;
+        algorithm
+            bias := sr.bias + 1;
+
+            if bias > stringLength(sr.string) then
+                char := -1;
+            else
+                char := stringGet(sr.string, bias);
+            end if;
+        end getNext;
+
+        function consumeSpaces
+            input output StringReader sr;
+        algorithm
+            while getNext(sr) == 32 loop
+                sr.bias := sr.bias + 1;
+            end while;
+        end consumeSpaces;
+
+    end StringReader;
+
+    function isAlpha
+        input Integer char;
+        output Boolean bool;
+    algorithm
+    if stringCharInt("a") <= char and char <= stringCharInt("z") then bool := true; else bool := false;
+    end if;
+    end isAlpha;
+
+    function isNumeric
+        input Integer char;
+        output Boolean bool;
+    algorithm
+    if stringCharInt("0") <= char and char <= stringCharInt("9") then bool := true; else bool := false;
+    end if;
+    end isNumeric;
+
+    function operatorType
+        input String strOp;
+        output Option<BinaryOp> bop;
+        output Option<UnaryOp> uop;
+    algorithm
+    bop := NONE();
+    uop := NONE();
+    if stringEqual("+", strOp) then bop := SOME(BinaryOp.ADD);
+    elseif stringEqual("*", strOp) then bop := SOME(BinaryOp.MUL);
+    elseif stringEqual("^", strOp) then bop := SOME(BinaryOp.POW);
+    elseif stringEqual("-", strOp) then uop := SOME(UnaryOp.UMINUS);
+    elseif stringEqual("/", strOp) then uop := SOME(UnaryOp.UDIV);
+    end if;
+
+    end operatorType;
+
     annotation(__OpenModelica_Interface="frontend");
+
 end NFEGraph;
