@@ -690,63 +690,67 @@ protected
   Pattern pattern;
   list<UnorderedMap<Integer, EClassId>> maplist;
   UnorderedMap<Integer, EClassId> subs;
-  Rule rule;
+  Rule rule1, rule2, rule3, rule4, rule5, rule6, rule7;
   RuleApplier ruleapplier;
   Boolean saturated;
+  NFExpression expr;
 algorithm
   egraph := EGraph.new();
 
-  temp_node := ENode.NUM(10);
+  temp_node := ENode.SYMBOL("x");
   (egraph,id1) := EGraph.add(temp_node,egraph);
 
-  temp_node := ENode.NUM(20);
+  temp_node := ENode.NUM(0);
   (egraph,id2) := EGraph.add(temp_node,egraph);
 
-  temp_node := ENode.BINARY(id1, id2, BinaryOp.ADD);
-  (egraph,id3) := EGraph.add(temp_node, egraph);
-
-  temp_node := ENode.NUM(30);
-  (egraph,id4) := EGraph.add(temp_node, egraph);
-
-  temp_node := ENode.NUM(40);
-  (egraph,id5) := EGraph.add(temp_node, egraph);
-
-  temp_node := ENode.BINARY(id4, id5, BinaryOp.ADD);
+  temp_node := ENode.BINARY(id2, id2, BinaryOp.ADD);
   (egraph,id6) := EGraph.add(temp_node, egraph);
 
-   temp_node := ENode.NUM(50);
+  temp_node := ENode.BINARY(id6, id1, BinaryOp.ADD);
+  (egraph,id3) := EGraph.add(temp_node, egraph);
+
+  temp_node := ENode.NUM(1);
+  (egraph,id4) := EGraph.add(temp_node, egraph);
+
+  temp_node := ENode.BINARY(id3, id4, BinaryOp.MUL);
+  (egraph,id5) := EGraph.add(temp_node, egraph);
+
+  temp_node := ENode.BINARY(id5, id1, BinaryOp.MUL);
   (egraph,id7) := EGraph.add(temp_node, egraph);
-
-  temp_node := ENode.NUM(60);
-  (egraph,id8) := EGraph.add(temp_node, egraph);
-
-  temp_node := ENode.BINARY(id4, id5, BinaryOp.ADD);
-  (egraph,id9) := EGraph.add(temp_node, egraph);
-
-  egraph := EGraph.union(id3, id6, egraph);
-  egraph := EGraph.union(id6, id9, egraph);
+  // x * ((0 + 0) + x) * 1) -> x * x
   print("\n");
-  print(intString(UnorderedMap.size(egraph.eclasses))+ "\n");
 
   egraph := EGraph.rebuild(egraph);
-
-  extractor := Extractor.new(egraph);
-  (extractor,dist) := Extractor.extract(id4, extractor);
-  print("Distance: " + intString(dist)+ "\n");
-
-  print("Expression: " + NFExpression.toString(Extractor.build(id4,extractor))+ "\n");
-  rule := Rule.RULE(Pattern.BINARY(Pattern.VAR(1),Pattern.VAR(2), BinaryOp.ADD), Pattern.BINARY(Pattern.VAR(2), Pattern.VAR(1), BinaryOp.ADD));
+  rule1 := Rule.fromString("(+ ?a 0)", "?a");
+  rule2 := Rule.fromString("(+ ?a ?b)", "(+ ?b ?a)");
+  rule3 := Rule.fromString("(* ?a ?b)", "(* ?b ?a)");
+  rule4 := Rule.fromString("(* ?a 1)", "?a");
+  /*print("new \n");
+  print(intString(stringLength("test")));
+  print(intString(stringGet( "test",1)));
+  print(intString(stringCharInt("+"))); */
   ruleapplier := RuleApplier.RULEAPPLIER(UnorderedSet.new(Rule.hash, Rule.isEqual));
-  UnorderedSet.add(rule, ruleapplier.ruleset);
+  UnorderedSet.add(rule1, ruleapplier.ruleset);
+  UnorderedSet.add(rule2, ruleapplier.ruleset);
+  UnorderedSet.add(rule3, ruleapplier.ruleset);
+  UnorderedSet.add(rule4, ruleapplier.ruleset);
   saturated := false;
   counter := 0;
+  print("Size classes: " + intString(UnorderedMap.size(egraph.eclasses))+ "\n");
   while not saturated loop
     (egraph, saturated) := RuleApplier.matchApplyRules(ruleapplier, egraph);
     counter := counter + 1;
   end while;
-  print("Counter: " + intString(counter) + "\n");
+  print("Iterations: " + intString(counter) + "\n");
+  print("Size classes: " + intString(UnorderedMap.size(egraph.eclasses))+ "\n");
 
-
+  extractor := Extractor.new(egraph);
+  (extractor, dist) := Extractor.extract(id7, extractor);
+  print("Distance: " + intString(dist) + "\n");
+  expr := Extractor.build(id7, extractor);
+  print("Build done\n");
+  print(Expression.toString(expr));
+  print("\n");
   exp := match exp
     local
       Operator operator,temp_operator;
