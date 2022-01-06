@@ -5,15 +5,6 @@
 extern "C" {
 #endif
 
-
-/* forwarded equations */
-extern void multary_simplification_eqFunction_2(DATA* data, threadData_t *threadData);
-
-static void functionAlg_system0(DATA *data, threadData_t *threadData)
-{
-  multary_simplification_eqFunction_2(data, threadData);
-  threadData->lastEquationSolved = 2;
-}
 /* for continuous time variables */
 int multary_simplification_functionAlgebraics(DATA *data, threadData_t *threadData)
 {
@@ -24,7 +15,7 @@ int multary_simplification_functionAlgebraics(DATA *data, threadData_t *threadDa
 #endif
   data->simulationInfo->callStatistics.functionAlgebraics++;
 
-  functionAlg_system0(data, threadData);
+  /* no Alg systems */
 
   multary_simplification_function_savePreSynchronous(data, threadData);
 

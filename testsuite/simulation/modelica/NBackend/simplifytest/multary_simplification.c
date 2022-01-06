@@ -89,19 +89,6 @@ int multary_simplification_setc_function(DATA *data, threadData_t *threadData)
 }
 
 
-/*
-equation index: 2
-type: SIMPLE_ASSIGN
-q = 8.0 * (1.0 + time)
-*/
-void multary_simplification_eqFunction_2(DATA *data, threadData_t *threadData)
-{
-  TRACE_PUSH
-  const int equationIndexes[2] = {1,2};
-  data->localData[0]->realVars[0] /* q variable */ = (8.0) * (1.0 + data->localData[0]->timeValue);
-  TRACE_POP
-}
-
 OMC_DISABLE_OPT
 int multary_simplification_functionDAE(DATA *data, threadData_t *threadData)
 {
@@ -114,7 +101,6 @@ int multary_simplification_functionDAE(DATA *data, threadData_t *threadData)
   data->simulationInfo->needToIterate = 0;
   data->simulationInfo->discreteCall = 1;
   multary_simplification_functionLocalKnownVars(data, threadData);
-  multary_simplification_eqFunction_2(data, threadData);
   data->simulationInfo->discreteCall = 0;
 
 #if !defined(OMC_MINIMAL_RUNTIME)
@@ -278,12 +264,12 @@ void multary_simplification_setupDataStruc(DATA *data, threadData_t *threadData)
   data->modelData->runTestsuite = 0;
 
   data->modelData->nStates = 0;
-  data->modelData->nVariablesReal = 1;
+  data->modelData->nVariablesReal = 0;
   data->modelData->nDiscreteReal = 0;
   data->modelData->nVariablesInteger = 0;
   data->modelData->nVariablesBoolean = 0;
   data->modelData->nVariablesString = 0;
-  data->modelData->nParametersReal = 0;
+  data->modelData->nParametersReal = 1;
   data->modelData->nParametersInteger = 0;
   data->modelData->nParametersBoolean = 0;
   data->modelData->nParametersString = 0;
@@ -305,7 +291,7 @@ void multary_simplification_setupDataStruc(DATA *data, threadData_t *threadData)
   data->modelData->modelDataXml.modelInfoXmlLength = 0;
   data->modelData->modelDataXml.nFunctions = 0;
   data->modelData->modelDataXml.nProfileBlocks = 0;
-  data->modelData->modelDataXml.nEquations = 3;
+  data->modelData->modelDataXml.nEquations = 1;
   data->modelData->nMixedSystems = 0;
   data->modelData->nLinearSystems = 0;
   data->modelData->nNonLinearSystems = 0;

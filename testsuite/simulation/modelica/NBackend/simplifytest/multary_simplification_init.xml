@@ -13,7 +13,7 @@
 
   description                         = ""
   generationTool                      = "OpenModelica Compiler OMCompiler v1.19.0-dev.415+g6cd5c98f92"
-  generationDateAndTime               = "2022-01-05T17:44:59Z"
+  generationDateAndTime               = "2022-01-06T22:36:40Z"
 
   variableNamingConvention            = "structured"
 
@@ -27,9 +27,9 @@
   numberOfFunctions                   = "0"  cmt_numberOfFunctions                   = "NFUNC:    number of functions used by the simulation,         OMC"
 
   numberOfContinuousStates            = "0"  cmt_numberOfContinuousStates            = "NX:       number of states,                                   FMI"
-  numberOfRealAlgebraicVariables      = "1"  cmt_numberOfRealAlgebraicVariables      = "NY:       number of real variables,                           OMC"
+  numberOfRealAlgebraicVariables      = "0"  cmt_numberOfRealAlgebraicVariables      = "NY:       number of real variables,                           OMC"
   numberOfRealAlgebraicAliasVariables = "0"  cmt_numberOfRealAlgebraicAliasVariables = "NA:       number of alias variables,                          OMC"
-  numberOfRealParameters              = "0"  cmt_numberOfRealParameters              = "NP:       number of parameters,                               OMC"
+  numberOfRealParameters              = "1"  cmt_numberOfRealParameters              = "NP:       number of parameters,                               OMC"
 
   numberOfIntegerAlgebraicVariables   = "0"  cmt_numberOfIntegerAlgebraicVariables   = "NYINT:    number of alg. int variables,                       OMC"
   numberOfIntegerAliasVariables       = "0"  cmt_numberOfIntegerAliasVariables       = "NAINT:    number of alias int variables,                      OMC"
@@ -60,13 +60,13 @@
   <ScalarVariable
     name = "q"
     valueReference = "1000"
-    variability = "continuous" isDiscrete = "false"
-    causality = "local" isValueChangeable = "false"
+    variability = "parameter" isDiscrete = "true"
+    causality = "local" isValueChangeable = "true"
     alias = "noAlias"
-    classIndex = "0" classType = "rAlg"
+    classIndex = "0" classType = "rPar"
     isProtected = "false" hideResult = "false"
     fileName = "" startLine = "0" startColumn = "0" endLine = "0" endColumn = "0" fileWritable = "true">
-    <Real fixed="false" useNominal="false" />
+    <Real start="0.0" fixed="true" useNominal="false" />
   </ScalarVariable>
 
 

@@ -681,16 +681,12 @@ end checkMultaryOperator;
 function simplifyMultary
   input output Expression exp;
 protected
-  EGraph egraph, egraph_dummy;
+  EGraph egraph;
   ENode temp_node;
   EClassId id1, id2, id3, id4, id5, id6, id7,id8,id9, id10;
-  EClass clazz;
   Extractor extractor;
   Integer dist, counter;
-  Pattern pattern;
-  list<UnorderedMap<Integer, EClassId>> maplist;
   UnorderedMap<Integer, EClassId> subs;
-  Rule rule1, rule2, rule3, rule4, rule5, rule6, rule7;
   RuleApplier ruleapplier;
   Boolean saturated;
   NFExpression expr;
@@ -717,23 +713,22 @@ algorithm
 
   temp_node := ENode.BINARY(id5, id1, BinaryOp.MUL);
   (egraph,id7) := EGraph.add(temp_node, egraph);
+
   // x * ((0 + 0) + x) * 1) -> x * x
   print("\n");
 
   egraph := EGraph.rebuild(egraph);
-  rule1 := Rule.fromString("(+ ?a 0)", "?a");
-  rule2 := Rule.fromString("(+ ?a ?b)", "(+ ?b ?a)");
-  rule3 := Rule.fromString("(* ?a ?b)", "(* ?b ?a)");
-  rule4 := Rule.fromString("(* ?a 1)", "?a");
   /*print("new \n");
   print(intString(stringLength("test")));
   print(intString(stringGet( "test",1)));
   print(intString(stringCharInt("+"))); */
-  ruleapplier := RuleApplier.RULEAPPLIER(UnorderedSet.new(Rule.hash, Rule.isEqual));
-  UnorderedSet.add(rule1, ruleapplier.ruleset);
-  UnorderedSet.add(rule2, ruleapplier.ruleset);
-  UnorderedSet.add(rule3, ruleapplier.ruleset);
-  UnorderedSet.add(rule4, ruleapplier.ruleset);
+  ruleapplier := RuleApplier.RULEAPPLIER({});
+  ruleapplier := RuleApplier.addRules(ruleapplier,
+  {{"(+ ?a 0)", "?a", "neutral-add"},
+  {"(+ ?a ?b)", "(+ ?b ?a)", "comm-add"},
+  {"(* ?a ?b)", "(* ?b ?a)", "comm-mul"},
+  {"(* ?a 1)", "?a","neutral-mul"},
+  {"(* ?a ?a)","(^ ?a 2)", "xx->x^2"}});
   saturated := false;
   counter := 0;
   print("Size classes: " + intString(UnorderedMap.size(egraph.eclasses))+ "\n");

@@ -4,6 +4,12 @@ encapsulated package NFEGraph
     import Array;
     import NFExpression;
 public
+
+    //TODO: Parsing of NFExpression to ENode
+    //     + Analysis
+    //     + better hashes
+    //     + printing of enodes/eclasses
+
     type EClassId = Integer;
     type UnaryOp = enumeration(
         UMINUS,
@@ -475,6 +481,7 @@ public
         end UNARY;
 
         function fromStringHelper
+            "helper for parsing: String -> Rule"
             input output StringReader sr;
             input output UnorderedMap<String,Integer> vars = UnorderedMap.new<Integer>(stringHashDjb2Mod, stringEqual);
             output Pattern pattern;
@@ -542,7 +549,6 @@ public
             print("Unexpected character fail");
             fail();
         end if;
-
         end fromStringHelper;
 
         function hash
@@ -558,7 +564,7 @@ public
                     Pattern temp_pattern1,temp_pattern2;
                     String str;
                 case Pattern.VAR(varId)
-                    then varId;
+                    then 17*varId + 1000;
                 case Pattern.NUM(num)
                     then 13*(num + 7);
                 case Pattern.SYMBOL(str)
@@ -578,10 +584,12 @@ public
             output list<UnorderedMap<Integer, EClassId>> subs_out;
         protected
             EClass eclass;
+            EClassId root_id;
             UnorderedMap<Integer, EClassId> temp_map;
             list<UnorderedMap<Integer, EClassId>> temp_list,node_list;
         algorithm
-            eclass := UnorderedMap.getOrFail(EGraph.find(egraph,id),egraph.eclasses);
+            root_id := EGraph.find(egraph,id);
+            eclass := UnorderedMap.getOrFail(root_id,egraph.eclasses);
             subs_out := {};
             for node in eclass.nodes loop
                 node_list := {};
@@ -606,9 +614,9 @@ public
                             temp_list := {};
                             for temp_map in node_list loop
                                 ok := match UnorderedMap.get(varId,temp_map)
-                                    case SOME(temp_id1) then temp_id1 == id;
+                                    case SOME(temp_id1) then temp_id1 == root_id;
                                     else algorithm
-                                        UnorderedMap.add(varId,id,temp_map);
+                                        UnorderedMap.add(varId,root_id,temp_map);
                                     then true;
                                 end match;
 
@@ -668,7 +676,6 @@ public
                 case Pattern.SYMBOL(str) then EGraph.add(ENode.SYMBOL(str), egraph);
                 case Pattern.BINARY(temp_pattern1, temp_pattern2, bop)
                     algorithm
-                    // find of ids?
                     (egraph, id1) := apply(temp_pattern1, sub, egraph);
                     (egraph, id2) := apply(temp_pattern2, sub, egraph);
                     then EGraph.add(ENode.BINARY(id1, id2, bop), egraph);
@@ -688,6 +695,7 @@ public
 
         record RULE
             Pattern pattern_in, pattern_out;
+            String name;
         end RULE;
 
         function hash
@@ -706,8 +714,10 @@ public
         end isEqual;
 
         function fromString
+            "rule parser: e.g. '(+ ?a 0)', '?a' <=> a + 0 = a"
             input String pattern_in;
             input String pattern_out;
+            input String name;
             output Rule rule;
         protected
             StringReader sr_in;
@@ -719,19 +729,17 @@ public
         sr_out := StringReader.new(pattern_out);
         (, vars, p1) := Pattern.fromStringHelper(sr_in);
         (, , p2) := Pattern.fromStringHelper(sr_out, vars);
-        rule := Rule.RULE(p1, p2);
+        rule := Rule.RULE(p1, p2, name);
         end fromString;
 
     end Rule;
-
-    //TODO: Parsing to Rule, Parsing of NFExpression to ENode + printing of enodes/eclasses
 
     uniontype RuleApplier
     import NFEGraph.*;
     public
 
         record RULEAPPLIER
-            UnorderedSet<Rule> ruleset;
+            list<Rule> rules;
         end RULEAPPLIER;
 
         function matchApplyRules
@@ -749,7 +757,8 @@ public
         algorithm
             // 1st phase: matching of all rules with all eclasses
             subs := {};
-            for rule in UnorderedSet.toList(ruleapplier.ruleset) loop
+            for rule in ruleapplier.rules loop
+                print("match rule name: " + rule.name + "\n");
                 for exId in UnorderedMap.keyList(egraph.eclasses) loop
                     subs_part := Pattern.matchPattern(exId, egraph, rule.pattern_in);
                     subs := match subs_part
@@ -761,16 +770,46 @@ public
             // 2nd phase: applying of the found patterns
             saturated := true;
             changed := false;
+            print("applying rules\n");
             for tup in subs loop
                 (rule, exId, subs_part) := tup;
+
                 for map in subs_part loop
+
                     (egraph, newId) := Pattern.apply(rule.pattern_out, map, egraph);
                     (egraph, changed) := EGraph.union(exId, newId, egraph);
+                    if changed then
+                      print("apply rule name: " + rule.name + "\n");
+                    end if;
                     saturated := saturated and (not changed);
                 end for;
             end for;
             egraph := EGraph.rebuild(egraph);
         end matchApplyRules;
+
+        function addRule
+            "Adds one rule to an applier: (+ ?a 0), ?a, neutral-add "
+            input String pattern_in;
+            input String pattern_out;
+            input String name;
+            input output RuleApplier ra;
+        algorithm
+            ra.rules := Rule.fromString(pattern_in, pattern_out, name) :: ra.rules;
+        end addRule;
+
+        function addRules
+            "Adds multiple rules to an applier: {{(+ ?a 0), ?a, neutral-add},{(+ ?a ?b), (+ ?b ?a), comm-add}}"
+            input output RuleApplier ra;
+            input list<list<String>> rules;
+        protected
+            list<String> rule;
+            String strp1, strp2, name;
+        algorithm
+            for rule in rules loop
+                {strp1, strp2, name} := rule;
+                ra.rules := Rule.fromString(strp1, strp2, name) :: ra.rules;
+            end for;
+        end addRules;
 
     end RuleApplier;
 
@@ -827,7 +866,8 @@ public
         input Integer char;
         output Boolean bool;
     algorithm
-    if stringCharInt("a") <= char and char <= stringCharInt("z") then bool := true; else bool := false;
+    // stringCharInt("a") <= char <= stringCharInt("z")
+    if 97 <= char and char <= 122 then bool := true; else bool := false;
     end if;
     end isAlpha;
 
@@ -835,7 +875,8 @@ public
         input Integer char;
         output Boolean bool;
     algorithm
-    if stringCharInt("0") <= char and char <= stringCharInt("9") then bool := true; else bool := false;
+    // stringCharInt("0") <= char <= stringCharInt("9")
+    if 48 <= char and char <= 57 then bool := true; else bool := false;
     end if;
     end isNumeric;
 
@@ -844,14 +885,14 @@ public
         output Option<BinaryOp> bop;
         output Option<UnaryOp> uop;
     algorithm
-    bop := NONE();
-    uop := NONE();
-    if stringEqual("+", strOp) then bop := SOME(BinaryOp.ADD);
-    elseif stringEqual("*", strOp) then bop := SOME(BinaryOp.MUL);
-    elseif stringEqual("^", strOp) then bop := SOME(BinaryOp.POW);
-    elseif stringEqual("-", strOp) then uop := SOME(UnaryOp.UMINUS);
-    elseif stringEqual("/", strOp) then uop := SOME(UnaryOp.UDIV);
-    end if;
+        bop := NONE();
+        uop := NONE();
+        if stringEqual("+", strOp) then bop := SOME(BinaryOp.ADD);
+        elseif stringEqual("*", strOp) then bop := SOME(BinaryOp.MUL);
+        elseif stringEqual("^", strOp) then bop := SOME(BinaryOp.POW);
+        elseif stringEqual("-", strOp) then uop := SOME(UnaryOp.UMINUS);
+        elseif stringEqual("/", strOp) then uop := SOME(UnaryOp.UDIV);
+        end if;
 
     end operatorType;
 
