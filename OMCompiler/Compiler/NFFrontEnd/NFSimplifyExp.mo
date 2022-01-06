@@ -713,7 +713,6 @@ algorithm
 
   temp_node := ENode.BINARY(id5, id1, BinaryOp.MUL);
   (egraph,id7) := EGraph.add(temp_node, egraph);
-
   // x * ((0 + 0) + x) * 1) -> x * x
   print("\n");
 

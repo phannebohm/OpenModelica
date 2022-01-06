@@ -549,6 +549,10 @@ public
             print("Unexpected character fail");
             fail();
         end if;
+<<<<<<< HEAD
+=======
+
+>>>>>>> ff1f846301c805fad02ec08a0c0036a43952cc7b
         end fromStringHelper;
 
         function hash
@@ -676,6 +680,7 @@ public
                 case Pattern.SYMBOL(str) then EGraph.add(ENode.SYMBOL(str), egraph);
                 case Pattern.BINARY(temp_pattern1, temp_pattern2, bop)
                     algorithm
+                    // find of ids?
                     (egraph, id1) := apply(temp_pattern1, sub, egraph);
                     (egraph, id2) := apply(temp_pattern2, sub, egraph);
                     then EGraph.add(ENode.BINARY(id1, id2, bop), egraph);
