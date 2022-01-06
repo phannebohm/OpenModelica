@@ -549,10 +549,6 @@ public
             print("Unexpected character fail");
             fail();
         end if;
-<<<<<<< HEAD
-=======
-
->>>>>>> ff1f846301c805fad02ec08a0c0036a43952cc7b
         end fromStringHelper;
 
         function hash
