@@ -6,7 +6,6 @@ encapsulated package NFEGraph
 public
 
     //TODO: Parsing of NFExpression to ENode
-    //     + Analysis
     //     + better hashes
     //     + printing of enodes/eclasses
 
@@ -71,7 +70,7 @@ public
     import NFEGraph.*;
     public
         record NUM
-            Integer num;
+            Real num;
         end NUM;
 
         record SYMBOL
@@ -96,7 +95,7 @@ public
         algorithm
             isEqual := match (node1,node2)
                 local
-                    Integer num1,num2;
+                    Real num1,num2;
                     EClassId id1_1,id1_2,id2_1,id2_2;
                     BinaryOp bop1, bop2;
                     UnaryOp uop1, uop2;
@@ -117,13 +116,13 @@ public
         algorithm
             hash := match node
                 local
-                    Integer num;
+                    Real num;
                     EClassId id1, id2;
                     BinaryOp bop;
                     UnaryOp uop;
                     String symbol;
                 case SYMBOL(symbol) then stringHashDjb2Mod(symbol, mod);
-                case NUM(num) then intMod(num, mod);
+                case NUM(num) then intMod(realInt(num), mod);
                 case BINARY(id1, id2, bop) then intMod(100 + id1 * 10 + id2 + 1000 * hashBinaryOp(bop) + 2, mod);
                 case UNARY(id1, uop) then intMod(id1 * 10 + 1000 * hashUnaryOp(uop) + 1, mod);
             end match;
@@ -159,6 +158,16 @@ public
                 case UNARY(_, uop) then UNARY(listGet(children, 1), uop);
             end match;
         end make;
+
+        function isNum
+            input ENode node;
+            output Boolean b;
+        algorithm
+            b := match node
+                case NUM(_) then false;
+                else true;
+            end match;
+        end isNum;
     end ENode;
 
     uniontype EClass
@@ -167,9 +176,9 @@ public
         record ECLASS
             list<ENode> nodes;
             list<tuple<ENode,EClassId>> parents;
+            Option<Real> num;
         end ECLASS;
     end EClass;
-
 
     uniontype UnionFind
     import NFEGraph.*;
@@ -217,9 +226,7 @@ public
                 unionfind.nodes[root2] := root1;
             end if;
         end union;
-
     end UnionFind;
-
 
     encapsulated uniontype EGraph
     import NFEGraph.*;
@@ -238,7 +245,7 @@ public
         end new;
 
         function add
-            "Adds an Enode to the EGraph. If the node is already in the EGraph returns the Enodes id,
+            "Adds an Enode to the EGraph. If the node is already in the EGraph, returns the Enodes id,
             otherwise adds the id to both maps and extends the unionfind."
             input ENode node;
             input output EGraph graph;
@@ -246,7 +253,9 @@ public
         protected
             UnionFind temp;
             EClass child_class;
-            EClassId child_id;
+            EClassId child_id, numid;
+            Option<Real> optnum;
+            Real num;
         algorithm
             try
                 SOME(id) := UnorderedMap.get(node, graph.hashcons);
@@ -254,13 +263,19 @@ public
                 (temp, id) := UnionFind.make(graph.unionfind);
                 graph.unionfind := temp;
                 UnorderedMap.add(node, id, graph.hashcons);
-                UnorderedMap.add(id, ECLASS({node},{}), graph.eclasses);
-
+                optnum := EGraph.getNum(graph, node);
+                UnorderedMap.add(id, ECLASS({node},{}, optnum), graph.eclasses);
                 for child_id in ENode.children(node) loop
                     child_class := UnorderedMap.getSafe(child_id,graph.eclasses);
                     child_class.parents := (node,id) :: child_class.parents;
                     UnorderedMap.add(child_id,child_class,graph.eclasses);
                 end for;
+                // analysis part
+                if isSome(optnum) then
+                    SOME(num) := optnum;
+                    (graph, numid) := EGraph.add(ENode.NUM(num), graph);
+                    graph := EGraph.union(id, numid, graph);
+                end if;
             end try;
         end add;
 
@@ -281,30 +296,39 @@ public
             EClassId new_id1,new_id2;
             EClass class1,class2;
             UnionFind temp;
+            Option<Real> num_new;
         algorithm
-            (temp,new_id1,new_id2) := UnionFind.union(id1, id2, graph.unionfind);
-
+            (temp, new_id1, new_id2) := UnionFind.union(id1, id2, graph.unionfind);
             changed := not (new_id1 == new_id2);
-
             if  changed then
-
                 class1 :=  UnorderedMap.getOrFail(new_id1, graph.eclasses);
                 class2 :=  UnorderedMap.getOrFail(new_id2, graph.eclasses);
-
+                // short part for the analysis
+                num_new := match (class1.num, class2.num)
+                    local
+                        Real num1, num2;
+                    case (NONE(), SOME(num2)) then SOME(num2);
+                    case (SOME(num1), NONE()) then SOME(num1);
+                    case (SOME(num1), SOME(num2)) algorithm
+                        if not(num1 == num2) then // error case
+                            print("constants not equal error");
+                            fail();
+                        end if;
+                        then SOME(num1);
+                    else NONE();
+                end match;
+                // end of analysis part
                 class1.parents := listAppend(class1.parents, class2.parents);
                 class1.nodes := listAppend(class1.nodes, class2.nodes);
-
+                class1.num := num_new;
                 UnorderedMap.add(new_id1, class1, graph.eclasses);
-
                 graph.unionfind := temp;
                 graph.worklist :=  new_id1 :: graph.worklist;
             end if;
-
-
         end union;
 
         function canonicalize
-        "new children of an enode will become the root elements of the old children"
+            "new children of an enode will become the root elements of the old children"
             input EGraph graph;
             input output ENode node;
         protected
@@ -345,7 +369,6 @@ public
                 UnorderedMap.add(node, EGraph.find(graph, id), graph.hashcons);
             end for;
             new_parents := UnorderedMap.new<EClassId>(ENode.hash, ENode.isEqual);
-
             elem := UnorderedMap.getOrFail(eclassid, graph.eclasses);
             for tup in elem.parents loop
                 (node, id) := tup;
@@ -356,9 +379,62 @@ public
                 UnorderedMap.add(node, EGraph.find(graph, id), new_parents);
             end for;
             elem.parents := UnorderedMap.toList(new_parents);
-
             UnorderedMap.add(eclassid,elem,graph.eclasses);
         end repair;
+
+        function getNum
+            "Checks if a enode is actually a constant expression and returns Option of that value
+            - core element of the analysis (combining constants when enodes/classes
+            are added or when two classes get unioned)"
+            input EGraph egraph;
+            input ENode node;
+            output Option<Real> num;
+        algorithm
+            num := match node
+                local
+                    EClass eclass1, eclass2;
+                    EClassId id1,id2;
+                    Real num1,num2;
+                    BinaryOp bop;
+                    UnaryOp uop;
+                    Option<Real> numtemp;
+                case (ENode.BINARY(id1, id2, bop)) algorithm
+                    eclass1 := UnorderedMap.getOrFail(id1, egraph.eclasses);
+                    eclass2 := UnorderedMap.getOrFail(id2, egraph.eclasses);
+                    if not(isNone(eclass1.num)) and not (isNone(eclass2.num)) then
+                        SOME(num1) := eclass1.num;
+                        SOME(num2) := eclass2.num;
+                        numtemp := match bop
+                            case BinaryOp.ADD then
+                                SOME(num1 + num2);
+                            case BinaryOp.MUL then
+                                SOME(num1 * num2);
+                            case BinaryOp.POW then
+                                SOME(num1 ^ num2);
+                            else NONE();
+                        end match;
+                    else numtemp := NONE();
+                    end if;
+                    then numtemp;
+                case (ENode.UNARY(id1, uop)) algorithm
+                    eclass1 := UnorderedMap.getOrFail(id1, egraph.eclasses);
+                    if not(isNone(eclass1.num)) then
+                        SOME(num1) := eclass1.num;
+                        numtemp := match uop
+                            case UnaryOp.UDIV guard (not (num1 == 0)) then
+                                SOME(1/num1);
+                            case UnaryOp.UMINUS then
+                                SOME(-num1);
+                            else NONE();
+                        end match;
+                    else numtemp :=  NONE();
+                    end if;
+                    then numtemp;
+                case ENode.SYMBOL(_) then NONE();
+                case ENode.NUM(num1) then SOME(num1);
+                else NONE();
+            end match;
+        end getNum;
     end EGraph;
 
     uniontype Extractor
@@ -403,7 +479,6 @@ public
                             (extractor, temp) := extract(class_child,extractor);
                             current := temp + current;
                         end for;
-
                         if current < best or first then
                             best := current;
                             best_node := node;
@@ -429,12 +504,12 @@ public
             node := UnorderedMap.getOrFail(temp_start,extractor.best_nodes);
             exp := match node
                 local
-                    Integer num;
+                    Real num;
                     EClassId id1,id2;
                     BinaryOp bop;
                     String sym;
                 case ENode.NUM(num)
-                    then NFExpression.INTEGER(num);
+                    then NFExpression.REAL(num);
                 case ENode.SYMBOL(sym)
                     then NFExpression.STRING(sym);
 
@@ -448,9 +523,6 @@ public
                     then fail();
             end match;
         end build;
-
-
-
     end Extractor;
 
     encapsulated uniontype Pattern
@@ -458,7 +530,7 @@ public
     public
 
         record NUM
-            Integer value;
+            Real value;
         end NUM;
 
         record VAR
@@ -486,7 +558,8 @@ public
             input output UnorderedMap<String,Integer> vars = UnorderedMap.new<Integer>(stringHashDjb2Mod, stringEqual);
             output Pattern pattern;
         protected
-            Integer char, num;
+            Integer char;
+            Real num;
             String strVar, strOp;
             BinaryOp bop;
             UnaryOp uop;
@@ -494,61 +567,55 @@ public
             Option<UnaryOp> optuop;
             Pattern p1, p2;
         algorithm
-        (sr, char) := StringReader.consume(sr);
-        if char == stringCharInt("(") then
-            strOp := "";
-            while not (StringReader.getNext(sr) == 32) loop // whitespace
-                (sr, char) := StringReader.consume(sr);
-                strOp := stringAppend(strOp, intStringChar(char));
-            end while;
-            (optbop,optuop) := operatorType(strOp);
-            pattern := match (optbop, optuop)
-                case (SOME(bop), _) algorithm
-                    sr := StringReader.consumeSpaces(sr);
-                    (sr, vars, p1) := fromStringHelper(sr, vars);
-                    sr := StringReader.consumeSpaces(sr);
-                    (sr, vars, p2) := fromStringHelper(sr, vars);
-                    sr := StringReader.consumeSpaces(sr);
+            (sr, char) := StringReader.consume(sr);
+            if char == stringCharInt("(") then
+                strOp := "";
+                while not (StringReader.getNext(sr) == 32) loop // whitespace
                     (sr, char) := StringReader.consume(sr);
-                    if not (char == stringCharInt(")"))
-                        then fail();
-                    end if;
-                    then Pattern.BINARY(p1, p2, bop);
-
-                case (_, SOME(uop)) algorithm
-                    sr := StringReader.consumeSpaces(sr);
-                    (sr, vars, p1) := fromStringHelper(sr, vars);
-                    sr := StringReader.consumeSpaces(sr);
-                    if not (char == stringCharInt(")"))  then
-                        print("missing ')' \n");
-                        fail();
-                    end if;
-                    then Pattern.UNARY(p1, uop);
-
-                else fail();
-
-            end match;
-
-        elseif char == stringCharInt("?")
-            then
+                    strOp := stringAppend(strOp, intStringChar(char));
+                end while;
+                (optbop,optuop) := operatorType(strOp);
+                pattern := match (optbop, optuop)
+                    case (SOME(bop), _) algorithm
+                        sr := StringReader.consumeSpaces(sr);
+                        (sr, vars, p1) := fromStringHelper(sr, vars);
+                        sr := StringReader.consumeSpaces(sr);
+                        (sr, vars, p2) := fromStringHelper(sr, vars);
+                        sr := StringReader.consumeSpaces(sr);
+                        (sr, char) := StringReader.consume(sr);
+                        if not (char == stringCharInt(")"))
+                            then fail();
+                        end if;
+                        then Pattern.BINARY(p1, p2, bop);
+                    case (_, SOME(uop)) algorithm
+                        sr := StringReader.consumeSpaces(sr);
+                        (sr, vars, p1) := fromStringHelper(sr, vars);
+                        sr := StringReader.consumeSpaces(sr);
+                        if not (char == stringCharInt(")"))  then
+                            print("missing ')' \n");
+                            fail();
+                        end if;
+                        then Pattern.UNARY(p1, uop);
+                    else fail();
+                end match;
+            elseif char == stringCharInt("?") then
                 strVar := "";
                 while isAlpha(StringReader.getNext(sr)) loop
                     (sr, char) := StringReader.consume(sr);
                     strVar := stringAppend(strVar, intStringChar(char));
                 end while;
                 pattern := VAR(UnorderedMap.tryAdd(strVar, UnorderedMap.size(vars), vars));
-        elseif char >= stringCharInt("0") and char <= stringCharInt("9")
-            then
+            elseif char >= stringCharInt("0") and char <= stringCharInt("9") then
                 num := char - stringCharInt("0");
                 while isNumeric(StringReader.getNext(sr)) loop
                     (sr, char) := StringReader.consume(sr);
                     num := 10*num  + char - stringCharInt("0");
                 end while;
                 pattern := Pattern.NUM(num);
-        else
-            print("Unexpected character fail");
-            fail();
-        end if;
+            else
+                print("Unexpected character fail");
+                fail();
+            end if;
         end fromStringHelper;
 
         function hash
@@ -558,7 +625,8 @@ public
         algorithm
             out := match p
                 local
-                    Integer varId, num;
+                    Integer varId;
+                    Real num;
                     BinaryOp bop;
                     UnaryOp uop;
                     Pattern temp_pattern1,temp_pattern2;
@@ -566,7 +634,7 @@ public
                 case Pattern.VAR(varId)
                     then 17*varId + 1000;
                 case Pattern.NUM(num)
-                    then 13*(num + 7);
+                    then 13*(realInt(num) + 7);
                 case Pattern.SYMBOL(str)
                     then stringHashDjb2Mod(str, mod);
                 case Pattern.BINARY(temp_pattern1, temp_pattern2, bop)
@@ -593,66 +661,53 @@ public
             subs_out := {};
             for node in eclass.nodes loop
                 node_list := {};
-
                 for map in subs_in loop
                     node_list := UnorderedMap.copy(map) :: node_list;
                 end for;
                 node_list :=  match (pattern, node)
                     local
-                        Integer varId, num1, num2;
+                        Integer varId;
+                        Real num1, num2;
                         BinaryOp bop1,bop2;
                         UnaryOp uop1,uop2;
                         EClassId temp_id1,temp_id2;
                         Pattern temp_pattern1,temp_pattern2;
                         String str1, str2;
                         Boolean ok;
-
-                    case (Pattern.VAR(varId), _)
-                        // case for some common subexpression: e.g. (3*x + 1) + (3*x + 1) -> 2 * (3*x + 1)
-
-                        algorithm
-                            temp_list := {};
-                            for temp_map in node_list loop
-                                ok := match UnorderedMap.get(varId,temp_map)
-                                    case SOME(temp_id1) then temp_id1 == root_id;
-                                    else algorithm
-                                        UnorderedMap.add(varId,root_id,temp_map);
-                                    then true;
-                                end match;
-
-                                if ok then
-                                    temp_list := temp_map :: temp_list;
-                                end if;
-                            end for;
+                    case (Pattern.VAR(varId), _) algorithm
+                        // case for common subexpression: e.g. (3*x + 1) + (3*x + 1) -> 2 * (3*x + 1)
+                        temp_list := {};
+                        for temp_map in node_list loop
+                            ok := match UnorderedMap.get(varId,temp_map)
+                                case SOME(temp_id1) then temp_id1 == root_id;
+                                else algorithm
+                                    UnorderedMap.add(varId,root_id,temp_map);
+                                then true;
+                            end match;
+                            if ok then
+                                temp_list := temp_map :: temp_list;
+                            end if;
+                        end for;
                         then temp_list;
-
-                    case (Pattern.NUM(num1), ENode.NUM(num2))
+                    case (Pattern.NUM(num1), ENode.NUM(num2)) algorithm
                         // case to insure that a number in the pattern corresponds to a enode number
-                        algorithm
                         if num1 == num2 then temp_list := node_list; else temp_list := {}; end if;
                         then temp_list;
-
-                    case (Pattern.SYMBOL(str1), ENode.SYMBOL(str2))
+                    case (Pattern.SYMBOL(str1), ENode.SYMBOL(str2)) algorithm
                         // case to insure that a hard coded symbol in the pattern corresponds to a enode symbol
                         // special case of VAR
-                        algorithm
                         if str1 == str2 then temp_list := node_list; else temp_list := {}; end if;
                         then temp_list;
-
                     // simple recursion
                     case (Pattern.BINARY(temp_pattern1,temp_pattern2,bop1),ENode.BINARY(temp_id1,temp_id2,bop2))
                         guard(bop1 == bop2)
-                        algorithm
                         then matchPattern(temp_id2,egraph,temp_pattern2, matchPattern(temp_id1,egraph,temp_pattern1,node_list));
-
                     case (Pattern.UNARY(temp_pattern1,uop1),ENode.UNARY(temp_id1,uop2))
                         guard(uop1 == uop2) then matchPattern(temp_id1,egraph,temp_pattern1,node_list);
                     else {};
                 end match;
-
                 subs_out := listAppend(node_list,subs_out);
             end for;
-
         end matchPattern;
 
         function apply
@@ -666,7 +721,8 @@ public
         algorithm
             (egraph, eclassid) := match pattern
                 local
-                    Integer varId, num;
+                    Integer varId;
+                    Real num;
                     EClassId id1, id2;
                     BinaryOp bop;
                     UnaryOp uop;
@@ -726,13 +782,12 @@ public
             Pattern p1, p2;
             UnorderedMap<String,Integer> vars;
         algorithm
-        sr_in := StringReader.new(pattern_in);
-        sr_out := StringReader.new(pattern_out);
-        (, vars, p1) := Pattern.fromStringHelper(sr_in);
-        (, , p2) := Pattern.fromStringHelper(sr_out, vars);
-        rule := Rule.RULE(p1, p2, name);
+            sr_in := StringReader.new(pattern_in);
+            sr_out := StringReader.new(pattern_out);
+            (, vars, p1) := Pattern.fromStringHelper(sr_in);
+            (, , p2) := Pattern.fromStringHelper(sr_out, vars);
+            rule := Rule.RULE(p1, p2, name);
         end fromString;
-
     end Rule;
 
     uniontype RuleApplier
@@ -758,6 +813,7 @@ public
         algorithm
             // 1st phase: matching of all rules with all eclasses
             subs := {};
+            print("--matching rules--\n");
             for rule in ruleapplier.rules loop
                 print("match rule name: " + rule.name + "\n");
                 for exId in UnorderedMap.keyList(egraph.eclasses) loop
@@ -771,12 +827,10 @@ public
             // 2nd phase: applying of the found patterns
             saturated := true;
             changed := false;
-            print("applying rules\n");
+            print("--applying rules--\n");
             for tup in subs loop
                 (rule, exId, subs_part) := tup;
-
                 for map in subs_part loop
-
                     (egraph, newId) := Pattern.apply(rule.pattern_out, map, egraph);
                     (egraph, changed) := EGraph.union(exId, newId, egraph);
                     if changed then
@@ -803,15 +857,14 @@ public
             input output RuleApplier ra;
             input list<list<String>> rules;
         protected
-            list<String> rule;
+            list<String> strrule;
             String strp1, strp2, name;
         algorithm
-            for rule in rules loop
-                {strp1, strp2, name} := rule;
+            for strrule in rules loop
+                {strp1, strp2, name} := strrule;
                 ra.rules := Rule.fromString(strp1, strp2, name) :: ra.rules;
             end for;
         end addRules;
-
     end RuleApplier;
 
     uniontype StringReader
@@ -860,25 +913,24 @@ public
                 sr.bias := sr.bias + 1;
             end while;
         end consumeSpaces;
-
     end StringReader;
 
     function isAlpha
         input Integer char;
         output Boolean bool;
     algorithm
-    // stringCharInt("a") <= char <= stringCharInt("z")
-    if 97 <= char and char <= 122 then bool := true; else bool := false;
-    end if;
+        // stringCharInt("a") <= char <= stringCharInt("z")
+        if 97 <= char and char <= 122 then bool := true; else bool := false;
+        end if;
     end isAlpha;
 
     function isNumeric
         input Integer char;
         output Boolean bool;
     algorithm
-    // stringCharInt("0") <= char <= stringCharInt("9")
-    if 48 <= char and char <= 57 then bool := true; else bool := false;
-    end if;
+        // stringCharInt("0") <= char <= stringCharInt("9")
+        if 48 <= char and char <= 57 then bool := true; else bool := false;
+        end if;
     end isNumeric;
 
     function operatorType
@@ -894,9 +946,6 @@ public
         elseif stringEqual("-", strOp) then uop := SOME(UnaryOp.UMINUS);
         elseif stringEqual("/", strOp) then uop := SOME(UnaryOp.UDIV);
         end if;
-
     end operatorType;
-
     annotation(__OpenModelica_Interface="frontend");
-
 end NFEGraph;

@@ -683,7 +683,7 @@ function simplifyMultary
 protected
   EGraph egraph;
   ENode temp_node;
-  EClassId id1, id2, id3, id4, id5, id6, id7,id8,id9, id10;
+  EClassId id1, id2, id3, id4, id5, id6, id7, id8, id9, id10;
   Extractor extractor;
   Integer dist, counter;
   UnorderedMap<Integer, EClassId> subs;
@@ -696,7 +696,7 @@ algorithm
   temp_node := ENode.SYMBOL("x");
   (egraph,id1) := EGraph.add(temp_node,egraph);
 
-  temp_node := ENode.NUM(0);
+  temp_node := ENode.NUM(3);
   (egraph,id2) := EGraph.add(temp_node,egraph);
 
   temp_node := ENode.BINARY(id2, id2, BinaryOp.ADD);
@@ -705,7 +705,7 @@ algorithm
   temp_node := ENode.BINARY(id6, id1, BinaryOp.ADD);
   (egraph,id3) := EGraph.add(temp_node, egraph);
 
-  temp_node := ENode.NUM(1);
+  temp_node := ENode.NUM(0);
   (egraph,id4) := EGraph.add(temp_node, egraph);
 
   temp_node := ENode.BINARY(id3, id4, BinaryOp.MUL);
@@ -717,16 +717,13 @@ algorithm
   print("\n");
 
   egraph := EGraph.rebuild(egraph);
-  /*print("new \n");
-  print(intString(stringLength("test")));
-  print(intString(stringGet( "test",1)));
-  print(intString(stringCharInt("+"))); */
   ruleapplier := RuleApplier.RULEAPPLIER({});
   ruleapplier := RuleApplier.addRules(ruleapplier,
   {{"(+ ?a 0)", "?a", "neutral-add"},
   {"(+ ?a ?b)", "(+ ?b ?a)", "comm-add"},
   {"(* ?a ?b)", "(* ?b ?a)", "comm-mul"},
   {"(* ?a 1)", "?a","neutral-mul"},
+  {"(* 0 ?a)", "0", "0-mul"},
   {"(* ?a ?a)","(^ ?a 2)", "xx->x^2"}});
   saturated := false;
   counter := 0;
