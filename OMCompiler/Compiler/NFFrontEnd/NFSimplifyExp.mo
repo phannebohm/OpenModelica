@@ -685,8 +685,9 @@ protected
   ENode temp_node;
   EClassId id1, id2, id3, id4, id5, id6, id7, id8, id9, id10;
   Extractor extractor;
-  Integer dist, counter;
+  Integer dist, counter, sizestart;
   UnorderedMap<Integer, EClassId> subs;
+  Rule r;
   RuleApplier ruleapplier;
   Boolean saturated;
   NFExpression expr;
@@ -696,7 +697,7 @@ algorithm
   temp_node := ENode.SYMBOL("x");
   (egraph,id1) := EGraph.add(temp_node,egraph);
 
-  temp_node := ENode.NUM(3);
+  temp_node := ENode.NUM(0);
   (egraph,id2) := EGraph.add(temp_node,egraph);
 
   temp_node := ENode.BINARY(id2, id2, BinaryOp.ADD);
@@ -705,7 +706,7 @@ algorithm
   temp_node := ENode.BINARY(id6, id1, BinaryOp.ADD);
   (egraph,id3) := EGraph.add(temp_node, egraph);
 
-  temp_node := ENode.NUM(0);
+  temp_node := ENode.NUM(1);
   (egraph,id4) := EGraph.add(temp_node, egraph);
 
   temp_node := ENode.BINARY(id3, id4, BinaryOp.MUL);
@@ -713,6 +714,20 @@ algorithm
 
   temp_node := ENode.BINARY(id5, id1, BinaryOp.MUL);
   (egraph,id7) := EGraph.add(temp_node, egraph);
+
+  /*temp_node := ENode.SYMBOL("x");
+  (egraph,id1) := EGraph.add(temp_node,egraph);
+  temp_node := ENode.NUM(7);
+  (egraph,id3) := EGraph.add(temp_node,egraph);
+  temp_node := ENode.UNARY(id1, UnaryOp.UMINUS);
+  (egraph,id2) := EGraph.add(temp_node, egraph);
+  temp_node := ENode.BINARY(id1, id3, BinaryOp.ADD);
+  (egraph,id4) := EGraph.add(temp_node, egraph);
+  temp_node := ENode.BINARY(id4, id2, BinaryOp.ADD);
+  (egraph,id6) := EGraph.add(temp_node, egraph);
+  temp_node := ENode.BINARY(id6, id6, BinaryOp.ADD);
+  (egraph,id7) := EGraph.add(temp_node, egraph);*/
+
   // x * ((0 + 0) + x) * 1) -> x * x
   print("\n");
 
@@ -720,18 +735,25 @@ algorithm
   ruleapplier := RuleApplier.RULEAPPLIER({});
   ruleapplier := RuleApplier.addRules(ruleapplier,
   {{"(+ ?a 0)", "?a", "neutral-add"},
+  {"(* ?a 1)", "?a","neutral-mul"},
+  {"(+ ?a (- ?a))", "0", "inv-add"},
+  {"(* ?a (/ ?a))", "1", "inv-mul"},
   {"(+ ?a ?b)", "(+ ?b ?a)", "comm-add"},
   {"(* ?a ?b)", "(* ?b ?a)", "comm-mul"},
-  {"(* ?a 1)", "?a","neutral-mul"},
+  {"(+ ?a (+ ?b ?c))", "(+ (+ ?a ?b) ?c))", "assoc-add"},
+  {"(* ?a (* ?b ?c))", "(* (* ?a ?b) ?c))", "assoc-mul"},
   {"(* 0 ?a)", "0", "0-mul"},
   {"(* ?a ?a)","(^ ?a 2)", "xx->x^2"}});
   saturated := false;
   counter := 0;
-  print("Size classes: " + intString(UnorderedMap.size(egraph.eclasses))+ "\n");
-  while not saturated loop
+  sizestart := UnorderedMap.size(egraph.eclasses);
+  print("Size classes: " + intString(sizestart) + "\n");
+  while not saturated and counter < sizestart loop
     (egraph, saturated) := RuleApplier.matchApplyRules(ruleapplier, egraph);
     counter := counter + 1;
+
   end while;
+  if saturated then print("saturated! \n"); end if;
   print("Iterations: " + intString(counter) + "\n");
   print("Size classes: " + intString(UnorderedMap.size(egraph.eclasses))+ "\n");
 
