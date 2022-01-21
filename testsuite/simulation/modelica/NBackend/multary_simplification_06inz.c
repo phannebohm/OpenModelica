@@ -9,78 +9,35 @@ extern "C" {
 void multary_simplification_functionInitialEquations_0(DATA *data, threadData_t *threadData);
 
 /*
+equation index: 2
+type: SIMPLE_ASSIGN
+y = -8.0 * time
+*/
+void multary_simplification_eqFunction_2(DATA *data, threadData_t *threadData)
+{
+  TRACE_PUSH
+  const int equationIndexes[2] = {1,2};
+  data->localData[0]->realVars[1] /* y variable */ = (-((8.0) * (data->localData[0]->timeValue)));
+  TRACE_POP
+}
+
+/*
 equation index: 1
 type: SIMPLE_ASSIGN
-z = time ^ (3.0 + time)
+x = 2.0 * (-7.0 + time)
 */
 void multary_simplification_eqFunction_1(DATA *data, threadData_t *threadData)
 {
   TRACE_PUSH
   const int equationIndexes[2] = {1,1};
-  modelica_real tmp0;
-  modelica_real tmp1;
-  modelica_real tmp2;
-  modelica_real tmp3;
-  modelica_real tmp4;
-  modelica_real tmp5;
-  modelica_real tmp6;
-  tmp0 = data->localData[0]->timeValue;
-  tmp1 = 3.0 + data->localData[0]->timeValue;
-  if(tmp0 < 0.0 && tmp1 != 0.0)
-  {
-    tmp3 = modf(tmp1, &tmp4);
-
-    if(tmp3 > 0.5)
-    {
-      tmp3 -= 1.0;
-      tmp4 += 1.0;
-    }
-    else if(tmp3 < -0.5)
-    {
-      tmp3 += 1.0;
-      tmp4 -= 1.0;
-    }
-
-    if(fabs(tmp3) < 1e-10)
-      tmp2 = pow(tmp0, tmp4);
-    else
-    {
-      tmp6 = modf(1.0/tmp1, &tmp5);
-      if(tmp6 > 0.5)
-      {
-        tmp6 -= 1.0;
-        tmp5 += 1.0;
-      }
-      else if(tmp6 < -0.5)
-      {
-        tmp6 += 1.0;
-        tmp5 -= 1.0;
-      }
-      if(fabs(tmp6) < 1e-10 && ((unsigned long)tmp5 & 1))
-      {
-        tmp2 = -pow(-tmp0, tmp3)*pow(tmp0, tmp4);
-      }
-      else
-      {
-        throwStreamPrint(threadData, "%s:%d: Invalid root: (%g)^(%g)", __FILE__, __LINE__, tmp0, tmp1);
-      }
-    }
-  }
-  else
-  {
-    tmp2 = pow(tmp0, tmp1);
-  }
-  if(isnan(tmp2) || isinf(tmp2))
-  {
-    throwStreamPrint(threadData, "%s:%d: Invalid root: (%g)^(%g)", __FILE__, __LINE__, tmp0, tmp1);
-  }
-  data->localData[0]->realVars[0] /* z variable */ = tmp2;
+  data->localData[0]->realVars[0] /* x variable */ = (2.0) * (-7.0 + data->localData[0]->timeValue);
   TRACE_POP
 }
 OMC_DISABLE_OPT
 void multary_simplification_functionInitialEquations_0(DATA *data, threadData_t *threadData)
 {
   TRACE_PUSH
+  multary_simplification_eqFunction_2(data, threadData);
   multary_simplification_eqFunction_1(data, threadData);
   TRACE_POP
 }

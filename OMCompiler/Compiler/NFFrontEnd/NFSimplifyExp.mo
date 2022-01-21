@@ -67,17 +67,72 @@ function simplifyDump
   input String indent = "";
 algorithm
   res := simplify(exp);
+  //if Flags.isSet(Flags.DUMP_SIMPLIFY) and not Expression.isEqual(exp, res) then
+    print(indent + "### dumpSimplify | " + name + " ###\n");
+    print(indent + "[BEFORE] " + Expression.toString(exp) + "\n");
+    print(indent + "[AFTER ] " + Expression.toString(res) + "\n\n");
+  //end if;
+end simplifyDump;
+
+function simplifyEgraph
+  "egraph simplification"
+  input Expression exp;
+  output Expression res;
+  input String name = "";
+  input String indent = "";
+  protected
+    EGraph egraph;
+    EClassId rootId;
+    Extractor extractor;
+    Integer dist, counter, sizestart;
+    RuleApplier ruleApplier;
+    Boolean saturated;
+algorithm
+  print("----simplifyEgraph-----\n");
+  print(Expression.toString(exp) + "\n");
+  (egraph, rootId) := EGraph.newFromExp(exp,EGraph.new());
+  ruleApplier := RuleApplier.RULEAPPLIER({});
+  ruleApplier := RuleApplier.addRules(ruleApplier,
+  {{"(+ ?a 0)", "?a", "neutral-add"},
+  {"(* ?a 1)", "?a","neutral-mul"},
+  {"(+ ?a (- ?a))", "0", "inv-add"},
+  {"(* ?a (/ ?a))", "1", "inv-mul"},
+  {"(+ ?a ?b)", "(+ ?b ?a)", "comm-add"},
+  {"(* ?a ?b)", "(* ?b ?a)", "comm-mul"},
+  {"(+ ?a (+ ?b ?c))", "(+ (+ ?a ?b) ?c))", "assoc-add"},
+  {"(* ?a (* ?b ?c))", "(* (* ?a ?b) ?c))", "assoc-mul"},
+  {"(* 0 ?a)", "0", "0-mul"},
+  {"(* ?a ?a)","(^ ?a 2)", "xx->x^2"},
+  {"(^ ?a 0)","1", "pow-0"},
+  {"(^ ?a 1)","?a", "pow-1"},
+  {"(* (^ ?a ?b) (^ ?a ?c))","(^ ?a (+ ?b ?c))", "pow-rule1"}});
+  saturated := false;
+  counter := 0;
+  sizestart := UnorderedMap.size(egraph.eclasses);
+  print("Size classes: " + intString(sizestart) + "\n");
+  while not saturated and counter < sizestart loop
+    (egraph, saturated) := RuleApplier.matchApplyRules(ruleApplier, egraph);
+    counter := counter + 1;
+  end while;
+  if saturated then print("saturated! \n"); end if;
+  print("Iterations: " + intString(counter) + "\n");
+  print("Size classes: " + intString(UnorderedMap.size(egraph.eclasses))+ "\n");
+  extractor := Extractor.new(egraph);
+  (extractor, dist) := Extractor.extract(rootId, extractor);
+  print("Distance: " + intString(dist) + "\n");
+  res := Extractor.build(rootId, extractor);
   if Flags.isSet(Flags.DUMP_SIMPLIFY) and not Expression.isEqual(exp, res) then
     print(indent + "### dumpSimplify | " + name + " ###\n");
     print(indent + "[BEFORE] " + Expression.toString(exp) + "\n");
     print(indent + "[AFTER ] " + Expression.toString(res) + "\n\n");
   end if;
-end simplifyDump;
+end simplifyEgraph;
+
 
 function simplify
   input output Expression exp;
 algorithm
-  exp := match exp
+  /*exp := match exp
     case Expression.CREF()
       algorithm
         exp.cref := ComponentRef.simplifySubscripts(exp.cref);
@@ -116,7 +171,8 @@ algorithm
     case Expression.BOX()               then Expression.BOX(simplify(exp.exp));
     case Expression.MUTABLE()           then simplify(Mutable.access(exp.exp));
     else exp;
-  end match;
+  end match;*/
+  exp := simplifyEgraph(exp);
 end simplify;
 
 function simplifyOpt
@@ -692,9 +748,9 @@ protected
   Boolean saturated;
   NFExpression expr;
 algorithm
-  egraph := EGraph.new();
+  /*egraph := EGraph.new();
 
-  temp_node := ENode.SYMBOL("x");
+  temp_node := ENode.NUM(5);
   (egraph,id1) := EGraph.add(temp_node,egraph);
 
   temp_node := ENode.NUM(0);
@@ -715,7 +771,7 @@ algorithm
   temp_node := ENode.BINARY(id5, id1, BinaryOp.MUL);
   (egraph,id7) := EGraph.add(temp_node, egraph);
 
-  /*temp_node := ENode.SYMBOL("x");
+  temp_node := ENode.SYMBOL("x");
   (egraph,id1) := EGraph.add(temp_node,egraph);
   temp_node := ENode.NUM(7);
   (egraph,id3) := EGraph.add(temp_node,egraph);
@@ -726,7 +782,7 @@ algorithm
   temp_node := ENode.BINARY(id4, id2, BinaryOp.ADD);
   (egraph,id6) := EGraph.add(temp_node, egraph);
   temp_node := ENode.BINARY(id6, id6, BinaryOp.ADD);
-  (egraph,id7) := EGraph.add(temp_node, egraph);*/
+  (egraph,id7) := EGraph.add(temp_node, egraph);
 
   // x * ((0 + 0) + x) * 1) -> x * x
   print("\n");
@@ -763,7 +819,7 @@ algorithm
   expr := Extractor.build(id7, extractor);
   print("Build done\n");
   print(Expression.toString(expr));
-  print("\n");
+  print("\n");*/
   exp := match exp
     local
       Operator operator,temp_operator;

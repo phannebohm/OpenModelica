@@ -90,72 +90,27 @@ int multary_simplification_setc_function(DATA *data, threadData_t *threadData)
 
 
 /*
-equation index: 2
+equation index: 4
 type: SIMPLE_ASSIGN
-z = time ^ (3.0 + time)
+x = 2.0 * (-7.0 + time)
 */
-void multary_simplification_eqFunction_2(DATA *data, threadData_t *threadData)
+void multary_simplification_eqFunction_4(DATA *data, threadData_t *threadData)
 {
   TRACE_PUSH
-  const int equationIndexes[2] = {1,2};
-  modelica_real tmp0;
-  modelica_real tmp1;
-  modelica_real tmp2;
-  modelica_real tmp3;
-  modelica_real tmp4;
-  modelica_real tmp5;
-  modelica_real tmp6;
-  tmp0 = data->localData[0]->timeValue;
-  tmp1 = 3.0 + data->localData[0]->timeValue;
-  if(tmp0 < 0.0 && tmp1 != 0.0)
-  {
-    tmp3 = modf(tmp1, &tmp4);
-
-    if(tmp3 > 0.5)
-    {
-      tmp3 -= 1.0;
-      tmp4 += 1.0;
-    }
-    else if(tmp3 < -0.5)
-    {
-      tmp3 += 1.0;
-      tmp4 -= 1.0;
-    }
-
-    if(fabs(tmp3) < 1e-10)
-      tmp2 = pow(tmp0, tmp4);
-    else
-    {
-      tmp6 = modf(1.0/tmp1, &tmp5);
-      if(tmp6 > 0.5)
-      {
-        tmp6 -= 1.0;
-        tmp5 += 1.0;
-      }
-      else if(tmp6 < -0.5)
-      {
-        tmp6 += 1.0;
-        tmp5 -= 1.0;
-      }
-      if(fabs(tmp6) < 1e-10 && ((unsigned long)tmp5 & 1))
-      {
-        tmp2 = -pow(-tmp0, tmp3)*pow(tmp0, tmp4);
-      }
-      else
-      {
-        throwStreamPrint(threadData, "%s:%d: Invalid root: (%g)^(%g)", __FILE__, __LINE__, tmp0, tmp1);
-      }
-    }
-  }
-  else
-  {
-    tmp2 = pow(tmp0, tmp1);
-  }
-  if(isnan(tmp2) || isinf(tmp2))
-  {
-    throwStreamPrint(threadData, "%s:%d: Invalid root: (%g)^(%g)", __FILE__, __LINE__, tmp0, tmp1);
-  }
-  data->localData[0]->realVars[0] /* z variable */ = tmp2;
+  const int equationIndexes[2] = {1,4};
+  data->localData[0]->realVars[0] /* x variable */ = (2.0) * (-7.0 + data->localData[0]->timeValue);
+  TRACE_POP
+}
+/*
+equation index: 3
+type: SIMPLE_ASSIGN
+y = -8.0 * time
+*/
+void multary_simplification_eqFunction_3(DATA *data, threadData_t *threadData)
+{
+  TRACE_PUSH
+  const int equationIndexes[2] = {1,3};
+  data->localData[0]->realVars[1] /* y variable */ = (-((8.0) * (data->localData[0]->timeValue)));
   TRACE_POP
 }
 
@@ -171,7 +126,9 @@ int multary_simplification_functionDAE(DATA *data, threadData_t *threadData)
   data->simulationInfo->needToIterate = 0;
   data->simulationInfo->discreteCall = 1;
   multary_simplification_functionLocalKnownVars(data, threadData);
-  multary_simplification_eqFunction_2(data, threadData);
+  multary_simplification_eqFunction_4(data, threadData);
+
+  multary_simplification_eqFunction_3(data, threadData);
   data->simulationInfo->discreteCall = 0;
 
 #if !defined(OMC_MINIMAL_RUNTIME)
@@ -305,7 +262,7 @@ void multary_simplification_setupDataStruc(DATA *data, threadData_t *threadData)
   data->modelData->modelFilePrefix = "multary_simplification";
   data->modelData->resultFileName = NULL;
   data->modelData->modelDir = "";
-  data->modelData->modelGUID = "{e2238895-f77c-49d8-a7ec-727fb1cabd73}";
+  data->modelData->modelGUID = "{c742b2dd-4bb3-4a1c-b83e-55835b623ab6}";
   #if defined(OPENMODELICA_XML_FROM_FILE_AT_RUNTIME)
   data->modelData->initXMLData = NULL;
   data->modelData->modelDataXml.infoXMLData = NULL;
@@ -335,7 +292,7 @@ void multary_simplification_setupDataStruc(DATA *data, threadData_t *threadData)
   data->modelData->runTestsuite = 0;
 
   data->modelData->nStates = 0;
-  data->modelData->nVariablesReal = 1;
+  data->modelData->nVariablesReal = 2;
   data->modelData->nDiscreteReal = 0;
   data->modelData->nVariablesInteger = 0;
   data->modelData->nVariablesBoolean = 0;
@@ -362,7 +319,7 @@ void multary_simplification_setupDataStruc(DATA *data, threadData_t *threadData)
   data->modelData->modelDataXml.modelInfoXmlLength = 0;
   data->modelData->modelDataXml.nFunctions = 0;
   data->modelData->modelDataXml.nProfileBlocks = 0;
-  data->modelData->modelDataXml.nEquations = 3;
+  data->modelData->modelDataXml.nEquations = 5;
   data->modelData->nMixedSystems = 0;
   data->modelData->nLinearSystems = 0;
   data->modelData->nNonLinearSystems = 0;

@@ -3,6 +3,9 @@ encapsulated package NFEGraph
     import UnorderedSet;
     import Array;
     import NFExpression;
+    import ComponentRef = NFComponentRef;
+    import NFOperator.Op;
+    import Operator = NFOperator;
 public
 
     //TODO: Parsing of NFExpression to ENode
@@ -62,6 +65,19 @@ public
         end match;
     end hashBinaryOp;
 
+    function neutralElementBinaryOp
+        input BinaryOp bop;
+        output ENode node;
+    algorithm
+        node := match bop
+            case BinaryOp.ADD
+                then ENode.NUM(0);
+            case BinaryOp.MUL
+                then ENode.NUM(1);
+            else fail();        // later more e.g. unit matrix
+        end match;
+    end neutralElementBinaryOp;
+
     function compareUnaryOp
         input UnaryOp uop1, uop2;
         output Boolean equals;
@@ -84,7 +100,7 @@ public
         end NUM;
 
         record SYMBOL
-            String str;
+            ComponentRef cref;
         end SYMBOL;
 
         record UNARY
@@ -109,11 +125,11 @@ public
                     EClassId id1_1,id1_2,id2_1,id2_2;
                     BinaryOp bop1, bop2;
                     UnaryOp uop1, uop2;
-                    String str1,str2;
+                    ComponentRef cref1,cref2;
                 case (ENode.NUM(num1),ENode.NUM(num2))
                     then num1 == num2;
-                case (ENode.SYMBOL(str1),ENode.SYMBOL(str2))
-                    then stringEqual(str1,str2);
+                case (ENode.SYMBOL(cref1), ENode.SYMBOL(cref2))
+                    then ComponentRef.isEqual(cref1, cref2);
                 case (ENode.BINARY(id1_1,id1_2,bop1),ENode.BINARY(id2_1,id2_2,bop2))
                     then id1_1 == id2_1 and id1_2 == id2_2 and compareBinaryOp(bop1, bop2);
                 case (ENode.UNARY(id1_1, uop1), ENode.UNARY(id2_1, uop2))
@@ -133,8 +149,8 @@ public
                     EClassId id1, id2;
                     BinaryOp bop;
                     UnaryOp uop;
-                    String symbol;
-                case SYMBOL(symbol) then stringHashDjb2Mod(symbol, mod);
+                    ComponentRef cref;
+                case SYMBOL(cref) then ComponentRef.hash(cref, mod);
                 case NUM(num) then intMod(realInt(num), mod);
                 case BINARY(id1, id2, bop) then intMod(100 + id1 * 10 + id2 + 1000 * hashBinaryOp(bop) + 2, mod);
                 case UNARY(id1, uop) then intMod(id1 * 10 + 1000 * hashUnaryOp(uop) + 1, mod);
@@ -257,6 +273,120 @@ public
         algorithm
             egraph := EGraph.EGRAPH(UnorderedMap.new<EClassId>(ENode.hash, ENode.isEqual),UnionFind.new(),UnorderedMap.new<EClass>(intMod,intEq),{});
         end new;
+
+        function binaryByOperator
+            input NFExpression exp1, exp2;
+            input NFOperator op;
+            input output EGraph graph;
+            output EClassId id;
+        algorithm
+            (graph, id) :=  match op.op
+            local
+                EClassId tmp_id, id1, id2, id3;
+                EGraph tmp_graph = graph;
+                    case Op.ADD algorithm
+                        (tmp_graph, id1) := newFromExp(exp1,tmp_graph);
+                        (tmp_graph, id2) := newFromExp(exp2,tmp_graph);
+                        then EGraph.add(ENode.BINARY(id1, id2, BinaryOp.ADD), tmp_graph);
+                    case Op.SUB algorithm
+                        (tmp_graph,id1) := newFromExp(exp1,tmp_graph);
+                        (tmp_graph,id2) := newFromExp(exp2,tmp_graph);
+                        (tmp_graph,id3) := EGraph.add(ENode.UNARY(id2, UnaryOp.UMINUS), tmp_graph);
+                        then EGraph.add(ENode.BINARY(id1, id3, BinaryOp.ADD), tmp_graph);
+                    case Op.MUL algorithm
+                        (tmp_graph,id1) := newFromExp(exp1,tmp_graph);
+                        (tmp_graph,id2) := newFromExp(exp2,tmp_graph);
+                        then EGraph.add(ENode.BINARY(id1, id2, BinaryOp.MUL), tmp_graph);
+                    case Op.DIV algorithm
+                        (tmp_graph,id1) := newFromExp(exp1,tmp_graph);
+                        (tmp_graph,id2) := newFromExp(exp2,tmp_graph);
+                        (tmp_graph,id3) := EGraph.add(ENode.UNARY(id2, UnaryOp.UDIV), tmp_graph);
+                        then EGraph.add(ENode.BINARY(id1, id3, BinaryOp.MUL), tmp_graph);
+                    case Op.POW algorithm
+                        (tmp_graph,id1) := newFromExp(exp1,tmp_graph);
+                        (tmp_graph,id2) := newFromExp(exp2,tmp_graph);
+                        then EGraph.add(ENode.BINARY(id1, id2, BinaryOp.POW), tmp_graph);
+                    else algorithm
+                        Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " Operator error!"});
+                    then fail();
+            end match;
+        end binaryByOperator;
+
+        function multaryByOperator
+            input list<NFExpression> arguments, inv_arguments;
+            input NFOperator op;
+            input output EGraph graph;
+            output EClassId id;
+        protected
+            NFExpression arg, inv_arg;
+            EClassId idNew, idNewTemp;
+            BinaryOp chainOp;
+            UnaryOp invOp;
+        algorithm
+            (chainOp, invOp) := match op.op
+                case Op.ADD then (BinaryOp.ADD, UnaryOp.UMINUS);
+                case Op.MUL then (BinaryOp.MUL, UnaryOp.UDIV);
+                else fail();
+            end match;
+            if listLength(arguments) == 0 and listLength(inv_arguments) == 0 then
+                (graph, id) := EGraph.add(neutralElementBinaryOp(chainOp), graph);
+            elseif listLength(arguments) == 1 and listLength(inv_arguments) == 0 then
+                (graph, id) := newFromExp(listGet(arguments, 1), graph);
+            elseif listLength(arguments) == 0 and listLength(inv_arguments) == 1 then
+                (graph, id) := newFromExp(listGet(inv_arguments, 1), graph);
+            else
+                id := -1;
+                for arg in arguments loop
+                    (graph, idNew) :=  newFromExp(arg, graph);
+                    if id == -1 then
+                        id := idNew;
+                    else
+                        (graph, id) := EGraph.add(ENode.BINARY(id, idNew, chainOp), graph);
+                    end if;
+                end for;
+                for inv_arg in inv_arguments loop
+                    (graph, idNewTemp) := newFromExp(inv_arg, graph);
+                    (graph, idNew) := EGraph.add(ENode.UNARY(idNewTemp, invOp), graph);
+                    if id == -1 then
+                        id := idNew;
+                    else
+                        (graph, id) := EGraph.add(ENode.BINARY(id, idNew, chainOp), graph);
+                    end if;
+                end for;
+            end if;
+        end multaryByOperator;
+
+
+        function newFromExp
+            input NFExpression exp;
+            input output EGraph graph = EGraph.new();
+            output EClassId id;
+        algorithm
+            (graph, id) := match exp
+                local
+                    NFExpression exp1, exp2;
+                    Operator op;
+                    EClassId tmp_id, id1, id2, id3;
+                    Real num;
+                    Integer i;
+                    ComponentRef cref;
+                    EGraph tmp_graph = graph;
+                    list<NFExpression> arguments, inv_arguments;
+                case NFExpression.MULTARY(arguments, inv_arguments, op)
+                    then multaryByOperator(arguments, inv_arguments, op, graph);
+                case NFExpression.BINARY(exp1, op, exp2)
+                    then binaryByOperator(exp1,exp2,op,graph);
+                case NFExpression.REAL(num)
+                    then EGraph.add(ENode.NUM(num), graph);
+                case NFExpression.INTEGER(i)
+                    then EGraph.add(ENode.NUM(intReal(i)), graph);
+                case NFExpression.CREF(cref = cref)
+                    then EGraph.add(ENode.SYMBOL(cref), graph);
+                else algorithm Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for expression: " + NFExpression.toString(exp)});
+                    then fail();
+            end match;
+        end newFromExp;
+
 
         function add
             "Adds an Enode to the EGraph. If the node is already in the EGraph, returns the Enodes id,
@@ -520,11 +650,11 @@ public
                     EClassId id1,id2;
                     UnaryOp uop;
                     BinaryOp bop;
-                    String sym;
+                    ComponentRef cref;
                 case ENode.NUM(num)
                     then NFExpression.REAL(num);
-                case ENode.SYMBOL(sym)
-                    then NFExpression.STRING(sym);
+                case ENode.SYMBOL(cref)
+                    then NFExpression.CREF(NFType.REAL(), cref);
                 case ENode.UNARY(id1, uop) guard(not compareUnaryOp(uop, UnaryOp.UDIV))
                     then NFExpression.UNARY(
                         unaryOpToNFOperator(uop),
@@ -715,11 +845,11 @@ public
                             // case to insure that a number in the pattern corresponds to a enode number
                             if num1 == num2 then temp_list := node_list; else temp_list := {}; end if;
                             then temp_list;
-                        case (Pattern.SYMBOL(str1), ENode.SYMBOL(str2)) algorithm
+                        /*case (Pattern.SYMBOL(str1), ENode.SYMBOL(str2)) algorithm
                             // case to insure that a hard coded symbol in the pattern corresponds to a enode symbol
                             // special case of VAR
                             if str1 == str2 then temp_list := node_list; else temp_list := {}; end if;
-                            then temp_list;
+                            then temp_list;*/ // TODO MAYBE
                         // simple recursion
                         case (Pattern.BINARY(temp_pattern1,temp_pattern2,bop1),ENode.BINARY(temp_id1,temp_id2,bop2))
                             guard(bop1 == bop2)
@@ -751,7 +881,7 @@ public
                     Pattern temp_pattern1,temp_pattern2;
                     String str;
                 case Pattern.NUM(num) then EGraph.add(ENode.NUM(num), egraph);
-                case Pattern.SYMBOL(str) then EGraph.add(ENode.SYMBOL(str), egraph);
+                //case Pattern.SYMBOL(str) then EGraph.add(ENode.SYMBOL(str), egraph); TODO MAYBE
                 case Pattern.BINARY(temp_pattern1, temp_pattern2, bop)
                     algorithm
                     (egraph, id1) := apply(temp_pattern1, sub, egraph);

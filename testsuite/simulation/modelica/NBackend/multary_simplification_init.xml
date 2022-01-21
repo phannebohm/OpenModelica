@@ -9,11 +9,11 @@
 
   OPENMODELICAHOME                    = "/home/llangenkamp/OpenModelica/build/bin/.."
 
-  guid                                = "{e2238895-f77c-49d8-a7ec-727fb1cabd73}"
+  guid                                = "{c742b2dd-4bb3-4a1c-b83e-55835b623ab6}"
 
   description                         = ""
   generationTool                      = "OpenModelica Compiler OMCompiler v1.19.0-dev.431+g3379db1584"
-  generationDateAndTime               = "2022-01-21T17:08:21Z"
+  generationDateAndTime               = "2022-01-19T16:43:39Z"
 
   variableNamingConvention            = "structured"
 
@@ -27,7 +27,7 @@
   numberOfFunctions                   = "0"  cmt_numberOfFunctions                   = "NFUNC:    number of functions used by the simulation,         OMC"
 
   numberOfContinuousStates            = "0"  cmt_numberOfContinuousStates            = "NX:       number of states,                                   FMI"
-  numberOfRealAlgebraicVariables      = "1"  cmt_numberOfRealAlgebraicVariables      = "NY:       number of real variables,                           OMC"
+  numberOfRealAlgebraicVariables      = "2"  cmt_numberOfRealAlgebraicVariables      = "NY:       number of real variables,                           OMC"
   numberOfRealAlgebraicAliasVariables = "0"  cmt_numberOfRealAlgebraicAliasVariables = "NA:       number of alias variables,                          OMC"
   numberOfRealParameters              = "0"  cmt_numberOfRealParameters              = "NP:       number of parameters,                               OMC"
 
@@ -58,12 +58,23 @@
   <ModelVariables>
 
   <ScalarVariable
-    name = "z"
+    name = "x"
     valueReference = "1000"
     variability = "continuous" isDiscrete = "false"
     causality = "local" isValueChangeable = "false"
     alias = "noAlias"
     classIndex = "0" classType = "rAlg"
+    isProtected = "false" hideResult = "false"
+    fileName = "" startLine = "0" startColumn = "0" endLine = "0" endColumn = "0" fileWritable = "true">
+    <Real fixed="false" useNominal="false" />
+  </ScalarVariable>
+  <ScalarVariable
+    name = "y"
+    valueReference = "1001"
+    variability = "continuous" isDiscrete = "false"
+    causality = "local" isValueChangeable = "false"
+    alias = "noAlias"
+    classIndex = "1" classType = "rAlg"
     isProtected = "false" hideResult = "false"
     fileName = "" startLine = "0" startColumn = "0" endLine = "0" endColumn = "0" fileWritable = "true">
     <Real fixed="false" useNominal="false" />
