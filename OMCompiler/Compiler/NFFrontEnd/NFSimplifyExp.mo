@@ -100,6 +100,8 @@ algorithm
   {"(+ ?a ?b)", "(+ ?b ?a)", "comm-add"},
   {"(* ?a ?b)", "(* ?b ?a)", "comm-mul"},
   {"(+ ?a (+ ?b ?c))", "(+ (+ ?a ?b) ?c))", "assoc-add"},
+  {"(+ ?a ?a)","(* 2 ?a)", "a+a->2a"},
+  {"(+ ?a (* ?b ?a))","(* (+ ?b 1) ?a)", "a + b*a-> (b+1)a"},
   {"(* ?a (* ?b ?c))", "(* (* ?a ?b) ?c))", "assoc-mul"},
   {"(* 0 ?a)", "0", "0-mul"},
   {"(* ?a ?a)","(^ ?a 2)", "xx->x^2"},
@@ -112,6 +114,7 @@ algorithm
   print("Size classes: " + intString(sizestart) + "\n");
   while not saturated and counter < sizestart loop
     (egraph, saturated) := RuleApplier.matchApplyRules(ruleApplier, egraph);
+    //EGraph.printAll(rootId, egraph);
     counter := counter + 1;
   end while;
   if saturated then print("saturated! \n"); end if;

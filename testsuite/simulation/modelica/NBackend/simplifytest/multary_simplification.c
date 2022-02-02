@@ -90,14 +90,14 @@ int multary_simplification_setc_function(DATA *data, threadData_t *threadData)
 
 
 /*
-equation index: 2
+equation index: 1
 type: SIMPLE_ASSIGN
-z = time ^ (3.0 + time)
+z = time ^ (4.0 * time + 1.0 + q)
 */
-void multary_simplification_eqFunction_2(DATA *data, threadData_t *threadData)
+void multary_simplification_eqFunction_1(DATA *data, threadData_t *threadData)
 {
   TRACE_PUSH
-  const int equationIndexes[2] = {1,2};
+  const int equationIndexes[2] = {1,1};
   modelica_real tmp0;
   modelica_real tmp1;
   modelica_real tmp2;
@@ -106,7 +106,7 @@ void multary_simplification_eqFunction_2(DATA *data, threadData_t *threadData)
   modelica_real tmp5;
   modelica_real tmp6;
   tmp0 = data->localData[0]->timeValue;
-  tmp1 = 3.0 + data->localData[0]->timeValue;
+  tmp1 = (4.0) * (data->localData[0]->timeValue) + 1.0 + data->localData[0]->realVars[1] /* q variable */;
   if(tmp0 < 0.0 && tmp1 != 0.0)
   {
     tmp3 = modf(tmp1, &tmp4);
@@ -171,7 +171,7 @@ int multary_simplification_functionDAE(DATA *data, threadData_t *threadData)
   data->simulationInfo->needToIterate = 0;
   data->simulationInfo->discreteCall = 1;
   multary_simplification_functionLocalKnownVars(data, threadData);
-  multary_simplification_eqFunction_2(data, threadData);
+  multary_simplification_eqFunction_1(data, threadData);
   data->simulationInfo->discreteCall = 0;
 
 #if !defined(OMC_MINIMAL_RUNTIME)
@@ -305,7 +305,7 @@ void multary_simplification_setupDataStruc(DATA *data, threadData_t *threadData)
   data->modelData->modelFilePrefix = "multary_simplification";
   data->modelData->resultFileName = NULL;
   data->modelData->modelDir = "";
-  data->modelData->modelGUID = "{e2238895-f77c-49d8-a7ec-727fb1cabd73}";
+  data->modelData->modelGUID = "{9b4a747c-54c6-404b-87e0-0dd161d2cef1}";
   #if defined(OPENMODELICA_XML_FROM_FILE_AT_RUNTIME)
   data->modelData->initXMLData = NULL;
   data->modelData->modelDataXml.infoXMLData = NULL;
@@ -335,7 +335,7 @@ void multary_simplification_setupDataStruc(DATA *data, threadData_t *threadData)
   data->modelData->runTestsuite = 0;
 
   data->modelData->nStates = 0;
-  data->modelData->nVariablesReal = 1;
+  data->modelData->nVariablesReal = 2;
   data->modelData->nDiscreteReal = 0;
   data->modelData->nVariablesInteger = 0;
   data->modelData->nVariablesBoolean = 0;
@@ -362,7 +362,7 @@ void multary_simplification_setupDataStruc(DATA *data, threadData_t *threadData)
   data->modelData->modelDataXml.modelInfoXmlLength = 0;
   data->modelData->modelDataXml.nFunctions = 0;
   data->modelData->modelDataXml.nProfileBlocks = 0;
-  data->modelData->modelDataXml.nEquations = 3;
+  data->modelData->modelDataXml.nEquations = 2;
   data->modelData->nMixedSystems = 0;
   data->modelData->nLinearSystems = 0;
   data->modelData->nNonLinearSystems = 0;

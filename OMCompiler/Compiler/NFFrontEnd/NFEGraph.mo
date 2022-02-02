@@ -8,9 +8,9 @@ encapsulated package NFEGraph
     import Operator = NFOperator;
 public
 
-    //TODO: Parsing of NFExpression to ENode
+    //TODO: Multary? Restrictions? -> Assoc
     //     + better hashes
-    //     + printing of enodes/eclasses
+
 
     type EClassId = Integer;
     type UnaryOp = enumeration(
@@ -31,6 +31,27 @@ public
             case BinaryOp.POW then NFOperator.makePow(NFType.REAL());
         end match;
     end binaryOpToNFOperator;
+
+    function binaryOpToString
+        input BinaryOp bop;
+        output String op;
+    algorithm
+        op := match bop
+            case BinaryOp.ADD then "+";
+            case BinaryOp.MUL then "*";
+            case BinaryOp.POW then "^";
+        end match;
+    end binaryOpToString;
+
+    function unaryOpToString
+        input UnaryOp uop;
+        output String op;
+    algorithm
+        op := match uop
+            case UnaryOp.UMINUS then "-";
+            case UnaryOp.UDIV then "1/"; // doens't really make sense since there is no unary 1/x op in NFOperator
+        end match;
+    end unaryOpToString;
 
     function unaryOpToNFOperator
         input UnaryOp uop;
@@ -576,6 +597,74 @@ public
                 else NONE();
             end match;
         end getNum;
+
+        function printAll
+        "function to print all expressions of the egraph"
+            input EClassId id;
+            input EGraph egraph;
+        protected
+            list<String> allstrings;
+        algorithm
+            allstrings := allExpressions(id, egraph);
+            print("All expressions:\n");
+            print("size: " + intString(listLength(allstrings)) + "\n");
+            for tempString in allstrings loop
+                print(tempString  + "\n");
+            end for;
+        end printAll;
+
+        function allExpressions
+            input EClassId id;
+            input EGraph egraph;
+            output list<String> allstrings;
+        protected
+            EClass eclass;
+            ENode node;
+            EClassId temp_id;
+            String out;
+            list<String> tempList;
+            Boolean b;
+        algorithm
+            allstrings := {};
+            temp_id := EGraph.find(egraph, id);
+            eclass := UnorderedMap.getOrFail(temp_id, egraph.eclasses);
+            for node in eclass.nodes loop
+                b := match node
+                    local
+                        ComponentRef cref;
+                        EClassId id1,id2;
+                        BinaryOp bop;
+                        UnaryOp uop;
+                        String tempString1, tempString2, tempString3;
+                        Real num;
+                        list<String> list1, list2;
+                    case (ENode.BINARY(id1, id2, bop)) algorithm
+                        list1 := allExpressions(id1, egraph);
+                        list2 := allExpressions(id2, egraph);
+                        for tempString1 in list1 loop
+                            for tempString2 in list2 loop
+                                tempString3 := "(" +  binaryOpToString(bop) + " " + tempString1 + " " + tempString2 + ")";
+                                allstrings := tempString3 :: allstrings;
+                            end for;
+                        end for;
+                        then true;
+                    case (ENode.UNARY(id1, uop)) algorithm
+                        list1 := allExpressions(id1, egraph);
+                        for tempString1 in list1 loop
+                            tempString3 := "(" + unaryOpToString(uop) + " " + tempString1 + ")";
+                            allstrings := tempString3 :: allstrings;
+                        end for;
+                        then true;
+                    case ENode.SYMBOL(cref) algorithm
+                        allstrings := NFComponentRef.toString(cref) :: allstrings;
+                        then true;
+                    case ENode.NUM(num) algorithm
+                        allstrings := realString(num) :: allstrings;
+                        then true;
+                    else false;
+                end match;
+            end for;
+        end allExpressions;
     end EGraph;
 
     uniontype Extractor
