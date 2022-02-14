@@ -108,7 +108,8 @@ algorithm
   {"(^ ?a 0)","1", "pow-0"},
   {"(^ ?a 1)","?a", "pow-1"},
   {"(* (^ ?a ?b) (^ ?a ?c))","(^ ?a (+ ?b ?c))", "pow-rule1"},
-  {"(/ (^ ?a ?c))","(^ ?a (- ?c))", "pow-rule2"}});
+  {"(/ (^ ?a ?c))","(^ ?a (- ?c))", "pow-rule2"},
+  {"(- ?a))", "(* -1 ?a)", "uminus=-1"}});
   saturated := false;
   counter := 0;
   sizestart := UnorderedMap.size(egraph.eclasses);
@@ -117,7 +118,7 @@ algorithm
     (egraph, saturated) := RuleApplier.matchApplyRules(ruleApplier, egraph);
     counter := counter + 1;
   end while;
-  // EGraph.printAll(rootId, egraph);
+  //EGraph.printAll(rootId, egraph);
   if saturated then print("saturated! \n"); end if;
   print("Iterations: " + intString(counter) + "\n");
   print("Size classes: " + intString(UnorderedMap.size(egraph.eclasses))+ "\n");
@@ -125,14 +126,14 @@ algorithm
   (extractor, dist) := Extractor.extract(rootId, extractor);
   print("Distance: " + intString(dist) + "\n");
   res := Extractor.build(rootId, extractor);
-  print("return: " + Expression.toString(res) + "\n");
+  print("return: " + Expression.toString(res) + "\n" + "--------------- \n");
 end simplifyEgraph;
 
 
 function simplify
   input output Expression exp;
 algorithm
-  /*exp := match exp
+  exp := match exp
     case Expression.CREF()
       algorithm
         exp.cref := ComponentRef.simplifySubscripts(exp.cref);
@@ -157,9 +158,9 @@ algorithm
 
     case Expression.CALL()              then simplifyCall(exp);
     case Expression.SIZE()              then simplifySize(exp);
-    case Expression.MULTARY()           then simplifyMultary(exp);
-    case Expression.BINARY()            then simplifyBinary(exp);
-    case Expression.UNARY()             then simplifyUnary(exp);
+    case Expression.MULTARY()           then simplifyEgraph(exp);
+    case Expression.BINARY()            then simplifyEgraph(exp);
+    case Expression.UNARY()             then simplifyEgraph(exp);
     case Expression.LBINARY()           then simplifyLogicBinary(exp);
     case Expression.LUNARY()            then simplifyLogicUnary(exp);
     case Expression.RELATION()          then simplifyRelation(exp);
@@ -171,8 +172,7 @@ algorithm
     case Expression.BOX()               then Expression.BOX(simplify(exp.exp));
     case Expression.MUTABLE()           then simplify(Mutable.access(exp.exp));
     else exp;
-  end match;*/
-  exp := simplifyEgraph(exp);
+  end match;
 end simplify;
 
 function simplifyOpt

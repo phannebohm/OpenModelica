@@ -7,12 +7,12 @@ extern "C" {
 
 
 /* forwarded equations */
-extern void multary_simplification_eqFunction_2(DATA* data, threadData_t *threadData);
+extern void multary_simplification_eqFunction_1(DATA* data, threadData_t *threadData);
 
 static void functionAlg_system0(DATA *data, threadData_t *threadData)
 {
-  multary_simplification_eqFunction_2(data, threadData);
-  threadData->lastEquationSolved = 2;
+  multary_simplification_eqFunction_1(data, threadData);
+  threadData->lastEquationSolved = 1;
 }
 /* for continuous time variables */
 int multary_simplification_functionAlgebraics(DATA *data, threadData_t *threadData)

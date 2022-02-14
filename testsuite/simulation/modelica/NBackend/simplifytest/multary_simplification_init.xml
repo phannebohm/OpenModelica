@@ -9,11 +9,11 @@
 
   OPENMODELICAHOME                    = "/home/llangenkamp/OpenModelica/build/bin/.."
 
-  guid                                = "{57285989-f49b-45db-9898-9d1a264c9801}"
+  guid                                = "{a1991c27-8b0c-4a57-be79-677331b62b02}"
 
   description                         = ""
   generationTool                      = "OpenModelica Compiler OMCompiler v1.19.0-dev.431+g3379db1584"
-  generationDateAndTime               = "2022-02-14T16:32:32Z"
+  generationDateAndTime               = "2022-02-14T17:05:19Z"
 
   variableNamingConvention            = "structured"
 

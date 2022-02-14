@@ -90,15 +90,15 @@ int multary_simplification_setc_function(DATA *data, threadData_t *threadData)
 
 
 /*
-equation index: 2
+equation index: 1
 type: SIMPLE_ASSIGN
-z = 5.0 * time
+z = 5.0 + (-time)
 */
-void multary_simplification_eqFunction_2(DATA *data, threadData_t *threadData)
+void multary_simplification_eqFunction_1(DATA *data, threadData_t *threadData)
 {
   TRACE_PUSH
-  const int equationIndexes[2] = {1,2};
-  data->localData[0]->realVars[0] /* z variable */ = (5.0) * (data->localData[0]->timeValue);
+  const int equationIndexes[2] = {1,1};
+  data->localData[0]->realVars[0] /* z variable */ = 5.0 + (-data->localData[0]->timeValue);
   TRACE_POP
 }
 
@@ -114,7 +114,7 @@ int multary_simplification_functionDAE(DATA *data, threadData_t *threadData)
   data->simulationInfo->needToIterate = 0;
   data->simulationInfo->discreteCall = 1;
   multary_simplification_functionLocalKnownVars(data, threadData);
-  multary_simplification_eqFunction_2(data, threadData);
+  multary_simplification_eqFunction_1(data, threadData);
   data->simulationInfo->discreteCall = 0;
 
 #if !defined(OMC_MINIMAL_RUNTIME)
@@ -248,7 +248,7 @@ void multary_simplification_setupDataStruc(DATA *data, threadData_t *threadData)
   data->modelData->modelFilePrefix = "multary_simplification";
   data->modelData->resultFileName = NULL;
   data->modelData->modelDir = "";
-  data->modelData->modelGUID = "{57285989-f49b-45db-9898-9d1a264c9801}";
+  data->modelData->modelGUID = "{a1991c27-8b0c-4a57-be79-677331b62b02}";
   #if defined(OPENMODELICA_XML_FROM_FILE_AT_RUNTIME)
   data->modelData->initXMLData = NULL;
   data->modelData->modelDataXml.infoXMLData = NULL;
@@ -305,7 +305,7 @@ void multary_simplification_setupDataStruc(DATA *data, threadData_t *threadData)
   data->modelData->modelDataXml.modelInfoXmlLength = 0;
   data->modelData->modelDataXml.nFunctions = 0;
   data->modelData->modelDataXml.nProfileBlocks = 0;
-  data->modelData->modelDataXml.nEquations = 3;
+  data->modelData->modelDataXml.nEquations = 2;
   data->modelData->nMixedSystems = 0;
   data->modelData->nLinearSystems = 0;
   data->modelData->nNonLinearSystems = 0;

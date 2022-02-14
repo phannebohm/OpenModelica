@@ -304,30 +304,30 @@ public
         algorithm
             (graph, id) :=  match op.op
             local
-                EClassId tmp_id, id1, id2, id3;
-                EGraph tmp_graph = graph;
+                EClassId id1, id2, id3;
+                EGraph tmpGraph = graph;
                     case Op.ADD algorithm
-                        (tmp_graph, id1) := newFromExp(exp1,tmp_graph);
-                        (tmp_graph, id2) := newFromExp(exp2,tmp_graph);
-                        then EGraph.add(ENode.BINARY(id1, id2, BinaryOp.ADD), tmp_graph);
+                        (tmpGraph, id1) := newFromExp(exp1,tmpGraph);
+                        (tmpGraph, id2) := newFromExp(exp2,tmpGraph);
+                        then EGraph.add(ENode.BINARY(id1, id2, BinaryOp.ADD), tmpGraph);
                     case Op.SUB algorithm
-                        (tmp_graph,id1) := newFromExp(exp1,tmp_graph);
-                        (tmp_graph,id2) := newFromExp(exp2,tmp_graph);
-                        (tmp_graph,id3) := EGraph.add(ENode.UNARY(id2, UnaryOp.UMINUS), tmp_graph);
-                        then EGraph.add(ENode.BINARY(id1, id3, BinaryOp.ADD), tmp_graph);
+                        (tmpGraph,id1) := newFromExp(exp1,tmpGraph);
+                        (tmpGraph,id2) := newFromExp(exp2,tmpGraph);
+                        (tmpGraph,id3) := EGraph.add(ENode.UNARY(id2, UnaryOp.UMINUS), tmpGraph);
+                        then EGraph.add(ENode.BINARY(id1, id3, BinaryOp.ADD), tmpGraph);
                     case Op.MUL algorithm
-                        (tmp_graph,id1) := newFromExp(exp1,tmp_graph);
-                        (tmp_graph,id2) := newFromExp(exp2,tmp_graph);
-                        then EGraph.add(ENode.BINARY(id1, id2, BinaryOp.MUL), tmp_graph);
+                        (tmpGraph,id1) := newFromExp(exp1,tmpGraph);
+                        (tmpGraph,id2) := newFromExp(exp2,tmpGraph);
+                        then EGraph.add(ENode.BINARY(id1, id2, BinaryOp.MUL), tmpGraph);
                     case Op.DIV algorithm
-                        (tmp_graph,id1) := newFromExp(exp1,tmp_graph);
-                        (tmp_graph,id2) := newFromExp(exp2,tmp_graph);
-                        (tmp_graph,id3) := EGraph.add(ENode.UNARY(id2, UnaryOp.UDIV), tmp_graph);
-                        then EGraph.add(ENode.BINARY(id1, id3, BinaryOp.MUL), tmp_graph);
+                        (tmpGraph,id1) := newFromExp(exp1,tmpGraph);
+                        (tmpGraph,id2) := newFromExp(exp2,tmpGraph);
+                        (tmpGraph,id3) := EGraph.add(ENode.UNARY(id2, UnaryOp.UDIV), tmpGraph);
+                        then EGraph.add(ENode.BINARY(id1, id3, BinaryOp.MUL), tmpGraph);
                     case Op.POW algorithm
-                        (tmp_graph,id1) := newFromExp(exp1,tmp_graph);
-                        (tmp_graph,id2) := newFromExp(exp2,tmp_graph);
-                        then EGraph.add(ENode.BINARY(id1, id2, BinaryOp.POW), tmp_graph);
+                        (tmpGraph,id1) := newFromExp(exp1,tmpGraph);
+                        (tmpGraph,id2) := newFromExp(exp2,tmpGraph);
+                        then EGraph.add(ENode.BINARY(id1, id2, BinaryOp.POW), tmpGraph);
                     else algorithm
                         Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " Operator error!"});
                     then fail();
@@ -341,8 +341,12 @@ public
             output EClassId id;
         algorithm
             (graph, id) :=  match op.op
-                case Op.UMINUS
-                    then newFromExp(exp, graph);
+            local
+                EClassId tmpId;
+                EGraph tmpGraph = graph;
+                case Op.UMINUS algorithm
+                    (tmpGraph, tmpId) := newFromExp(exp, graph);
+                    then EGraph.add(ENode.UNARY(tmpId, UnaryOp.UMINUS), tmpGraph);
                 else fail();
             end match;
         end unaryByOperator;
@@ -401,7 +405,7 @@ public
                 local
                     NFExpression exp1, exp2;
                     Operator op;
-                    EClassId tmp_id, id1, id2, id3;
+                    EClassId id1, id2, id3;
                     Real num;
                     Integer i;
                     ComponentRef cref;
@@ -869,6 +873,13 @@ public
                     num := 10*num  + char - stringCharInt("0");
                 end while;
                 pattern := Pattern.NUM(num);
+            elseif char == stringCharInt("-") then
+                num := 0;
+                while isNumeric(StringReader.getNext(sr)) loop
+                    (sr, char) := StringReader.consume(sr);
+                    num := 10*num  + char - stringCharInt("0");
+                end while;
+                pattern := Pattern.NUM(-num);
             else
                 print("Unexpected character fail");
                 fail();
