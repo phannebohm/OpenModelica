@@ -67,19 +67,17 @@ function simplifyDump
   input String indent = "";
 algorithm
   res := simplify(exp);
-  //if Flags.isSet(Flags.DUMP_SIMPLIFY) and not Expression.isEqual(exp, res) then
+  if Flags.isSet(Flags.DUMP_SIMPLIFY) and not Expression.isEqual(exp, res) then
     print(indent + "### dumpSimplify | " + name + " ###\n");
     print(indent + "[BEFORE] " + Expression.toString(exp) + "\n");
     print(indent + "[AFTER ] " + Expression.toString(res) + "\n\n");
-  //end if;
+  end if;
 end simplifyDump;
 
 function simplifyEgraph
   "egraph simplification"
   input Expression exp;
   output Expression res;
-  input String name = "";
-  input String indent = "";
   protected
     EGraph egraph;
     EClassId rootId;
@@ -89,8 +87,8 @@ function simplifyEgraph
     Boolean saturated;
 algorithm
   print("----simplifyEgraph-----\n");
-  print(Expression.toString(exp) + "\n");
-  (egraph, rootId) := EGraph.newFromExp(exp,EGraph.new());
+  print("input: " + Expression.toString(exp) + "\n");
+  (egraph, rootId) := EGraph.newFromExp(exp, EGraph.new());
   ruleApplier := RuleApplier.RULEAPPLIER({});
   ruleApplier := RuleApplier.addRules(ruleApplier,
   {{"(+ ?a 0)", "?a", "neutral-add"},
@@ -102,21 +100,24 @@ algorithm
   {"(+ ?a (+ ?b ?c))", "(+ (+ ?a ?b) ?c))", "assoc-add"},
   {"(+ ?a ?a)","(* 2 ?a)", "a+a->2a"},
   {"(+ ?a (* ?b ?a))","(* (+ ?b 1) ?a)", "a + b*a-> (b+1)a"},
+  {"(+ (* ?c ?a) (* ?b ?a))","(* (+ ?b ?c) ?a)", "distrib1"},
+  {"(* (+ ?b ?c) ?a)","(+ (* ?c ?a) (* ?b ?a))", "distrib2"},
   {"(* ?a (* ?b ?c))", "(* (* ?a ?b) ?c))", "assoc-mul"},
   {"(* 0 ?a)", "0", "0-mul"},
   {"(* ?a ?a)","(^ ?a 2)", "xx->x^2"},
   {"(^ ?a 0)","1", "pow-0"},
   {"(^ ?a 1)","?a", "pow-1"},
-  {"(* (^ ?a ?b) (^ ?a ?c))","(^ ?a (+ ?b ?c))", "pow-rule1"}});
+  {"(* (^ ?a ?b) (^ ?a ?c))","(^ ?a (+ ?b ?c))", "pow-rule1"},
+  {"(/ (^ ?a ?c))","(^ ?a (- ?c))", "pow-rule2"}});
   saturated := false;
   counter := 0;
   sizestart := UnorderedMap.size(egraph.eclasses);
   print("Size classes: " + intString(sizestart) + "\n");
   while not saturated and counter < sizestart loop
     (egraph, saturated) := RuleApplier.matchApplyRules(ruleApplier, egraph);
-    //EGraph.printAll(rootId, egraph);
     counter := counter + 1;
   end while;
+  // EGraph.printAll(rootId, egraph);
   if saturated then print("saturated! \n"); end if;
   print("Iterations: " + intString(counter) + "\n");
   print("Size classes: " + intString(UnorderedMap.size(egraph.eclasses))+ "\n");
@@ -124,11 +125,7 @@ algorithm
   (extractor, dist) := Extractor.extract(rootId, extractor);
   print("Distance: " + intString(dist) + "\n");
   res := Extractor.build(rootId, extractor);
-  if Flags.isSet(Flags.DUMP_SIMPLIFY) and not Expression.isEqual(exp, res) then
-    print(indent + "### dumpSimplify | " + name + " ###\n");
-    print(indent + "[BEFORE] " + Expression.toString(exp) + "\n");
-    print(indent + "[AFTER ] " + Expression.toString(res) + "\n\n");
-  end if;
+  print("return: " + Expression.toString(res) + "\n");
 end simplifyEgraph;
 
 

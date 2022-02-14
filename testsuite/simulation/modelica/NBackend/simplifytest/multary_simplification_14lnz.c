@@ -22,10 +22,10 @@ const char *multary_simplification_linear_model_frame()
 }
 const char *multary_simplification_linear_model_datarecovery_frame()
 {
-  return "model linearized_model \"multary_simplification\" \n parameter Integer n = 0 \"number of states\";\n  parameter Integer m = 0 \"number of inputs\";\n  parameter Integer p = 0 \"number of outputs\";\n  parameter Integer nz = 2 \"data recovery variables\";\n"
+  return "model linearized_model \"multary_simplification\" \n parameter Integer n = 0 \"number of states\";\n  parameter Integer m = 0 \"number of inputs\";\n  parameter Integer p = 0 \"number of outputs\";\n  parameter Integer nz = 1 \"data recovery variables\";\n"
   "  parameter Real x0[0] = %s;\n"
   "  parameter Real u0[0] = %s;\n"
-  "  parameter Real z0[2] = %s;\n"
+  "  parameter Real z0[1] = %s;\n"
   "\n"
   "  parameter Real A[n, n] = zeros(n, n);%s\n\n"
   "  parameter Real B[n, m] = zeros(n, m);%s\n\n"
@@ -39,7 +39,7 @@ const char *multary_simplification_linear_model_datarecovery_frame()
   "  output Real y[p];\n"
   "  output Real z[nz];\n"
   "\n"
-  "  Real 'z_z' = z[1];\n""  Real 'z_q' = z[2];\n"
+  "  Real 'z_z' = z[1];\n"
   "equation\n  der(x) = A * x + B * u;\n  y = C * x + D * u;\n  z = Cz * x + Dz * u;\nend linearized_model;\n";
 }
 #if defined(__cplusplus)

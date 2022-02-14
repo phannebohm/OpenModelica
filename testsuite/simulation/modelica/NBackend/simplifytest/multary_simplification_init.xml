@@ -9,11 +9,11 @@
 
   OPENMODELICAHOME                    = "/home/llangenkamp/OpenModelica/build/bin/.."
 
-  guid                                = "{9b4a747c-54c6-404b-87e0-0dd161d2cef1}"
+  guid                                = "{57285989-f49b-45db-9898-9d1a264c9801}"
 
   description                         = ""
   generationTool                      = "OpenModelica Compiler OMCompiler v1.19.0-dev.431+g3379db1584"
-  generationDateAndTime               = "2022-02-02T15:14:43Z"
+  generationDateAndTime               = "2022-02-14T16:32:32Z"
 
   variableNamingConvention            = "structured"
 
@@ -27,7 +27,7 @@
   numberOfFunctions                   = "0"  cmt_numberOfFunctions                   = "NFUNC:    number of functions used by the simulation,         OMC"
 
   numberOfContinuousStates            = "0"  cmt_numberOfContinuousStates            = "NX:       number of states,                                   FMI"
-  numberOfRealAlgebraicVariables      = "2"  cmt_numberOfRealAlgebraicVariables      = "NY:       number of real variables,                           OMC"
+  numberOfRealAlgebraicVariables      = "1"  cmt_numberOfRealAlgebraicVariables      = "NY:       number of real variables,                           OMC"
   numberOfRealAlgebraicAliasVariables = "0"  cmt_numberOfRealAlgebraicAliasVariables = "NA:       number of alias variables,                          OMC"
   numberOfRealParameters              = "0"  cmt_numberOfRealParameters              = "NP:       number of parameters,                               OMC"
 
@@ -64,17 +64,6 @@
     causality = "local" isValueChangeable = "false"
     alias = "noAlias"
     classIndex = "0" classType = "rAlg"
-    isProtected = "false" hideResult = "false"
-    fileName = "" startLine = "0" startColumn = "0" endLine = "0" endColumn = "0" fileWritable = "true">
-    <Real fixed="false" useNominal="false" />
-  </ScalarVariable>
-  <ScalarVariable
-    name = "q"
-    valueReference = "1001"
-    variability = "continuous" isDiscrete = "false"
-    causality = "local" isValueChangeable = "false"
-    alias = "noAlias"
-    classIndex = "1" classType = "rAlg"
     isProtected = "false" hideResult = "false"
     fileName = "" startLine = "0" startColumn = "0" endLine = "0" endColumn = "0" fileWritable = "true">
     <Real fixed="false" useNominal="false" />

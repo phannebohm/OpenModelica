@@ -8,8 +8,9 @@ encapsulated package NFEGraph
     import Operator = NFOperator;
 public
 
-    //TODO: Multary? Restrictions? -> Assoc
+    //TODO: Multary? Restrictions? Assoc
     //     + better hashes
+    //     restructuring of the analysis would improve the performance
 
 
     type EClassId = Integer;
@@ -333,6 +334,19 @@ public
             end match;
         end binaryByOperator;
 
+        function unaryByOperator
+            input NFExpression exp;
+            input NFOperator op;
+            input output EGraph graph;
+            output EClassId id;
+        algorithm
+            (graph, id) :=  match op.op
+                case Op.UMINUS
+                    then newFromExp(exp, graph);
+                else fail();
+            end match;
+        end unaryByOperator;
+
         function multaryByOperator
             input list<NFExpression> arguments, inv_arguments;
             input NFOperator op;
@@ -396,7 +410,9 @@ public
                 case NFExpression.MULTARY(arguments, inv_arguments, op)
                     then multaryByOperator(arguments, inv_arguments, op, graph);
                 case NFExpression.BINARY(exp1, op, exp2)
-                    then binaryByOperator(exp1,exp2,op,graph);
+                    then binaryByOperator(exp1, exp2, op, graph);
+                case NFExpression.UNARY(op, exp1)
+                    then unaryByOperator(exp1, op, graph);
                 case NFExpression.REAL(num)
                     then EGraph.add(ENode.NUM(num), graph);
                 case NFExpression.INTEGER(i)
@@ -477,7 +493,7 @@ public
                     case (SOME(num1), NONE()) then SOME(num1);
                     case (SOME(num1), SOME(num2)) algorithm
                         if num1 <> num2 then // error case
-                            print("constants not equal error");
+                            print("constants not equal error +\n");
                             fail();
                         end if;
                         then SOME(num1);
@@ -900,55 +916,54 @@ public
             root_id := EGraph.find(egraph,id);
             eclass := UnorderedMap.getOrFail(root_id,egraph.eclasses);
             subs_out := {};
-                for node in eclass.nodes loop
-                    node_list := {};
-                    for map in subs_in loop
-                        node_list := UnorderedMap.copy(map) :: node_list;
-                    end for;
-                    node_list :=  match (pattern, node)
-                        local
-                            Integer varId;
-                            Real num1, num2;
-                            BinaryOp bop1,bop2;
-                            UnaryOp uop1,uop2;
-                            EClassId temp_id1,temp_id2;
-                            Pattern temp_pattern1,temp_pattern2;
-                            String str1, str2;
-                            Boolean ok;
-                        case (Pattern.VAR(varId), _) algorithm
-                            // case for common subexpression: e.g. (3*x + 1) + (3*x + 1) -> 2 * (3*x + 1)
-                            temp_list := {};
-                            for temp_map in node_list loop
-                                ok := match UnorderedMap.get(varId,temp_map)
-                                    case SOME(temp_id1) then temp_id1 == root_id;
-                                    else algorithm
-                                        UnorderedMap.add(varId,root_id,temp_map);
-                                    then true;
-                                end match;
-                                if ok then
-                                    temp_list := temp_map :: temp_list;
-                                end if;
-                            end for;
-                            then temp_list;
-                        case (Pattern.NUM(num1), ENode.NUM(num2)) algorithm
-                            // case to insure that a number in the pattern corresponds to a enode number
-                            if num1 == num2 then temp_list := node_list; else temp_list := {}; end if;
-                            then temp_list;
-                        /*case (Pattern.SYMBOL(str1), ENode.SYMBOL(str2)) algorithm
-                            // case to insure that a hard coded symbol in the pattern corresponds to a enode symbol
-                            // special case of VAR
-                            if str1 == str2 then temp_list := node_list; else temp_list := {}; end if;
-                            then temp_list;*/ // TODO MAYBE
-                        // simple recursion
-                        case (Pattern.BINARY(temp_pattern1,temp_pattern2,bop1),ENode.BINARY(temp_id1,temp_id2,bop2))
-                            guard(bop1 == bop2)
-                            then matchPattern(temp_id2,egraph,temp_pattern2, matchPattern(temp_id1,egraph,temp_pattern1,node_list));
-                        case (Pattern.UNARY(temp_pattern1,uop1),ENode.UNARY(temp_id1,uop2))
-                            guard(uop1 == uop2) then matchPattern(temp_id1,egraph,temp_pattern1,node_list);
-                        else {};
-                    end match;
-                    subs_out := listAppend(node_list,subs_out);
+            for node in eclass.nodes loop
+                node_list := {};
+                for map in subs_in loop
+                    node_list := UnorderedMap.copy(map) :: node_list;
                 end for;
+                node_list :=  match (pattern, node)
+                    local
+                        Integer varId;
+                        Real num1, num2;
+                        BinaryOp bop1,bop2;
+                        UnaryOp uop1,uop2;
+                        EClassId temp_id1,temp_id2;
+                        Pattern temp_pattern1,temp_pattern2;
+                        String str1, str2;
+                        Boolean ok;
+                    case (Pattern.VAR(varId), _) algorithm
+                        // case for common subexpression: e.g. (3*x + 1) + (3*x + 1) -> 2 * (3*x + 1)
+                        temp_list := {};
+                        for temp_map in node_list loop
+                            ok := match UnorderedMap.get(varId,temp_map)
+                                case SOME(temp_id1) then temp_id1 == root_id;
+                                else algorithm
+                                    UnorderedMap.add(varId,root_id,temp_map);
+                                then true;
+                            end match;
+                            if ok then
+                                temp_list := temp_map :: temp_list;
+                            end if;
+                        end for;
+                        then temp_list;
+                    case (Pattern.NUM(num1), ENode.NUM(num2)) algorithm
+                        if num1 == num2 then temp_list := node_list; else temp_list := {}; end if;
+                        then temp_list;
+                    /*case (Pattern.SYMBOL(str1), ENode.SYMBOL(str2)) algorithm
+                        // case to insure that a hard coded symbol in the pattern corresponds to a enode symbol
+                        // special case of VAR
+                        if str1 == str2 then temp_list := node_list; else temp_list := {}; end if;
+                        then temp_list;*/ // TODO MAYBE
+                    // simple recursion
+                    case (Pattern.BINARY(temp_pattern1,temp_pattern2,bop1),ENode.BINARY(temp_id1,temp_id2,bop2))
+                        guard(bop1 == bop2)
+                        then matchPattern(temp_id2,egraph,temp_pattern2, matchPattern(temp_id1,egraph,temp_pattern1,node_list));
+                    case (Pattern.UNARY(temp_pattern1,uop1),ENode.UNARY(temp_id1,uop2))
+                        guard(uop1 == uop2) then matchPattern(temp_id1,egraph,temp_pattern1,node_list);
+                    else {};
+                end match;
+                subs_out := listAppend(node_list,subs_out);
+            end for;
         end matchPattern;
 
         function apply
@@ -1003,13 +1018,6 @@ public
             out :=  intMod(Pattern.hash(rule.pattern_in, mod) + 10*Pattern.hash(rule.pattern_out, mod) + 1, mod);
         end hash;
 
-        function isEqual
-            input Rule rule1, rule2;
-            output Boolean equal;
-        algorithm
-            equal := (Rule.hash(rule1, 1000) == Rule.hash(rule2, 1000));
-        end isEqual;
-
         function fromString
             "rule parser: e.g. '(+ ?a 0)', '?a' <=> a + 0 = a"
             input String pattern_in;
@@ -1054,16 +1062,15 @@ public
         algorithm
             // 1st phase: matching of all rules with all eclasses
             subs := {};
-            print("--matching rules--\n");
+            //print("--matching rules--\n");
             for rule in ruleapplier.rules loop
-                print("match rule name: " + rule.name + "\n");
+                // print("match rule name: " + rule.name + "\n");
                 visited := UnorderedSet.new<EClassId>(intMod,intEq);
                 for exId in UnorderedMap.keyList(egraph.eclasses) loop
                     exId := EGraph.find(egraph, exId);
-                     if not UnorderedSet.contains(exId,visited) then
+                    if not UnorderedSet.contains(exId,visited) then
                         UnorderedSet.add(exId,visited);
                         subs_part := Pattern.matchPattern(exId, egraph, rule.pattern_in);
-                        // some error occurs above with associative
                         subs := match subs_part
                             case {} then subs;
                             else (rule, exId, subs_part) :: subs;
@@ -1074,15 +1081,14 @@ public
             // 2nd phase: applying of the found patterns
             saturated := true;
             changed := false;
-            print("--applying rules--\n");
+            //print("--applying rules--\n");
             for tup in subs loop
                 (rule, exId, subs_part) := tup;
-                exId := EGraph.find(egraph,exId);
                 for map in subs_part loop
                     (egraph, newId) := Pattern.apply(rule.pattern_out, map, egraph);
                     (egraph, changed) := EGraph.union(exId, newId, egraph);
                     if changed then
-                      print("apply rule name: " + rule.name + "\n");
+                      //print("apply rule name: " + rule.name + "\n");
                     end if;
                     saturated := saturated and (not changed);
                 end for;
@@ -1131,7 +1137,6 @@ public
             output Integer char;
         algorithm
             sr.bias := sr.bias + 1;
-
             if sr.bias > stringLength(sr.string) then
                 char := -1;
             else
