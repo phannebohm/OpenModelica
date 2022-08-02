@@ -4,13 +4,15 @@
 
 loadString("
   model multary_simplification
-    Real z;
+    Real q;
   equation
+    q = time + time + time;
+    //q = time*time + 2*time + 1;
     //q = 2 ^ (3 + time - 1) * 2 ^ (3 +time - 1) * 2 ^ (3 +time - 2);
     //q = time ^ 2 * time ^ (3 + time - 2) * time ^ (time + time + time) * time ^(time-time);
     //q = time - time;
     //z = time ^ (1 + time*4 + 3*time) - time^(7*time + 1);
-    z = 3 - time + 2;
+    //z = 3 - time + 2;
     //y = (1 + time*4 + time - 2);
     //x = time *(5 + time - time + 2) * (time-time) + time *(5 + time - time + 2) * ((time-time));
     //x = time / (2 + time) * (2 + time);

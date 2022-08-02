@@ -39,7 +39,7 @@ const char *multary_simplification_linear_model_datarecovery_frame()
   "  output Real y[p];\n"
   "  output Real z[nz];\n"
   "\n"
-  "  Real 'z_z' = z[1];\n"
+  "  Real 'z_q' = z[1];\n"
   "equation\n  der(x) = A * x + B * u;\n  y = C * x + D * u;\n  z = Cz * x + Dz * u;\nend linearized_model;\n";
 }
 #if defined(__cplusplus)

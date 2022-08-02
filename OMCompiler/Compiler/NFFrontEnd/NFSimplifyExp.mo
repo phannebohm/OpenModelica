@@ -80,7 +80,7 @@ function simplifyEgraph
   output Expression res;
   protected
     EGraph egraph;
-    EClassId rootId;
+    EClassId baseId;
     Extractor extractor;
     Integer dist, counter, sizestart;
     RuleApplier ruleApplier;
@@ -88,7 +88,7 @@ function simplifyEgraph
 algorithm
   print("----simplifyEgraph-----\n");
   print("input: " + Expression.toString(exp) + "\n");
-  (egraph, rootId) := EGraph.newFromExp(exp, EGraph.new());
+  (egraph, baseId) := EGraph.newFromExp(exp, EGraph.new());
   ruleApplier := RuleApplier.RULEAPPLIER({});
   ruleApplier := RuleApplier.addRules(ruleApplier,
   {{"(+ ?a 0)", "?a", "neutral-add"},
@@ -99,6 +99,7 @@ algorithm
   {"(* ?a ?b)", "(* ?b ?a)", "comm-mul"},
   {"(+ ?a (+ ?b ?c))", "(+ (+ ?a ?b) ?c))", "assoc-add"},
   {"(+ ?a ?a)","(* 2 ?a)", "a+a->2a"},
+  {"(* 2 ?a)", "(+ ?a ?a)", "2*a->a+a"},
   {"(+ ?a (* ?b ?a))","(* (+ ?b 1) ?a)", "a + b*a-> (b+1)a"},
   {"(+ (* ?c ?a) (* ?b ?a))","(* (+ ?b ?c) ?a)", "distrib1"},
   {"(* (+ ?b ?c) ?a)","(+ (* ?c ?a) (* ?b ?a))", "distrib2"},
@@ -114,18 +115,20 @@ algorithm
   counter := 0;
   sizestart := UnorderedMap.size(egraph.eclasses);
   print("Size classes: " + intString(sizestart) + "\n");
+  EGraph.graphDump(baseId, egraph, true);
   while not saturated and counter < sizestart loop
     (egraph, saturated) := RuleApplier.matchApplyRules(ruleApplier, egraph);
+    EGraph.graphDump(baseId, egraph, false);
     counter := counter + 1;
   end while;
-  //EGraph.printAll(rootId, egraph);
+  //EGraph.printAll(baseId, egraph);
   if saturated then print("saturated! \n"); end if;
   print("Iterations: " + intString(counter) + "\n");
   print("Size classes: " + intString(UnorderedMap.size(egraph.eclasses))+ "\n");
   extractor := Extractor.new(egraph);
-  (extractor, dist) := Extractor.extract(rootId, extractor);
+  (extractor, dist) := Extractor.extract(baseId, extractor);
   print("Distance: " + intString(dist) + "\n");
-  res := Extractor.build(rootId, extractor);
+  res := Extractor.build(baseId, extractor);
   print("return: " + Expression.toString(res) + "\n" + "--------------- \n");
 end simplifyEgraph;
 

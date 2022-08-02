@@ -9,11 +9,11 @@
 
   OPENMODELICAHOME                    = "/home/llangenkamp/OpenModelica/build/bin/.."
 
-  guid                                = "{a1991c27-8b0c-4a57-be79-677331b62b02}"
+  guid                                = "{117c2377-032d-4b01-8158-00aa402a4012}"
 
   description                         = ""
   generationTool                      = "OpenModelica Compiler OMCompiler v1.19.0-dev.431+g3379db1584"
-  generationDateAndTime               = "2022-02-14T17:05:19Z"
+  generationDateAndTime               = "2022-08-02T09:21:47Z"
 
   variableNamingConvention            = "structured"
 
@@ -58,7 +58,7 @@
   <ModelVariables>
 
   <ScalarVariable
-    name = "z"
+    name = "q"
     valueReference = "1000"
     variability = "continuous" isDiscrete = "false"
     causality = "local" isValueChangeable = "false"
