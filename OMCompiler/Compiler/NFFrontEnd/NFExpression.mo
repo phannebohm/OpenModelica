@@ -151,14 +151,6 @@ public
   record END
   end END;
 
-  record MULTARY
-    "Multary expressions with the same operator, e.g. a+b+c
-    An empty list has to be interpreted as the neutral element of the operator space"
-    list<Expression> arguments      "arguments that are chained with the operator (+, *)";
-    list<Expression> inv_arguments  "arguments that are chained with the inverse operator (-, :)";
-    Operator operator               "Can only be + or * (commutative)";
-  end MULTARY;
-
   record BINARY "Binary operations, e.g. a+4"
     Expression exp1;
     Operator operator;
@@ -753,7 +745,6 @@ public
       case UNARY()           then Operator.typeOf(exp.operator);
       case LBINARY()         then Operator.typeOf(exp.operator);
       case LUNARY()          then Operator.typeOf(exp.operator);
-      case MULTARY()         then Operator.typeOf(exp.operator);
       case RELATION()        then Type.copyDims(Operator.typeOf(exp.operator), Type.BOOLEAN());
       case IF()              then exp.ty;
       case CAST()            then exp.ty;
@@ -5483,27 +5474,6 @@ public
     end if;
   end foldReduction2;
 
-  function isBinary
-    input Expression exp;
-    output Boolean isBinary;
-  algorithm
-    isBinary := match exp
-      case Expression.BINARY() then true;
-      else false;
-    end match;
-  end isBinary;
-
-  function isMultary
-    input Expression exp;
-    output Boolean isMultary;
-  algorithm
-    isMultary := match exp
-      case Expression.MULTARY() then true;
-      else false;
-    end match;
-  end isMultary;
-
-
   function isPure
     input Expression exp;
     output Boolean isPure;
@@ -5759,7 +5729,7 @@ public
     input Integer mod;
     output Integer hash;
   algorithm
-    hash := matchcontinue e
+    hash := match e
       local
         Real r;
         Integer i;
@@ -5773,7 +5743,7 @@ public
       case(STRING(s))     then stringHashDjb2Mod(s,mod);
       case(CREF(cref=cr)) then ComponentRef.hash(cr,mod);
                           else stringHashDjb2Mod(toString(e),mod);
-    end matchcontinue;
+    end match;
   end hash;
 
   function mapCrefScalars

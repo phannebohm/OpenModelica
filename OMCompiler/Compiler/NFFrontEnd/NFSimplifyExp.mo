@@ -1012,7 +1012,6 @@ algorithm
       arguments := newarguments;
       inv_arguments := newinv_arguments;
 
-      /*
       // split them into constant and non constant arguments
       (const_args, arguments) := List.splitOnTrue(arguments, Expression.isConstNumber);
       (inv_const_args, inv_arguments) := List.splitOnTrue(inv_arguments, Expression.isConstNumber);
@@ -1053,7 +1052,6 @@ algorithm
         //    inv_arguments = Expression.negate(new_const) :: inv_arguments,
         //    operator      = operator
         //  );
-        */
 
         else Expression.MULTARY(
             arguments     = if useConst then new_const :: arguments else arguments,
