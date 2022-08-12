@@ -219,6 +219,10 @@ public
     input Integer N;
     input output Type ty;
   algorithm
+    if N == 0 then
+      return;
+    end if;
+
     ty := match ty
       local
         list<Dimension> dims;
@@ -261,17 +265,6 @@ public
       else false;
     end match;
   end isReal;
-
-  function isRealRecursive
-    input Type ty;
-    output Boolean isReal;
-  algorithm
-    isReal := match ty
-      case REAL()   then true;
-      case ARRAY()  then isRealRecursive(ty.elementType);
-      else false;
-    end match;
-  end isRealRecursive;
 
   function isBoolean
     input Type ty;
@@ -598,6 +591,17 @@ public
     end match;
   end isPolymorphic;
 
+  function isPolymorphicNamed
+    input Type ty;
+    input String name;
+    output Boolean res;
+  algorithm
+    res := match ty
+      case POLYMORPHIC() then name == ty.name;
+      else false;
+    end match;
+  end isPolymorphicNamed;
+
   function firstTupleType
     input Type ty;
     output Type outTy;
@@ -681,6 +685,7 @@ public
       case ARRAY() then ty.dimensions;
       case FUNCTION() then arrayDims(Function.returnType(ty.fn));
       case METABOXED() then arrayDims(ty.ty);
+      case CONDITIONAL_ARRAY() then List.fill(Dimension.UNKNOWN(), dimensionCount(ty.trueType));
       else {};
     end match;
   end arrayDims;
@@ -855,7 +860,10 @@ public
       case Type.COMPLEX() then AbsynUtil.pathString(InstNode.scopePath(ty.cls));
       case Type.FUNCTION() then Function.typeString(ty.fn);
       case Type.METABOXED() then "#" + toString(ty.ty);
-      case Type.POLYMORPHIC() then "<" + ty.name + ">";
+      case Type.POLYMORPHIC()
+        then if Util.stringStartsWith("__", ty.name) then
+          substring(ty.name, 3, stringLength(ty.name)) else "<" + ty.name + ">";
+
       case Type.ANY() then "$ANY$";
       case Type.CONDITIONAL_ARRAY() then toString(ty.trueType) + "|" + toString(ty.falseType);
       else
@@ -1330,7 +1338,8 @@ public
 
     function fold_comp_size
       input InstNode comp;
-      input output Integer sz = sz + sizeOf(InstNode.getType(comp));
+      input Integer sz;
+      output Integer outSize = sz + sizeOf(InstNode.getType(comp));
     end fold_comp_size;
   algorithm
     sz := match ty
@@ -1340,7 +1349,8 @@ public
       case BOOLEAN() then 1;
       case CLOCK() then 1;
       case ENUMERATION() then 1;
-      case ARRAY() then sizeOf(ty.elementType) * product(Dimension.size(d) for d in ty.dimensions);
+      case ARRAY() then sizeOf(ty.elementType) * Dimension.sizesProduct(ty.dimensions);
+      case TUPLE() then List.fold(list(sizeOf(t) for t in ty.types), intAdd, 0);
       case COMPLEX()
         then ClassTree.foldComponents(Class.classTree(InstNode.getClass(ty.cls)), fold_comp_size, 0);
       else 0;

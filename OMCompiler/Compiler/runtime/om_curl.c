@@ -31,7 +31,7 @@ static void* addTransfer(CURLM *cm, void *urlPathList, int *result)
   void *rest = MMC_CDR(urlPathList);
   const char *url = MMC_STRINGDATA(MMC_CAR(first));
   const char *file = MMC_STRINGDATA(MMC_CDR(first));
-  FILE *fout = fopen(file, "wb");
+  FILE *fout = omc_fopen(file, "wb");
 
   if (fout == NULL) {
     c_add_message(NULL, -1, ErrorType_runtime,ErrorLevel_error, "Failed to open file for writing: %s", &file, 1);
@@ -72,10 +72,13 @@ static void* addTransfer(CURLM *cm, void *urlPathList, int *result)
   curl_easy_setopt(eh, CURLOPT_FOLLOWLOCATION, 1);
   curl_easy_setopt(eh, CURLOPT_WRITEFUNCTION, writeDataCallback);
   curl_easy_setopt(eh, CURLOPT_URL, url);
+  curl_easy_setopt(eh, CURLOPT_CONNECTTIMEOUT, 8L);
   curl_easy_setopt(eh, CURLOPT_FAILONERROR, 1);
 
   curl_easy_setopt(eh, CURLOPT_PRIVATE, p);
   curl_easy_setopt(eh, CURLOPT_WRITEDATA, fout);
+  curl_easy_setopt(eh, CURLOPT_USERAGENT, "OpenModelica/1.0");
+  curl_easy_setopt(eh, CURLOPT_VERBOSE, 0);
   curl_multi_add_handle(cm, eh);
 
   return rest;

@@ -40,10 +40,13 @@ public
   import ComponentRef = NFComponentRef;
   import Expression = NFExpression;
   import Operator = NFOperator;
+  import Type = NFType;
   import Variable = NFVariable;
 
   // backend imports
   import BEquation = NBEquation;
+  import NBEquation.{Equation, Frame, FrameLocation};
+  import System = NBSystem;
   import BVariable = NBVariable;
 
   // Util imports
@@ -54,6 +57,15 @@ public
     input array<Boolean> arr;
     output list<Integer> indices = list(i for i guard arr[i] in arrayLength(arr):-1:1);
   end findTrueIndices;
+
+  function countElem
+    input array<list<Integer>> m;
+    output Integer count = 0;
+  algorithm
+    for lst in m loop
+      count := count + listLength(lst);
+    end for;
+  end countElem;
 
   function indexTplGt<T>
     "use with List.sort() and a rating function to sort any list"
@@ -84,7 +96,7 @@ public
     end if;
   end compareCombine;
 
-  function noNameHashEq
+  public function noNameHashEq
     input BEquation.Equation eq;
     input Integer mod;
     output Integer hash;
@@ -93,6 +105,7 @@ public
   end noNameHashEq;
 
   function noNameHashExp
+    "ToDo: is this mod safe? (missing intMod!)"
     input Expression exp;
     input Integer mod;
     output Integer hash = 0;
@@ -213,17 +226,36 @@ public
     b := Expression.fold(exp, isOnlyTimeDependentFold, true);
   end isOnlyTimeDependent;
 
-    function isOnlyTimeDependentFold
-      input Expression exp;
-      input output Boolean b;
-    algorithm
-      if b then
-        b := match exp
-          case Expression.CREF() then ComponentRef.isTime(exp.cref) or BVariable.checkCref(exp.cref, BVariable.isParamOrConst);
-          else true;
-        end match;
-      end if;
-    end isOnlyTimeDependentFold;
+  function isOnlyTimeDependentFold
+    input Expression exp;
+    input output Boolean b;
+  algorithm
+    if b then
+      b := match exp
+        case Expression.CREF() then ComponentRef.isTime(exp.cref) or BVariable.checkCref(exp.cref, BVariable.isParamOrConst);
+        else true;
+      end match;
+    end if;
+  end isOnlyTimeDependentFold;
+
+  function isContinuous
+    input Expression exp;
+    output Boolean b;
+  algorithm
+    b := Expression.fold(exp, isContinuousFold, true);
+  end isContinuous;
+
+  function isContinuousFold
+    input Expression exp;
+    input output Boolean b;
+  algorithm
+    if b then
+      b := match exp
+        case Expression.CREF() then BVariable.checkCref(exp.cref, BVariable.isContinuous);
+        else true;
+      end match;
+    end if;
+  end isContinuousFold;
 
   annotation(__OpenModelica_Interface="backend");
 end NBBackendUtil;

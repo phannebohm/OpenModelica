@@ -734,22 +734,19 @@ void SaveAsClassDialog::showHideSaveContentsInOneFileCheckBox(QString text)
 
 /*!
  * \class DuplicateClassDialog
- * \brief Creates a dialog to allow users to duplicate/save as the Modelica class.
+ * \brief Creates a dialog to allow users to duplicate the Modelica class.
  */
 /*!
  * \brief DuplicateClassDialog::DuplicateClassDialog
- * \param saveAs
  * \param pLibraryTreeItem
  * \param pParent
  */
-DuplicateClassDialog::DuplicateClassDialog(bool saveAs, LibraryTreeItem *pLibraryTreeItem, QWidget *pParent)
+DuplicateClassDialog::DuplicateClassDialog(LibraryTreeItem *pLibraryTreeItem, QWidget *pParent)
   : QDialog(pParent), mpLibraryTreeItem(pLibraryTreeItem)
 {
   setMinimumWidth(400);
   setAttribute(Qt::WA_DeleteOnClose);
-  mSaveAs = saveAs;
-  QString heading = mSaveAs ? Helper::saveAs : Helper::duplicate;
-  setWindowTitle(QString("%1 - %2 %3").arg(Helper::applicationName).arg(heading).arg(mpLibraryTreeItem->getNameStructure()));
+  setWindowTitle(QString("%1 - %2 %3").arg(Helper::applicationName, Helper::duplicate, mpLibraryTreeItem->getNameStructure()));
   mpNameLabel = new Label(Helper::name);
   mpNameTextBox = new QLineEdit(mpLibraryTreeItem->getName());
   mpNameTextBox->selectAll();
@@ -1165,9 +1162,6 @@ void DuplicateClassDialog::duplicateClass()
     syncDuplicatedModelWithOMC(pLibraryTreeItem);
     pLibraryTreeModel->checkIfAnyNonExistingClassLoaded();
     pLibraryTreeModel->showModelWidget(pLibraryTreeItem);
-    if (mSaveAs) {
-      MainWindow::instance()->getLibraryWidget()->saveLibraryTreeItem(pLibraryTreeItem);
-    }
     accept();
   } else {
     QMessageBox::critical(MainWindow::instance(), QString("%1 - %2").arg(Helper::applicationName, Helper::error),
@@ -1254,6 +1248,64 @@ void RenameClassDialog::renameClass()
 }
 
 /*!
+ * \class SaveTotalFileDialog
+ * \brief Creates a dialog that shows the options for saveTotalModel.
+ */
+/*!
+ * \brief SaveTotalFileDialog::SaveTotalFileDialog
+ * \param pLibraryTreeItem
+ * \param pParent
+ */
+SaveTotalFileDialog::SaveTotalFileDialog(LibraryTreeItem *pLibraryTreeItem, QWidget *pParent)
+  : QDialog(pParent)
+{
+  mpLibraryTreeItem = pLibraryTreeItem;
+  setAttribute(Qt::WA_DeleteOnClose);
+  setWindowTitle(QString("%1 - Save %2 %3 as Total File").arg(Helper::applicationName, mpLibraryTreeItem->mClassInformation.restriction, mpLibraryTreeItem->getName()));
+  setMinimumWidth(400);
+  // checkboxes
+  mpObfuscateOutputCheckBox = new QCheckBox(tr("Obfuscate output"));
+  mpStripAnnotationsCheckBox = new QCheckBox(tr("Strip annotations"));
+  mpStripCommentsCheckBox = new QCheckBox(tr("Strip comments"));
+  // buttons
+  mpOkButton = new QPushButton(Helper::ok);
+  mpOkButton->setAutoDefault(true);
+  connect(mpOkButton, SIGNAL(clicked()), this, SLOT(saveTotalModel()));
+  mpCancelButton = new QPushButton(Helper::cancel);
+  mpCancelButton->setAutoDefault(false);
+  connect(mpCancelButton, SIGNAL(clicked()), this, SLOT(reject()));
+  mpButtonBox = new QDialogButtonBox(Qt::Horizontal);
+  mpButtonBox->addButton(mpOkButton, QDialogButtonBox::ActionRole);
+  mpButtonBox->addButton(mpCancelButton, QDialogButtonBox::ActionRole);
+  QGridLayout *pMainGridLayout = new QGridLayout;
+  pMainGridLayout->addWidget(mpObfuscateOutputCheckBox, 0, 0);
+  pMainGridLayout->addWidget(mpStripAnnotationsCheckBox, 1, 0);
+  pMainGridLayout->addWidget(mpStripCommentsCheckBox, 2, 0);
+  pMainGridLayout->addWidget(mpButtonBox, 3, 0, 1, 1, Qt::AlignRight);
+  setLayout(pMainGridLayout);
+}
+
+/*!
+ * \brief SaveTotalFileDialog::saveTotalModel
+ * Saves the model as total file.
+ */
+void SaveTotalFileDialog::saveTotalModel()
+{
+  QString fileName;
+  QString name = QString("%1Total").arg(mpLibraryTreeItem->getName());
+  fileName = StringHandler::getSaveFileName(this, tr("%1 - Save %2 %3 as Total File").arg(Helper::applicationName, mpLibraryTreeItem->mClassInformation.restriction,
+                                                                                          mpLibraryTreeItem->getName()), NULL, Helper::omFileTypes, NULL, "mo", &name);
+  if (fileName.isEmpty()) { // if user press ESC
+    reject();
+  } else {
+  // save the model through OMC
+    MainWindow::instance()->getOMCProxy()->saveTotalModel(fileName, mpLibraryTreeItem->getNameStructure(), mpStripAnnotationsCheckBox->isChecked(),
+                                                          mpStripCommentsCheckBox->isChecked(), mpObfuscateOutputCheckBox->isChecked());
+    accept();
+  }
+}
+
+/*!
  * \class InformationDialog
  * \brief Creates a dialog that shows the users the result of OMCProxy::instantiateModel and OMCProxy::checkModel.
  */
@@ -1323,6 +1375,150 @@ void InformationDialog::keyPressEvent(QKeyEvent *event)
     return;
   }
   QWidget::keyPressEvent(event);
+}
+
+/*!
+ * \class ConvertClassUsesAnnotationDialog
+ * \brief Creates a dialog that shows list of libraries from the uses annotation that have newer versions available.
+ */
+/*!
+ * \brief ConvertClassUsesAnnotationDialog::ConvertClassUsesAnnotationDialog
+ * \param pLibraryTreeItem
+ * \param pParent
+ */
+ConvertClassUsesAnnotationDialog::ConvertClassUsesAnnotationDialog(LibraryTreeItem *pLibraryTreeItem, QWidget *pParent)
+  : QDialog(pParent), mpLibraryTreeItem(pLibraryTreeItem)
+{
+  setAttribute(Qt::WA_DeleteOnClose);
+  setWindowTitle(QString("%1 - Convert %2 to newer versions of used libraries").arg(Helper::applicationName, mpLibraryTreeItem->getNameStructure()));
+  setMinimumWidth(400);
+  // get the uses annotation
+  mpUsesLibrariesTreeWidget = new QTreeWidget;
+  mpUsesLibrariesTreeWidget->setItemDelegate(new ItemDelegate(mpUsesLibrariesTreeWidget));
+  mpUsesLibrariesTreeWidget->setTextElideMode(Qt::ElideMiddle);
+  mpUsesLibrariesTreeWidget->setColumnCount(3);
+  mpUsesLibrariesTreeWidget->setIndentation(0);
+  QStringList headers;
+  headers << Helper::library << tr("To") << tr("From");
+  mpUsesLibrariesTreeWidget->setHeaderLabels(headers);
+  QList<QList<QString > > usesAnnotation = MainWindow::instance()->getOMCProxy()->getUses(mpLibraryTreeItem->getNameStructure());
+  for (int i = 0 ; i < usesAnnotation.size() ; i++) {
+    const QString libraryName = usesAnnotation.at(i).at(0);
+    const QString libraryVersion = usesAnnotation.at(i).at(1);
+    // get the versions to convert to
+    QList<QString> convertsToVersions = MainWindow::instance()->getOMCProxy()->getAvailablePackageConversionsFrom(libraryName, libraryVersion);
+    if (!convertsToVersions.isEmpty()) {
+      // create a tree widget item
+      QTreeWidgetItem *pUsesLibraryTreeWidgetItem = new QTreeWidgetItem;
+      pUsesLibraryTreeWidgetItem->setCheckState(0, Qt::Checked);
+      mpUsesLibrariesTreeWidget->addTopLevelItem(pUsesLibraryTreeWidgetItem);
+      pUsesLibraryTreeWidgetItem->setText(0, libraryName);
+      // get available installed versions of the library
+      QList<QString> availableVersions = MainWindow::instance()->getOMCProxy()->getAvailableLibraryVersions(libraryName);
+      QComboBox *pComboBox = new QComboBox;
+      foreach (QString convertsToVersion, convertsToVersions) {
+        // show only the installed versions
+        if (availableVersions.contains(convertsToVersion)) {
+          pComboBox->addItem(StringHandler::convertSemVertoReadableString(convertsToVersion), convertsToVersion);
+        }
+      }
+      pComboBox->model()->sort(0);
+      pComboBox->setCurrentIndex(0);
+      mpUsesLibrariesTreeWidget->setItemWidget(pUsesLibraryTreeWidgetItem, 1, pComboBox);
+      mpUsesLibrariesTreeWidget->resizeColumnToContents(1);
+      pUsesLibraryTreeWidgetItem->setText(2, libraryVersion);
+    }
+  }
+  // Progress label & bar
+  mpProgressLabel = new Label(tr("<b>Running conversion(s). Please wait.</b>"));
+  mpProgressLabel->hide();
+  // Create the buttons
+  mpOkButton = new QPushButton(Helper::ok);
+  mpOkButton->setAutoDefault(true);
+  connect(mpOkButton, SIGNAL(clicked()), SLOT(convert()));
+  mpCancelButton = new QPushButton(Helper::cancel);
+  mpCancelButton->setAutoDefault(false);
+  connect(mpCancelButton, SIGNAL(clicked()), SLOT(reject()));
+  // create buttons box
+  mpButtonBox = new QDialogButtonBox(Qt::Horizontal);
+  mpButtonBox->addButton(mpOkButton, QDialogButtonBox::ActionRole);
+  mpButtonBox->addButton(mpCancelButton, QDialogButtonBox::ActionRole);
+  // Create a layout
+  QVBoxLayout *pMainLayout = new QVBoxLayout;
+  pMainLayout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+  if (mpUsesLibrariesTreeWidget->topLevelItemCount() == 0) {
+    pMainLayout->addWidget(new Label(tr("No new versions of the used libraries are found or there is no uses annotation.")));
+  } else {
+    pMainLayout->addWidget(new Label(tr("Following libraries from the uses annotation have new versions available.")));
+  }
+  pMainLayout->addWidget(mpUsesLibrariesTreeWidget);
+  pMainLayout->addWidget(new Label(tr("Note: If the library that you want to convert to is missing then please install it using File->Manage Libraries->Install Library.")));
+  pMainLayout->addWidget(new Label(tr("The converted class and used library might be reloaded.")));
+  pMainLayout->addWidget(new Label(tr("This operation can take sometime depending on the conversions.")));
+  pMainLayout->addWidget(new Label(tr("Backup your work before starting the conversion.")));
+  QHBoxLayout *pHBoxLayout = new QHBoxLayout;
+  pHBoxLayout->addWidget(mpProgressLabel);
+  pHBoxLayout->addWidget(mpButtonBox, 0, Qt::AlignRight);
+  pMainLayout->addLayout(pHBoxLayout);
+  setLayout(pMainLayout);
+}
+
+/*!
+ * \brief ConvertClassUsesAnnotationDialog::saveLibraryTreeItem
+ * \param pLibraryTreeItem
+ */
+void ConvertClassUsesAnnotationDialog::saveLibraryTreeItem(LibraryTreeItem *pLibraryTreeItem)
+{
+  MainWindow::instance()->getOMCProxy()->save(pLibraryTreeItem->getNameStructure());
+  for (int i = 0; i < pLibraryTreeItem->childrenSize(); i++) {
+    LibraryTreeItem *pChildLibraryTreeItem = pLibraryTreeItem->child(i);
+    if (pChildLibraryTreeItem) {
+      saveLibraryTreeItem(pChildLibraryTreeItem);
+    }
+  }
+}
+
+/*!
+ * \brief ConvertClassUsesAnnotationDialog::convert
+ * Converts the uses annotation libraries to newer versions.
+ */
+void ConvertClassUsesAnnotationDialog::convert()
+{
+  mpProgressLabel->show();
+  mpOkButton->setEnabled(false);
+  repaint(); // repaint the dialog so progresslabel is updated.
+  const QString nameStructure = mpLibraryTreeItem->getNameStructure();
+  bool reloadClass = false;
+  QTreeWidgetItemIterator usesLibrariesIterator(mpUsesLibrariesTreeWidget);
+  while (*usesLibrariesIterator) {
+    QTreeWidgetItem *pUsesLibraryTreeWidgetItem = dynamic_cast<QTreeWidgetItem*>(*usesLibrariesIterator);
+    QComboBox *pComboBox = qobject_cast<QComboBox*>(mpUsesLibrariesTreeWidget->itemWidget(pUsesLibraryTreeWidgetItem, 1));
+    const QString libraryVersion = pComboBox->itemData(pComboBox->currentIndex()).toString();
+    if (!libraryVersion.isEmpty()) {
+      const QString libraryName = pUsesLibraryTreeWidgetItem->text(0);
+      if (MainWindow::instance()->getOMCProxy()->convertPackageToLibrary(nameStructure, libraryName, libraryVersion)) {
+        LibraryTreeItem *pLibraryTreeItem = MainWindow::instance()->getLibraryWidget()->getLibraryTreeModel()->findLibraryTreeItemOneLevel(libraryName);
+        if (pLibraryTreeItem) {
+          MainWindow::instance()->getLibraryWidget()->getLibraryTreeModel()->unloadClass(pLibraryTreeItem, false, false);
+        }
+        reloadClass |= true;
+      }
+    }
+    ++usesLibrariesIterator;
+  }
+  LibraryTreeModel *pLibraryTreeModel = MainWindow::instance()->getLibraryWidget()->getLibraryTreeModel();
+  // if reloadClass is set then unload the class and create a LibraryTreeItem for it again.
+  if (reloadClass) {
+    if (mpLibraryTreeItem->isFilePathValid()) {
+      saveLibraryTreeItem(mpLibraryTreeItem);
+    }
+    MainWindow::instance()->getLibraryWidget()->getLibraryTreeModel()->unloadClass(mpLibraryTreeItem, false, false);
+    pLibraryTreeModel->createLibraryTreeItem(nameStructure, pLibraryTreeModel->getRootLibraryTreeItem(), true, false, true);
+    pLibraryTreeModel->checkIfAnyNonExistingClassLoaded();
+  }
+  // load any dependent libraries
+  pLibraryTreeModel->loadDependentLibraries(MainWindow::instance()->getOMCProxy()->getClassNames());
+  accept();
 }
 
 /*!

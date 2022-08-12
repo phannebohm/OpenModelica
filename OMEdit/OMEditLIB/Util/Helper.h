@@ -56,8 +56,10 @@ public:
   static QString organization;
   static QString application;
   static QString OpenModelicaVersion;
+  static QString OpenModelicaUsersGuideVersion;
   static QString OpenModelicaHome;
-  static QString OpenModelicaLibrary;
+  static QString ModelicaPath;
+  static QString userHomeDirectory;
   static QString OMCServerName;
   static QString omFileTypes;
   static QString omEncryptedFileTypes;
@@ -77,6 +79,7 @@ public:
   static QString figaroFileTypes;
   static QString visualizationFileTypes;
   static QString subModelFileTypes;
+  static QString omScriptTypes;
   static int treeIndentation;
   static QSize iconSize;
   static int tabWidth;
@@ -148,6 +151,9 @@ public:
   static QString reset;
   static QString close;
   static QString error;
+  static QString percentageLabel;
+  static QString chooseTransparency;
+  static QString chooseColor;
   static QString chooseFile;
   static QString chooseFiles;
   static QString saveFile;
@@ -348,10 +354,11 @@ public:
   static QString stepReturn;
   static QString attachToRunningProcess;
   static QString attachToRunningProcessTip;
-  static QString crashReport;
+  static QString reportIssue;
   static QString parsingFailedJson;
   static QString expandAll;
   static QString collapseAll;
+  static QString versionLabel;
   static QString version;
   static QString unlimited;
   static QString simulationOutput;
@@ -427,6 +434,10 @@ public:
   static QString systemSimulationInformation;
   static QString translationFlags;
   static QString send;
+  static QString installLibrary;
+  static QString upgradeInstalledLibraries;
+  static QString updateLibraryIndex;
+  static QString dataReconciliation;
 };
 
 class GUIMessages : public QObject
@@ -501,7 +512,8 @@ public:
     MULTIPLE_DECLARATIONS_COMPONENT,
     GDB_ERROR,
     INVALID_INSTANCE_NAME,
-    ENTER_SCRIPT
+    ENTER_SCRIPT,
+    LIBRARY_INDEX_FILE_NOT_FOUND
   };
 
   static QString getMessage(int type);

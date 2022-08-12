@@ -75,7 +75,7 @@ import ExpressionSolve;
 import ExpressionSimplify;
 import Error;
 import Flags;
-import GC;
+import GCExt;
 import HashTableExpToIndex;
 import HpcOmTaskGraph;
 import List;
@@ -767,6 +767,10 @@ algorithm
       DAE.Exp e,e1;
       DAE.ComponentRef cr;
       Option<DAE.VariableAttributes> attr,new_attr;
+
+    // Don't replace with function calls
+    case (BackendDAE.VAR(bindExp=SOME(DAE.CALL())),_)
+      then(inVar,inTpl);
 
     case (v as BackendDAE.VAR(varName=cr,bindExp=SOME(e),values=attr),(repl,numrepl))
       equation
@@ -1700,9 +1704,9 @@ algorithm
         systs = if b then SynchronousFeatures.partitionIndependentBlocksSplitBlocks(i, syst, eqPartMap, rixs, mT, rmT, throwNoError, funcs, isInitial) else {syst};
         // print("Number of partitioned systems: " + intString(listLength(systs)) + "\n");
         // List.map1_0(systs, BackendDump.dumpEqSystem, "System");
-        GC.free(eqPartMap);
-        GC.free(varPartMap);
-        GC.free(rixs);
+        GCExt.free(eqPartMap);
+        GCExt.free(varPartMap);
+        GCExt.free(rixs);
       then (systs,shared);
     else
       equation
@@ -3477,11 +3481,12 @@ algorithm
       algorithm
         repl := BackendVarTransform.emptyReplacements();
         repl := BackendVariable.traverseBackendDAEVars(globalKnownVars, removeConstantsFinder, repl);
+
+        (globalKnownVars, (repl, _)) := BackendVariable.traverseBackendDAEVarsWithUpdate(globalKnownVars, replaceFinalVarTraverser, (repl, 0));
+
         if Flags.isSet(Flags.DUMP_CONST_REPL) then
           BackendVarTransform.dumpReplacements(repl);
         end if;
-
-        (globalKnownVars, (repl, _)) := BackendVariable.traverseBackendDAEVarsWithUpdate(globalKnownVars, replaceFinalVarTraverser, (repl, 0));
 
         lsteqns := BackendEquation.equationList(shared.initialEqs);
         (lsteqns, b) := BackendVarTransform.replaceEquations(lsteqns, repl, NONE());
@@ -3925,7 +3930,7 @@ algorithm
     case DAE.CALL(path=Absyn.IDENT(name = "der"), expLst={DAE.CALL(path=Absyn.IDENT(name = "der"), expLst={DAE.CREF(componentRef=cr)})})
       equation
         str = ComponentReference.crefStr(cr);
-        str = stringAppendList({"The model includes derivatives of order > 1 for: ", str, ". That is not supported. Real d", str, " = der(", str, ") *might* result in a solvable model"});
+        str = stringAppendList({"The model includes derivatives of order > 1 for: ", str, ". That is not supported. Adding 'Real d", str, " = der(", str, ");' *might* result in a solvable model"});
         Error.addMessage(Error.INTERNAL_ERROR, {str});
       then fail();
     // case for arrays
@@ -4244,8 +4249,8 @@ algorithm
             BackendDump.dumpAdjacencyMatrixT(mT);
           end if;
 
-          GC.free(w_vars);
-          GC.free(w_eqns);
+          GCExt.free(w_vars);
+          GCExt.free(w_eqns);
         then BackendDAEUtil.clearEqSyst(syst1);
     end match;
     new_systlst := syst :: new_systlst;
@@ -5731,7 +5736,7 @@ protected
 algorithm
   (BackendDAE.DAE(eqs, shared), _) := BackendDAEUtil.mapEqSystemAndFold(inDAE, addTimeAsState1, 0);
   orderedVars := BackendVariable.emptyVars();
-  var := BackendDAE.VAR(DAE.crefTimeState, BackendDAE.STATE(1, NONE(), true), DAE.BIDIR(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), DAE.BCONST(false), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), true);
+  var := BackendDAE.VAR(DAE.crefTimeState, BackendDAE.STATE(1, NONE(), true), DAE.BIDIR(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), true);
   var := BackendVariable.setVarFixed(var, true);
   var := BackendVariable.setVarStartValue(var, DAE.CREF(DAE.crefTime, DAE.T_REAL_DEFAULT));
   orderedVars := BackendVariable.addVar(var, orderedVars);
@@ -6193,7 +6198,7 @@ algorithm
 
   if homotopyLoopBeginning > 0 then
     // Add homotopy lambda to system
-    lambda := BackendDAE.VAR(ComponentReference.makeCrefIdent(BackendDAE.homotopyLambda, DAE.T_REAL_DEFAULT, {}), BackendDAE.VARIABLE(), DAE.BIDIR(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), DAE.BCONST(false), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), true);
+    lambda := BackendDAE.VAR(ComponentReference.makeCrefIdent(BackendDAE.homotopyLambda, DAE.T_REAL_DEFAULT, {}), BackendDAE.VARIABLE(), DAE.BIDIR(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), true);
     system.orderedVars := BackendVariable.addVar(lambda, system.orderedVars);
     lambdaIdx := BackendVariable.varsSize(system.orderedVars);
 
@@ -6379,7 +6384,7 @@ algorithm
 
   if hasAnyHomotopy then
     // Add homotopy lambda to system
-    lambda := BackendDAE.VAR(ComponentReference.makeCrefIdent(BackendDAE.homotopyLambda, DAE.T_REAL_DEFAULT, {}), BackendDAE.VARIABLE(), DAE.BIDIR(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), DAE.BCONST(false), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), true);
+    lambda := BackendDAE.VAR(ComponentReference.makeCrefIdent(BackendDAE.homotopyLambda, DAE.T_REAL_DEFAULT, {}), BackendDAE.VARIABLE(), DAE.BIDIR(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), true);
     system.orderedVars := BackendVariable.addVar(lambda, system.orderedVars);
   end if;
   comps := listReverse(newComps);

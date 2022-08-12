@@ -214,8 +214,10 @@ public
         then ();
 
         case Equation.FOR_EQUATION() algorithm
-          body := applyIterator(eqn.iter, eqn.range, eqn.body);
-          fromEquation(body, graph, vCount, eCount, vertexMap, edgeMap, map, SOME((eqn_mi, eqn_d)));
+          //body := applyIterator(eqn.iter, eqn.range, eqn.body);
+          for body in eqn.body loop
+            fromEquation(body, graph, vCount, eCount, vertexMap, edgeMap, map, SOME((eqn_mi, eqn_d)));
+          end for;
         then ();
 
         else algorithm
@@ -224,6 +226,7 @@ public
       end match;
     end fromEquation;
 
+/*
     function applyIterator
       input InstNode iterator;
       input Expression range;
@@ -231,6 +234,7 @@ public
     algorithm
       body := Equation.map(body, function Expression.replaceIterator(iterator = iterator, iteratorValue = range));
     end applyIterator;
+*/
 
     function fromExpression
       input output Expression exp;
@@ -254,7 +258,7 @@ public
             (eqn_mi, eqn_d) := eqn_tpl;
             (var_mi, var_d) := getVariableIntervals(
               var_ptr     = BVariable.getVarPointer(cref),
-              subs        = ComponentRef.getSubscripts(cref),
+              subs        = ComponentRef.subscriptsAllFlat(cref), // mby wrong because of empty subs!
               graph       = graph,
               vCount      = vCount,
               ST          = SetType.U,

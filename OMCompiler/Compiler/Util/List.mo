@@ -100,7 +100,7 @@ import Array;
 import MetaModelica.Dangerous.{listReverseInPlace, arrayGetNoBoundsChecking, arrayUpdateNoBoundsChecking, arrayCreateNoInit};
 import MetaModelica.Dangerous;
 import DoubleEnded;
-import GC;
+import GCExt;
 
 public function create<T>
   "Creates a list from an element."
@@ -129,6 +129,21 @@ algorithm
     i := i + 1;
   end while;
 end fill;
+
+public function repeat<T>
+  "Returns a list of n replications of input lst.
+     Example: fill({2, 1}, 3) => {2, 1, 2, 1, 2, 1}"
+  input list<T> inElement;
+  input Integer inCount;
+  output list<T> outList = {};
+protected
+  Integer i = 0;
+algorithm
+  while i < inCount loop
+    outList := listAppend(inElement, outList);
+    i := i + 1;
+  end while;
+end repeat;
 
 public function intRange
   "Returns a list of n integers from 1 to inStop.
@@ -1093,7 +1108,7 @@ algorithm
       outSorted := v :: outSorted;
     end for;
   end for;
-  GC.free(a1);
+  GCExt.free(a1);
 end countingSort;
 
 public function unique<T>
@@ -1111,7 +1126,7 @@ algorithm
 end unique;
 
 public function uniqueIntN
-  "Takes a list of integes and returns a list with duplicates removed, so that
+  "Takes a list of integers and returns a list with duplicates removed, so that
    each element in the new list is unique. O(listLength(inList))"
   input list<Integer> inList;
   input Integer inN;
@@ -1128,7 +1143,7 @@ algorithm
 
     arrayUpdate(arr, i, false);
   end for;
-  GC.free(arr);
+  GCExt.free(arr);
 end uniqueIntN;
 
 public function uniqueIntNArr
@@ -1707,7 +1722,7 @@ algorithm
     a := addPos(inList1, a, 1);
     a := addPos(inList2, a, 1);
     outResult := intersectionIntVec(a, inList1);
-    GC.free(a);
+    GCExt.free(a);
   else
     outResult := {};
   end if;
@@ -1827,7 +1842,7 @@ algorithm
         outDifference := i :: outDifference;
       end if;
     end for;
-    GC.free(a);
+    GCExt.free(a);
   end if;
 end setDifferenceIntN;
 
@@ -1895,7 +1910,7 @@ algorithm
         outUnion := i :: outUnion;
       end if;
     end for;
-    GC.free(a);
+    GCExt.free(a);
   end if;
 end unionIntN;
 
@@ -3295,7 +3310,7 @@ algorithm
 end mapBoolOr;
 
 public function mapBoolAnd<TI>
-  "Maps each element of a inList to Boolean type with inFunc. Stops mapping at first occurrence of true return value."
+  "Maps each element of a inList to Boolean type with inFunc. Stops mapping at first occurrence of false return value."
   input list<TI> inList;
   input MapFunc inFunc;
   output Boolean res = false;
@@ -3314,7 +3329,7 @@ algorithm
 end mapBoolAnd;
 
 public function mapMapBoolAnd<TI,TI2>
-  "Maps each element of a inList to Boolean type with inFunc. Stops mapping at first occurrence of true return value."
+  "Maps each element of a inList to Boolean type with inFunc. Stops mapping at first occurrence of false return value."
   input list<TI> inList;
   input MapFunc inFunc;
   input MapBFunc inBFunc;
@@ -6112,6 +6127,28 @@ algorithm
   fail();
 end find;
 
+public function findOption<T>
+  "Returns the first element of a list for which the predicate function return
+   true as an Option, or NONE() if no element is found."
+  input list<T> lst;
+  input Predicate fn;
+  output Option<T> result;
+
+  partial function Predicate
+    input T e;
+    output Boolean matching;
+  end Predicate;
+algorithm
+  for e in lst loop
+    if fn(e) then
+      result := SOME(e);
+      return;
+    end if;
+  end for;
+
+  result := NONE();
+end findOption;
+
 public function find1<T, ArgT1>
   "This function retrieves the first element of a list for which the passed
    function evaluates to true."
@@ -7263,6 +7300,50 @@ algorithm
 
   outResult := true;
 end all;
+
+public function none<T>
+  "Returns true if the given predicate function returns false for all elements in
+   the given list."
+  input list<T> inList;
+  input PredFunc inFunc;
+  output Boolean outResult;
+
+  partial function PredFunc
+    input T inElement;
+    output Boolean outMatch;
+  end PredFunc;
+algorithm
+  for e in inList loop
+    if inFunc(e) then
+      outResult := false;
+      return;
+    end if;
+  end for;
+
+  outResult := true;
+end none;
+
+public function any<T>
+  "Returns true if the given predicate function returns true for any element in
+   the given list."
+  input list<T> inList;
+  input PredFunc inFunc;
+  output Boolean outResult;
+
+  partial function PredFunc
+    input T inElement;
+    output Boolean outMatch;
+  end PredFunc;
+algorithm
+  for e in inList loop
+    if inFunc(e) then
+      outResult := true;
+      return;
+    end if;
+  end for;
+
+  outResult := false;
+end any;
 
 public function separateOnTrue<T>
   "Takes a list of values and a filter function over the values and returns 2

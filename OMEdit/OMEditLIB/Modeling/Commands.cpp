@@ -84,8 +84,12 @@ AddShapeCommand::AddShapeCommand(ShapeAnnotation *pShapeAnnotation, UndoCommand 
  */
 void AddShapeCommand::redoInternal()
 {
-  mpShapeAnnotation->getGraphicsView()->addShapeToList(mpShapeAnnotation, mIndex);
-  mpShapeAnnotation->getGraphicsView()->deleteShapeFromOutOfSceneList(mpShapeAnnotation);
+  if (mpShapeAnnotation->isInheritedShape()) {
+    mpShapeAnnotation->getGraphicsView()->addInheritedShapeToList(mpShapeAnnotation);
+  } else {
+    mpShapeAnnotation->getGraphicsView()->addShapeToList(mpShapeAnnotation, mIndex);
+    mpShapeAnnotation->getGraphicsView()->deleteShapeFromOutOfSceneList(mpShapeAnnotation);
+  }
   mpShapeAnnotation->getGraphicsView()->addItem(mpShapeAnnotation);
   mpShapeAnnotation->getGraphicsView()->addItem(mpShapeAnnotation->getOriginItem());
   mpShapeAnnotation->emitAdded();
@@ -217,8 +221,7 @@ void DeleteShapeCommand::undo()
 }
 
 AddComponentCommand::AddComponentCommand(QString name, LibraryTreeItem *pLibraryTreeItem, QString annotation, QPointF position,
-                                         ElementInfo *pComponentInfo, bool addObject, bool openingClass, GraphicsView *pGraphicsView,
-                                         UndoCommand *pParent)
+                                         ElementInfo *pComponentInfo, bool addObject, bool openingClass, GraphicsView *pGraphicsView, UndoCommand *pParent)
   : UndoCommand(pParent)
 {
   mpLibraryTreeItem = pLibraryTreeItem;
@@ -278,6 +281,16 @@ void AddComponentCommand::redoInternal()
   if (mAddObject) {
     mpDiagramGraphicsView->addElementToClass(mpDiagramComponent);
     UpdateComponentAttributesCommand::updateComponentModifiers(mpDiagramComponent, *mpDiagramComponent->getComponentInfo());
+    if (mpDiagramComponent->getComponentInfo()->isArray()) {
+      QString modelName = pModelWidget->getLibraryTreeItem()->getNameStructure();
+      OMCProxy *pOMCProxy = MainWindow::instance()->getOMCProxy();
+      const QString arrayIndex = QString("{%1}").arg(mpDiagramComponent->getComponentInfo()->getArrayIndex());
+      if (!pOMCProxy->setComponentDimensions(modelName, mpDiagramComponent->getComponentInfo()->getName(), arrayIndex)) {
+        QMessageBox::critical(MainWindow::instance(), QString("%1 - %2").arg(Helper::applicationName, Helper::error), pOMCProxy->getResult(), Helper::ok);
+        pOMCProxy->printMessagesStringInternal();
+      }
+    }
+
   }
 }
 
@@ -303,6 +316,87 @@ void AddComponentCommand::undo()
   mpDiagramGraphicsView->addElementToOutOfSceneList(mpDiagramComponent);
   mpDiagramComponent->emitDeleted();
   mpDiagramGraphicsView->deleteElementFromClass(mpDiagramComponent);
+}
+
+AddElementCommand::AddElementCommand(ModelInstance::Element *pElement, bool inherited, bool addObject, bool openingClass, bool addtoIcon, bool addtoDiagram,
+                                     GraphicsView *pGraphicsView, UndoCommand *pParent)
+  : UndoCommand(pParent)
+{
+  mpElement = pElement;
+  mAddObject = addObject;
+  mpIconElement = 0;
+  mpDiagramElement = 0;
+  mpIconGraphicsView = pGraphicsView->getModelWidget()->getIconGraphicsView();
+  mpDiagramGraphicsView = pGraphicsView->getModelWidget()->getDiagramGraphicsView();
+  mpGraphicsView = pGraphicsView;
+  setText(QString("Add Element %1").arg(mpElement->getName()));
+
+  ModelWidget *pModelWidget = mpGraphicsView->getModelWidget();
+  // if component is of connector type && containing class is Modelica type.
+  if (addtoIcon && pElement && pElement->getModel()->isConnector() && pModelWidget->getLibraryTreeItem()->getLibraryType() == LibraryTreeItem::Modelica) {
+    // Connector type components exists on icon view as well
+    mpIconElement = new Element(pElement, inherited, mpIconGraphicsView);
+  }
+  if (addtoDiagram) {
+    mpDiagramElement = new Element(pElement, inherited, mpDiagramGraphicsView);
+  }
+  // only select the component of the active Icon/Diagram View
+  if (!openingClass) {
+    if (mpGraphicsView->getViewType() == StringHandler::Icon) {
+      mpGraphicsView->clearSelection(mpIconElement);
+    } else {
+      mpGraphicsView->clearSelection(mpDiagramElement);
+    }
+  }
+}
+
+void AddElementCommand::redoInternal()
+{
+  ModelWidget *pModelWidget = mpGraphicsView->getModelWidget();
+  // if component is of connector type && containing class is Modelica type.
+  if (mpIconElement && mpElement->getModel()->isConnector() && pModelWidget->getLibraryTreeItem()->getLibraryType() == LibraryTreeItem::Modelica) {
+    // Connector type components exists on icon view as well
+    if (mpIconElement->mTransformation.isValid() && mpIconElement->mTransformation.getVisible()) {
+      mpIconGraphicsView->addItem(mpIconElement);
+      mpIconGraphicsView->addItem(mpIconElement->getOriginItem());
+    }
+    if (mpIconElement->isInheritedElement()) {
+      mpIconGraphicsView->addInheritedElementToList(mpIconElement);
+    } else {
+      mpIconGraphicsView->addElementToList(mpIconElement);
+    }
+    // hide the component if it is connector and is protected
+//    mpIconComponent->setVisible(!mpComponentInfo->getProtected());
+  }
+  if (mpDiagramElement) {
+    if (mpDiagramElement->mTransformation.isValid() && mpDiagramElement->mTransformation.getVisible()) {
+      mpDiagramGraphicsView->addItem(mpDiagramElement);
+      mpDiagramGraphicsView->addItem(mpDiagramElement->getOriginItem());
+    }
+    if (mpDiagramElement->isInheritedElement()) {
+      mpDiagramGraphicsView->addInheritedElementToList(mpDiagramElement);
+    } else {
+      mpDiagramGraphicsView->addElementToList(mpDiagramElement);
+    }
+  }
+//  if (mAddObject) {
+//    mpDiagramGraphicsView->addElementToClass(mpDiagramComponent);
+//    UpdateComponentAttributesCommand::updateComponentModifiers(mpDiagramComponent, *mpDiagramComponent->getComponentInfo());
+//    if (mpDiagramComponent->getComponentInfo()->isArray()) {
+//      QString modelName = pModelWidget->getLibraryTreeItem()->getNameStructure();
+//      OMCProxy *pOMCProxy = MainWindow::instance()->getOMCProxy();
+//      const QString arrayIndex = QString("{%1}").arg(mpDiagramComponent->getComponentInfo()->getArrayIndex());
+//      if (!pOMCProxy->setComponentDimensions(modelName, mpDiagramComponent->getComponentInfo()->getName(), arrayIndex)) {
+//        QMessageBox::critical(MainWindow::instance(), QString("%1 - %2").arg(Helper::applicationName, Helper::error), pOMCProxy->getResult(), Helper::ok);
+//        pOMCProxy->printMessagesStringInternal();
+//      }
+//    }
+//  }
+}
+
+void AddElementCommand::undo()
+{
+
 }
 
 UpdateComponentTransformationsCommand::UpdateComponentTransformationsCommand(Element *pComponent, const Transformation &oldTransformation, const Transformation &newTransformation,
@@ -440,8 +534,7 @@ void UpdateComponentAttributesCommand::updateComponentAttributes(Element *pCompo
 
   OMCProxy *pOMCProxy = MainWindow::instance()->getOMCProxy();
   // update component attributes
-  if (pOMCProxy->setComponentProperties(modelName, pComponent->getComponentInfo()->getName(), isFinal, flow, isProtected, isReplaceAble,
-                                        variability, isInner, isOuter, causality)) {
+  if (pOMCProxy->setComponentProperties(modelName, pComponent->getComponentInfo()->getName(), isFinal, flow, isProtected, isReplaceAble, variability, isInner, isOuter, causality)) {
     pComponent->getComponentInfo()->setFinal(componentInfo.getFinal());
     pComponent->getComponentInfo()->setProtected(componentInfo.getProtected());
     pComponent->getComponentInfo()->setReplaceable(componentInfo.getReplaceable());
@@ -471,8 +564,7 @@ void UpdateComponentAttributesCommand::updateComponentAttributes(Element *pCompo
       }
     }
   } else {
-    QMessageBox::critical(MainWindow::instance(),
-                          QString(Helper::applicationName).append(" - ").append(Helper::error), pOMCProxy->getResult(), Helper::ok);
+    QMessageBox::critical(MainWindow::instance(), QString("%1 - %2").arg(Helper::applicationName, Helper::error), pOMCProxy->getResult(), Helper::ok);
     pOMCProxy->printMessagesStringInternal();
   }
   // update the component comment only if its changed.
@@ -483,22 +575,19 @@ void UpdateComponentAttributesCommand::updateComponentAttributes(Element *pCompo
       pComponent->componentCommentHasChanged();
       if (pComponent->getLibraryTreeItem()->isConnector()) {
         if (pComponent->getGraphicsView()->getViewType() == StringHandler::Icon) {
-          Element *pDiagramComponent = 0;
-          pDiagramComponent = pComponent->getGraphicsView()->getModelWidget()->getDiagramGraphicsView()->getElementObject(pComponent->getName());
+          Element *pDiagramComponent = pComponent->getGraphicsView()->getModelWidget()->getDiagramGraphicsView()->getElementObject(pComponent->getName());
           if (pDiagramComponent) {
             pDiagramComponent->componentCommentHasChanged();
           }
         } else {
-          Element *pIconComponent = 0;
-          pIconComponent = pComponent->getGraphicsView()->getModelWidget()->getIconGraphicsView()->getElementObject(pComponent->getName());
+          Element *pIconComponent = pComponent->getGraphicsView()->getModelWidget()->getIconGraphicsView()->getElementObject(pComponent->getName());
           if (pIconComponent) {
             pIconComponent->componentCommentHasChanged();
           }
         }
       }
     } else {
-      QMessageBox::critical(MainWindow::instance(),
-                            QString(Helper::applicationName).append(" - ").append(Helper::error), pOMCProxy->getResult(), Helper::ok);
+      QMessageBox::critical(MainWindow::instance(), QString("%1 - %2").arg(Helper::applicationName, Helper::error), pOMCProxy->getResult(), Helper::ok);
       pOMCProxy->printMessagesStringInternal();
     }
   }
@@ -511,22 +600,19 @@ void UpdateComponentAttributesCommand::updateComponentAttributes(Element *pCompo
       pComponent->componentNameHasChanged();
       if (pComponent->getLibraryTreeItem()->isConnector()) {
         if (pComponent->getGraphicsView()->getViewType() == StringHandler::Icon) {
-          Element *pDiagramComponent = 0;
-          pDiagramComponent = pComponent->getGraphicsView()->getModelWidget()->getDiagramGraphicsView()->getElementObject(pComponent->getName());
+          Element *pDiagramComponent = pComponent->getGraphicsView()->getModelWidget()->getDiagramGraphicsView()->getElementObject(pComponent->getName());
           if (pDiagramComponent) {
             pDiagramComponent->componentNameHasChanged();
           }
         } else {
-          Element *pIconComponent = 0;
-          pIconComponent = pComponent->getGraphicsView()->getModelWidget()->getIconGraphicsView()->getElementObject(pComponent->getName());
+          Element *pIconComponent = pComponent->getGraphicsView()->getModelWidget()->getIconGraphicsView()->getElementObject(pComponent->getName());
           if (pIconComponent) {
             pIconComponent->componentNameHasChanged();
           }
         }
       }
     } else {
-      QMessageBox::critical(MainWindow::instance(),
-                            QString(Helper::applicationName).append(" - ").append(Helper::error), pOMCProxy->getResult(), Helper::ok);
+      QMessageBox::critical(MainWindow::instance(), QString("%1 - %2").arg(Helper::applicationName, Helper::error), pOMCProxy->getResult(), Helper::ok);
       pOMCProxy->printMessagesStringInternal();
     }
   }
@@ -536,8 +622,7 @@ void UpdateComponentAttributesCommand::updateComponentAttributes(Element *pCompo
     if (pOMCProxy->setComponentDimensions(modelName, pComponent->getComponentInfo()->getName(), arrayIndex)) {
       pComponent->getComponentInfo()->setArrayIndex(arrayIndex);
     } else {
-      QMessageBox::critical(MainWindow::instance(),
-                            QString(Helper::applicationName).append(" - ").append(Helper::error), pOMCProxy->getResult(), Helper::ok);
+      QMessageBox::critical(MainWindow::instance(), QString("%1 - %2").arg(Helper::applicationName, Helper::error), pOMCProxy->getResult(), Helper::ok);
       pOMCProxy->printMessagesStringInternal();
     }
   }
@@ -1704,5 +1789,28 @@ void OMSimulatorUndoCommand::switchToEditedModelWidget()
     if (pEditedLibraryTreeItem) {
       pLibraryTreeModel->showModelWidget(pEditedLibraryTreeItem);
     }
+  }
+}
+
+OMCUndoCommand::OMCUndoCommand(LibraryTreeItem *pLibraryTreeItem, const QJsonObject &oldModelInstanceJson, const QString &commandText, UndoCommand *pParent)
+  : UndoCommand(pParent)
+{
+  mpLibraryTreeItem = pLibraryTreeItem;
+  mOldModelInstanceJson = oldModelInstanceJson;
+  mNewModelInstanceJson = MainWindow::instance()->getOMCProxy()->getModelInstance(mpLibraryTreeItem->getNameStructure(), true);
+  setText(commandText);
+}
+
+void OMCUndoCommand::redoInternal()
+{
+  if (mpLibraryTreeItem && mpLibraryTreeItem->getModelWidget()) {
+    mpLibraryTreeItem->getModelWidget()->reDrawModelWidget(mNewModelInstanceJson);
+  }
+}
+
+void OMCUndoCommand::undo()
+{
+  if (mpLibraryTreeItem && mpLibraryTreeItem->getModelWidget()) {
+    mpLibraryTreeItem->getModelWidget()->reDrawModelWidget(mOldModelInstanceJson);
   }
 }

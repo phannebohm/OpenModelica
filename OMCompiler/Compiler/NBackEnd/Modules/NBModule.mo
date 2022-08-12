@@ -43,11 +43,11 @@ encapsulated package NBModule
    - detectDiscreteStatesInterface
 
   *** PRE (Optional)
-   - removeSimpleEquationsInterface
+   - aliasInterface
 
   *** MAIN
-   - causalizeInterface
    - partitioningInterface
+   - causalizeInterface
    - daeModeInterface
 
   *** POST (Mandatory)
@@ -68,6 +68,7 @@ protected
   import BEquation = NBEquation;
   import NBEquation.{Equation, EquationPointers, EqData};
   import Jacobian = NBackendDAE;
+  import NBJacobian.JacobianType;
   import StrongComponent = NBStrongComponent;
   import System = NBSystem;
   import BVariable = NBVariable;
@@ -119,7 +120,6 @@ public
     input output VarData varData;
     input output EqData eqData;
     input output FunctionTree funcTree;
-    input Adjacency.MatrixStrictness matrixStrictness;
   end causalizeInterface;
 
   partial function resolveSingularitiesInterface
@@ -128,6 +128,9 @@ public
     input output VarData varData;
     input output EqData eqData;
     input output FunctionTree funcTree;
+    input Option<Adjacency.Mapping> mapping_opt;
+    input Adjacency.MatrixType matrixType;
+    output Boolean changed;
   end resolveSingularitiesInterface;
 
 //                               DAEMODE
@@ -201,40 +204,41 @@ public
 //                         Optional PRE-OPT MODULES
 // =========================================================================
 
-//                          REMOVE SIMPLE EQUATIONS
+//                                 ALIAS
 // *************************************************************************
-  partial function removeSimpleEquationsInterface
-    "RemoveSimpleEquations
+  partial function aliasInterface
+    "Alias
      This module is allowed to read and remove equations and move variables from
-     unknowns to knows. Since this can also affects all other pointer arrays, the
+     unknowns to knowns. Since this can also affect all other pointer arrays, the
      full variable data is needed. All things that are allowed to be changed
      are pointers, so no return value."
     input output VarData varData         "Data containing variable pointers";
     input output EqData eqData           "Data containing equation pointers";
-  end removeSimpleEquationsInterface;
+  end aliasInterface;
 
 
-  // =========================================================================
-  //                         MANDATORY POST-OPT MODULES
-  // =========================================================================
+// =========================================================================
+//                         MANDATORY POST-OPT MODULES
+// =========================================================================
 
-  //                               JACOBIAN
-  // *************************************************************************
-    partial function jacobianInterface
-      "The jacobian is only allowed to read the variables and equations of current
-      system and additionally the global known variables. It needs a unique name
-      and is allowed to manipulate the function tree.
-      [!] This function can not only be used as an optimization module but also for
-      nonlinear systems, state sets, linearization and dynamic optimization."
-      input String name                                     "Name of jacobian";
-      input VariablePointers unknowns                       "Variable array of unknowns";
-      input Option<VariablePointers> daeUnknowns            "Variable array of unknowns in the case of dae mode";
-      input EquationPointers equations                      "Equations array";
-      input VariablePointers knowns                         "Variable array of knowns";
-      input Option<array<StrongComponent>> strongComponents "Strong Components";
-      output Option<Jacobian> jacobian                      "Resulting jacobian";
-      input output FunctionTree funcTree                    "Function call bodies";
-    end jacobianInterface;
+//                               JACOBIAN
+// *************************************************************************
+  partial function jacobianInterface
+    "The jacobian is only allowed to read the variables and equations of current
+    system and additionally the global known variables. It needs a unique name
+    and is allowed to manipulate the function tree.
+    [!] This function can not only be used as an optimization module but also for
+    nonlinear systems, state sets, linearization and dynamic optimization."
+    input String name                                     "Name of jacobian";
+    input JacobianType jacType                            "Type of jacobian (sim/nonlin)";
+    input VariablePointers seedCandidates                 "differentiate by these";
+    input VariablePointers partialCandidates              "solve the equations for these";
+    input EquationPointers equations                      "Equations array";
+    input VariablePointers knowns                         "Variable array of knowns";
+    input Option<array<StrongComponent>> strongComponents "Strong Components";
+    output Option<Jacobian> jacobian                      "Resulting jacobian";
+    input output FunctionTree funcTree                    "Function call bodies";
+  end jacobianInterface;
 
 // =========================================================================
 //                         Optional POST-OPT MODULES

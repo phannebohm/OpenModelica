@@ -121,7 +121,7 @@ public constant ElementSource emptyElementSource = SOURCE(AbsynUtil.dummyInfo,{}
 
 public uniontype SymbolicOperation
   record FLATTEN "From one equation/statement to an element"
-    SCode.EEquation scode;
+    SCode.Equation scode;
     Option<Element> dae;
   end FLATTEN;
   record SIMPLIFY "Before and after expression is equivalent"
@@ -268,6 +268,16 @@ public uniontype Element
     Option<Element> elsewhen_ "Elsewhen should be of type WHEN_EQUATION" ;
     ElementSource source "the origin of the component/equation/algorithm" ;
   end WHEN_EQUATION;
+
+  record INITIAL_FOR_EQUATION " an initial for-equation"
+    Type type_ "this is the type of the iterator";
+    Boolean iterIsArray "True if the iterator has an array type, otherwise false.";
+    Ident iter "the iterator variable";
+    Integer index "the index of the iterator variable, to make it unique; used by the new inst";
+    Exp range "range for the loop";
+    list<Element> equations "Equations" ;
+    ElementSource source "the origin of the component/equation/algorithm" ;
+  end INITIAL_FOR_EQUATION;
 
   record FOR_EQUATION " a for-equation"
     Type type_ "this is the type of the iterator";
@@ -706,7 +716,6 @@ uniontype Statement "There are four kinds of statements:
     Type type_ "this is the type of the iterator";
     Boolean iterIsArray "True if the iterator has an array type, otherwise false.";
     Ident iter "the iterator variable";
-    Integer index "the index of the iterator variable, to make it unique; used by the new inst";
     Exp range "range for the loop";
     list<Statement> statementLst;
     ElementSource source "the origin of the component/equation/algorithm" ;
@@ -716,7 +725,6 @@ uniontype Statement "There are four kinds of statements:
     Type type_ "this is the type of the iterator";
     Boolean iterIsArray "True if the iterator has an array type, otherwise false.";
     Ident iter "the iterator variable";
-    Integer index "the index of the iterator variable, to make it unique; used by the new inst";
     Exp range "range for the loop";
     list<Statement> statementLst;
     list<tuple<ComponentRef,SourceInfo>> loopPrlVars "list of parallel variables used/referenced in the parfor loop";
@@ -1283,22 +1291,22 @@ uniontype ClockKind
   record INFERRED_CLOCK
   end INFERRED_CLOCK;
 
-  record INTEGER_CLOCK
-    Exp intervalCounter;
-    Exp resolution " integer type >= 1 ";
-  end INTEGER_CLOCK;
+  record RATIONAL_CLOCK
+    Exp intervalCounter " integer type >= 0 ";
+    Exp resolution " integer type >= 1, defaults to 1 ";
+  end RATIONAL_CLOCK;
 
   record REAL_CLOCK
-    Exp interval;
+    Exp interval " real type > 0 ";
   end REAL_CLOCK;
 
-  record BOOLEAN_CLOCK
+  record EVENT_CLOCK
     Exp condition;
     Exp startInterval " real type >= 0.0 ";
-  end BOOLEAN_CLOCK;
+  end EVENT_CLOCK;
 
   record SOLVER_CLOCK
-    Exp c;
+    Exp c " clock type ";
     Exp solverMethod " string type ";
   end SOLVER_CLOCK;
 end ClockKind;
@@ -1809,7 +1817,8 @@ end Operator;
 public
 uniontype ComponentRef "- Component references
     CREF_QUAL(...) is used for qualified component names, e.g. a.b.c
-    CREF_IDENT(..) is used for non-qualifed component names, e.g. x"
+    CREF_IDENT(..) is used for non-qualifed component names, e.g. x
+    Outermost CREF_QUAL(...) is leftmost name. e.g. CREF_QUAL(a, CREF_IDENT(b)) -> a.b"
 
   record CREF_QUAL
     Ident ident;
@@ -1823,13 +1832,6 @@ uniontype ComponentRef "- Component references
     Type identType "type of the identifier, without considering the subscripts";
     list<Subscript> subscriptLst;
   end CREF_IDENT;
-
-  record CREF_ITER "An iterator index; used in local scopes in for-loops and reductions"
-    Ident ident;
-    Integer index;
-    Type identType "type of the identifier, without considering the subscripts";
-    list<Subscript> subscriptLst;
-  end CREF_ITER;
 
   record OPTIMICA_ATTR_INST_CREF "An Optimica component reference with the time instant in it. e.g x2(finalTime)"
     ComponentRef componentRef;

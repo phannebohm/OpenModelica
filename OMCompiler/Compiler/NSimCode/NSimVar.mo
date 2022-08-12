@@ -50,6 +50,7 @@ protected
   import SimplifyExp = NFSimplifyExp;
   import Type = NFType;
   import Variable = NFVariable;
+  import NBVariable.VariablePointers;
 
   // Old Backend imports
   import OldBackendDAE = BackendDAE;
@@ -105,8 +106,14 @@ public
     function toString
       input SimVar var;
       input output String str = "";
+    protected
+      Expression start;
     algorithm
-      str := str + "(" + intString(var.index) + ")" + BackendExtension.VariableKind.toString(var.varKind) + " " + ComponentRef.toString(var.name);
+      str := str + "(" + intString(var.index) + ")" + BackendExtension.VariableKind.toString(var.varKind) + " (" + intString(SimVar.size(var)) + ") " + Type.toString(var.type_) + " " + ComponentRef.toString(var.name);
+      if Util.isSome(var.start) then
+        start := Util.getOption(var.start);
+        str := str + " = " + Expression.toString(start);
+      end if;
     end toString;
 
     function listToString
@@ -135,7 +142,6 @@ public
     algorithm
       simVar := match var
         local
-          Variable qual;
           BackendExtension.VariableKind varKind;
           String comment, unit, displayUnit;
           Option<Expression> min;
@@ -146,44 +152,43 @@ public
           Causality causality;
           SimVar result;
 
-        case qual as Variable.VARIABLE()
-          algorithm
-            comment := parseComment(qual.comment);
-            (varKind, unit, displayUnit, min, max, start, nominal, isFixed, isDiscrete, isProtected)
-              := parseAttributes(qual.backendinfo);
-            // for parameters the binding supersedes the start value if it exists and is constant
-            // ToDo: also for other cases? (constant, struct param ...)
-            (start, isValueChangeable, causality) := parseBinding(start, var);
-            result := SIMVAR(
-              name                = qual.name,
-              varKind             = varKind,
-              comment             = comment,
-              unit                = unit,
-              displayUnit         = displayUnit,
-              index               = typeIndex,
-              min                 = min,
-              max                 = max,
-              start               = start,
-              nominal             = nominal,
-              isFixed             = isFixed,
-              type_               = qual.ty,
-              isDiscrete          = isDiscrete,
-              arrayCref           = NONE(),
-              aliasvar            = alias,
-              info                = qual.info,
-              causality           = SOME(causality),
-              variable_index      = SOME(uniqueIndex),
-              fmi_index           = SOME(typeIndex),
-              numArrayElement     = {},
-              isValueChangeable   = isValueChangeable,
-              isProtected         = isProtected,
-              hideResult          = false,
-              inputIndex          = NONE(),
-              matrixName          = NONE(),
-              variability         = NONE(),
-              initial_            = NONE(),
-              exportVar           = NONE()
-            );
+        case Variable.VARIABLE() algorithm
+          comment := parseComment(var.comment);
+          (varKind, unit, displayUnit, min, max, start, nominal, isFixed, isDiscrete, isProtected)
+          := parseAttributes(var.backendinfo);
+          // for parameters the binding supersedes the start value if it exists and is constant
+          // ToDo: also for other cases? (constant, struct param ...)
+          (start, isValueChangeable, causality) := parseBinding(start, var);
+          result := SIMVAR(
+            name                = var.name,
+            varKind             = varKind,
+            comment             = comment,
+            unit                = unit,
+            displayUnit         = displayUnit,
+            index               = typeIndex,
+            min                 = min,
+            max                 = max,
+            start               = start,
+            nominal             = nominal,
+            isFixed             = isFixed,
+            type_               = var.ty,
+            isDiscrete          = isDiscrete,
+            arrayCref           = ComponentRef.getArrayCrefOpt(var.name),
+            aliasvar            = alias,
+            info                = var.info,
+            causality           = SOME(causality),
+            variable_index      = SOME(uniqueIndex),
+            fmi_index           = SOME(typeIndex),
+            numArrayElement     = {},
+            isValueChangeable   = isValueChangeable,
+            isProtected         = isProtected,
+            hideResult          = false,
+            inputIndex          = NONE(),
+            matrixName          = NONE(),
+            variability         = NONE(),
+            initial_            = NONE(),
+            exportVar           = NONE()
+          );
         then result;
 
         else algorithm
@@ -221,10 +226,10 @@ public
           simCodeIndices.realAliasIndex := simCodeIndices.realAliasIndex +1;
         then ();
 
-        case VarType.DAE_MODE_RESIDUAL algorithm
-          Pointer.update(acc, create(var, simCodeIndices.uniqueIndex, simCodeIndices.daeModeResidualIndex) :: Pointer.access(acc));
+        case VarType.RESIDUAL algorithm
+          Pointer.update(acc, create(var, simCodeIndices.uniqueIndex, simCodeIndices.residualIndex) :: Pointer.access(acc));
           simCodeIndices.uniqueIndex := simCodeIndices.uniqueIndex + 1;
-          simCodeIndices.daeModeResidualIndex := simCodeIndices.daeModeResidualIndex +1;
+          simCodeIndices.residualIndex := simCodeIndices.residualIndex +1;
         then ();
 
         else algorithm
@@ -234,6 +239,11 @@ public
       end match;
       Pointer.update(indices_ptr, simCodeIndices);
     end traverseCreate;
+
+    function size
+      input SimVar var;
+      output Integer s = Type.sizeOf(var.type_);
+    end size;
 
     function getName
       input SimVar var;
@@ -272,7 +282,7 @@ public
         numArrayElement     = simVar.numArrayElement,
         isValueChangeable   = simVar.isValueChangeable,
         isProtected         = simVar.isProtected,
-        hideResult          = simVar.hideResult,
+        hideResult          = SOME(simVar.hideResult),
         inputIndex          = simVar.inputIndex,
         matrixName          = simVar.matrixName,
         variability         = NONE(),  //ToDo update this!
@@ -371,7 +381,8 @@ public
         then ();
 
         else algorithm
-          Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because the BackendInfo could not be parsed."});
+          Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because the BackendInfo could not be parsed:\n"
+            + BackendExtension.BackendInfo.toString(backendInfo)});
         then fail();
       end match;
       isDiscrete := match varKind
@@ -381,7 +392,7 @@ public
         case BackendExtension.PARAMETER()       then true;
         case BackendExtension.CONSTANT()        then true;
         case BackendExtension.START()           then true;
-                                                else false;
+                                                else isDiscrete;
       end match;
     end parseAttributes;
 
@@ -408,16 +419,21 @@ public
         local
           Expression bindingExp;
 
-        // parameter with constant binding -> start value is updated to the binding value. Value can be changed after sim
+        // 1. parameter with constant binding -> start value is updated to the binding value. Value can be changed after sim
         case Variable.VARIABLE(binding = Binding.TYPED_BINDING(variability = NFPrefixes.Variability.CONSTANT, bindingExp = bindingExp),
           backendinfo = BackendExtension.BACKEND_INFO(varKind = BackendExtension.PARAMETER()))
         then (SOME(bindingExp), true, Causality.PARAMETER);
 
-        // parameter with non constant binding -> normal start value. Value cannot be changed after simulation
+        // 2. just like 1. - FLAT_BINDING gets introduced by expanding/scalarizing
+        case Variable.VARIABLE(binding = Binding.FLAT_BINDING(variability = NFPrefixes.Variability.CONSTANT, bindingExp = bindingExp),
+          backendinfo = BackendExtension.BACKEND_INFO(varKind = BackendExtension.PARAMETER()))
+        then (SOME(bindingExp), true, Causality.PARAMETER);
+
+        // 3. parameter with non constant binding -> normal start value. Value cannot be changed after simulation
         case Variable.VARIABLE(backendinfo = BackendExtension.BACKEND_INFO(varKind = BackendExtension.PARAMETER()))
         then (start, false, Causality.CALCULATED_PARAMETER);
 
-        // other variables -> regular start value and it can be changed after simulation
+        // 0. other variables -> regular start value and it can be changed after simulation
         else (start, false, Causality.LOCAL);
 
         // ToDo: more cases!
@@ -570,6 +586,9 @@ public
 
         // negated alias
         case Expression.UNARY(exp = e as Expression.CREF()) then ALIAS(e.cref, -1.0, 0.0);
+
+        // negated logical alias
+        case Expression.LUNARY(exp = e as Expression.CREF()) then ALIAS(e.cref, -1.0, 0.0);
 /*
         // gain alias
         case e as Expression.MULTARY(arguments = {e1, e2}, inv_arguments = {})
@@ -682,6 +701,7 @@ public
       list<SimVar> intConstVars;
       list<SimVar> boolConstVars;
       list<SimVar> stringConstVars;
+      list<SimVar> residualVars;
       list<SimVar> jacobianVars;
       list<SimVar> seedVars;
       list<SimVar> realOptimizeConstraintsVars;
@@ -701,12 +721,14 @@ public
       str := str + SimVar.listToString(vars.algVars, "Algebraic Variables");
       str := str + SimVar.listToString(vars.paramVars, "Real Parameters");
       str := str + SimVar.listToString(vars.intParamVars, "Integer Parameters");
+      str := str + SimVar.listToString(vars.residualVars, "Residual Variables");
       str := str + SimVar.listToString(vars.aliasVars, "Real Alias", true);
       // ToDo: all the other stuff
     end toString;
 
     function create
       input BVariable.VarData varData;
+      input VariablePointers residual_vars;
       output SimVars simVars;
       input output SimCode.SimCodeIndices simCodeIndices;
     protected
@@ -718,6 +740,7 @@ public
       list<SimVar> paramVars = {}, intParamVars = {}, boolParamVars = {}, stringParamVars = {};
       list<SimVar> constVars = {}, intConstVars = {}, boolConstVars = {}, stringConstVars = {};
       list<SimVar> extObjVars = {};
+      list<SimVar> residualVars = {};
       list<SimVar> jacobianVars = {};
       list<SimVar> seedVars = {};
       list<SimVar> realOptimizeConstraintsVars = {};
@@ -740,6 +763,7 @@ public
             ({aliasVars, intAliasVars, boolAliasVars, stringAliasVars}, simCodeIndices) := createSimVarLists(qual.aliasVars, simCodeIndices, SplitType.TYPE, VarType.ALIAS);
             ({paramVars, intParamVars, boolParamVars, stringParamVars}, simCodeIndices) := createSimVarLists(qual.parameters, simCodeIndices, SplitType.TYPE, VarType.PARAMETER);
             ({constVars, intConstVars, boolConstVars, stringConstVars}, simCodeIndices) := createSimVarLists(qual.constants, simCodeIndices, SplitType.TYPE, VarType.SIMULATION);
+            ({residualVars}, simCodeIndices)                                            := createSimVarLists(residual_vars, simCodeIndices, SplitType.NONE, VarType.RESIDUAL);
         then ();
 
         case qual as BVariable.VAR_DATA_JAC() then ();
@@ -773,6 +797,7 @@ public
         intConstVars                        = intConstVars,
         boolConstVars                       = boolConstVars,
         stringConstVars                     = stringConstVars,
+        residualVars                        = residualVars,
         jacobianVars                        = jacobianVars,
         seedVars                            = seedVars,
         realOptimizeConstraintsVars         = realOptimizeConstraintsVars,
@@ -782,6 +807,27 @@ public
         dataReconinputVars                  = dataReconinputVars
       );
     end create;
+
+    function addSeedAndJacobianVars
+      input output SimVars vars;
+      input list<tuple<ComponentRef, SimVar>> hash_tpl;
+    protected
+      ComponentRef cref;
+      SimVar var;
+      list<SimVar> seed_vars = {};
+      list<SimVar> jacobian_vars = {};
+    algorithm
+      for tpl in hash_tpl loop
+        (cref, var) := tpl;
+        if BVariable.checkCref(cref, BVariable.isSeed) then
+          seed_vars := var :: seed_vars;
+        else
+          jacobian_vars := var :: jacobian_vars;
+        end if;
+      end for;
+      vars.seedVars := listAppend(seed_vars, vars.seedVars);
+      vars.jacobianVars := listAppend(jacobian_vars, vars.jacobianVars);
+    end addSeedAndJacobianVars;
 
     function size
       input SimVars simVars;
@@ -856,12 +902,13 @@ public
     function createSimVarLists
       "creates a list of simvar lists. SplitType.NONE always returns a list with only
       one list as its element and SplitType.TYPE returns a list with four lists."
-      input BVariable.VariablePointers vars;
+      input VariablePointers vars;
       output list<list<SimVar>> simVars = {};
       input output SimCode.SimCodeIndices simCodeIndices;
       input SplitType splitType = SplitType.NONE;
       input VarType varType = VarType.SIMULATION;
     protected
+      VariablePointers scalar_vars;
       Pointer<list<SimVar>> acc = Pointer.create({});
       Pointer<list<SimVar>> real_lst = Pointer.create({});
       Pointer<list<SimVar>> int_lst = Pointer.create({});
@@ -869,15 +916,17 @@ public
       Pointer<list<SimVar>> string_lst = Pointer.create({});
       Pointer<SimCode.SimCodeIndices> indices_ptr = Pointer.create(simCodeIndices);
     algorithm
+      // scalarize variables for simcode
+      scalar_vars := VariablePointers.scalarize(vars);
       if splitType == SplitType.NONE then
         // Do not split and return everything as one single list
-        BVariable.VariablePointers.map(vars, function SimVar.traverseCreate(acc = acc, indices_ptr = indices_ptr, varType = varType));
+        VariablePointers.map(scalar_vars, function SimVar.traverseCreate(acc = acc, indices_ptr = indices_ptr, varType = varType));
         simVars := {listReverse(Pointer.access(acc))};
         simCodeIndices := Pointer.access(indices_ptr);
       elseif splitType == SplitType.TYPE then
         // Split the variables by basic type (real, integer, boolean, string)
         // and return a list for each type
-        BVariable.VariablePointers.map(vars, function splitByType(real_lst = real_lst, int_lst = int_lst, bool_lst = bool_lst, string_lst = string_lst, indices_ptr = indices_ptr, varType = varType));
+        VariablePointers.map(scalar_vars, function splitByType(real_lst = real_lst, int_lst = int_lst, bool_lst = bool_lst, string_lst = string_lst, indices_ptr = indices_ptr, varType = varType));
         simVars := {listReverse(Pointer.access(real_lst)),
                     listReverse(Pointer.access(int_lst)),
                     listReverse(Pointer.access(bool_lst)),
@@ -998,7 +1047,6 @@ public
             Pointer.update(indices_ptr, simCodeIndices);
         then ();
 
-
         else algorithm
           Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because of unhandled Variable " + ComponentRef.toString(var.name) + "."});
         then fail();
@@ -1008,11 +1056,11 @@ public
 
   end SimVars;
 
-  constant SimVars emptySimVars = SIMVARS({}, {}, {}, {}, {}, {}, {}, {}, {}, {},
+  constant SimVars emptySimVars = SIMVARS({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {},
    {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {});
 
   type SplitType  = enumeration(NONE, TYPE);
-  type VarType    = enumeration(SIMULATION, PARAMETER, ALIAS, DAE_MODE_RESIDUAL); // ToDo: PRE, OLD, RELATIONS...
+  type VarType    = enumeration(SIMULATION, PARAMETER, ALIAS, RESIDUAL); // ToDo: PRE, OLD, RELATIONS...
 
   annotation(__OpenModelica_Interface="backend");
 end NSimVar;

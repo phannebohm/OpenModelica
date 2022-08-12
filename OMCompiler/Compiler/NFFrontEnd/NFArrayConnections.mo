@@ -42,11 +42,9 @@ encapsulated package NFArrayConnections
   import SBPWLinearMap;
 
 protected
-  import AbsynUtil;
   import SBGraph.IncidenceList;
   import SBGraph.VertexDescriptor;
   import Array;
-  import BaseHashTable;
   import Call = NFCall;
   import Ceval = NFCeval;
   import Component = NFComponent;
@@ -64,6 +62,8 @@ protected
   import Subscript = NFSubscript;
   import Type = NFType;
   import Variable = NFVariable;
+  import UnorderedSet;
+  import UnorderedMap;
 
   uniontype SetVertex
     record SET_VERTEX
@@ -109,51 +109,7 @@ protected
   end SetEdge;
 
 public
-  // TODO: Implement better hash table and get rid of this.
-  encapsulated package NameVertexTable
-    import BaseHashTable;
-    import SBMultiInterval;
-
-    type Key = String;
-    type Value = SBMultiInterval;
-
-    type Table = tuple<
-      array<list<tuple<Key, Integer>>>,
-      tuple<Integer, Integer, array<Option<tuple<Key, Value>>>>,
-      Integer,
-      tuple<FuncHash, FuncEq, FuncKeyStr, FuncValueStr>>;
-
-    partial function FuncHash
-      input Key key;
-      input Integer mod;
-      output Integer res;
-    end FuncHash;
-
-    partial function FuncEq
-      input Key key1;
-      input Key key2;
-      output Boolean res;
-    end FuncEq;
-
-    partial function FuncKeyStr
-      input Key key;
-      output String res;
-    end FuncKeyStr;
-
-    partial function FuncValueStr
-      input Value value;
-      output String res;
-    end FuncValueStr;
-
-    function new
-      input Integer size = 257;
-      output Table table;
-    algorithm
-      table := BaseHashTable.emptyHashTableWork(size,
-        (stringHashDjb2Mod, stringEq, Util.id, SBMultiInterval.toString));
-    end new;
-  end NameVertexTable;
-
+  type NameVertexTable = UnorderedMap<String, SBMultiInterval>;
   type SBGraph = IncidenceList<SetVertex, SetEdge>;
 
   function resolve
@@ -165,7 +121,7 @@ public
     SBGraph graph;
     SBSet vss;
     SBPWLinearMap res, emap1, emap2;
-    NameVertexTable.Table nmv_table;
+    NameVertexTable nmv_table;
   algorithm
     for var in flatModel.variables loop
       max_dim := max(max_dim, Type.dimensionCount(var.ty));
@@ -177,8 +133,8 @@ public
     (flatModel, conns) := collect(flatModel);
 
     graph := IncidenceList.new(SetVertex.isEqual, SetEdge.isEqual, SetVertex.toString, SetEdge.toString);
-    nmv_table := NameVertexTable.new();
-    nmv_table := createGraph(flatModel.variables, conns, graph, v_count, e_count, nmv_table);
+    nmv_table := UnorderedMap.new<SBMultiInterval>(stringHashDjb2Mod, stringEq);
+    createGraph(flatModel.variables, conns, graph, v_count, e_count, nmv_table);
 
     if Flags.isSet(Flags.DUMP_SET_BASED_GRAPHS) then
       print(IncidenceList.toString(graph));
@@ -227,17 +183,17 @@ protected
     input SBGraph graph;
     input Vector<Integer> vCount;
     input Vector<Integer> eCount;
-    input output NameVertexTable.Table nmvTable;
+    input NameVertexTable nmvTable;
   algorithm
-    nmvTable := addFlowsToGraph(variables, graph, vCount, nmvTable);
-    nmvTable := addConnectionsToGraph(equations, graph, vCount, eCount, nmvTable);
+    addFlowsToGraph(variables, graph, vCount, nmvTable);
+    addConnectionsToGraph(equations, graph, vCount, eCount, nmvTable);
   end createGraph;
 
   function addFlowsToGraph
     input list<Variable> variables;
     input SBGraph graph;
     input Vector<Integer> vCount;
-    input output NameVertexTable.Table nmvTable;
+    input NameVertexTable nmvTable;
   protected
     Connector conn;
     ComponentRef parent_cr;
@@ -247,7 +203,7 @@ protected
         parent_cr := ComponentRef.rest(var.name);
         conn := Connector.fromFacedCref(parent_cr, ComponentRef.nodeType(parent_cr), NFConnector.Face.INSIDE,
           ElementSource.createElementSource(var.info));
-        (_, _, nmvTable) := createVertex(conn, graph, vCount, nmvTable);
+        createVertex(conn, graph, vCount, nmvTable);
       end if;
     end for;
   end addFlowsToGraph;
@@ -257,7 +213,7 @@ protected
     input SBGraph graph;
     input Vector<Integer> vCount;
     input Vector<Integer> eCount;
-    input output NameVertexTable.Table nmvTable;
+    input NameVertexTable nmvTable;
   protected
     Expression range;
     list<Equation> body;
@@ -266,15 +222,15 @@ protected
       () := match eq
         case Equation.CONNECT()
           algorithm
-            nmvTable := createConnection(eq.lhs, eq.rhs, eq.source, graph, vCount, eCount, nmvTable);
+            createConnection(eq.lhs, eq.rhs, eq.source, graph, vCount, eCount, nmvTable);
           then
             ();
 
         case Equation.FOR(range = SOME(range))
           algorithm
             range := Ceval.evalExp(range, Ceval.EvalTarget.RANGE(Equation.info(eq)));
-            body := applyIterator(eq.iterator, range, eq.body);
-            nmvTable := addConnectionsToGraph(body, graph, vCount, eCount, nmvTable);
+            body := Equation.replaceIteratorList(eq.body, eq.iterator, range);
+            addConnectionsToGraph(body, graph, vCount, eCount, nmvTable);
           then
             ();
 
@@ -288,15 +244,6 @@ protected
     end for;
   end addConnectionsToGraph;
 
-  function applyIterator
-    input InstNode iterator;
-    input Expression range;
-    input output list<Equation> body;
-  algorithm
-    body := Equation.mapExpList(body,
-      function Expression.replaceIterator(iterator = iterator, iteratorValue = range));
-  end applyIterator;
-
   function createConnection
     input Expression lhs;
     input Expression rhs;
@@ -304,7 +251,7 @@ protected
     input SBGraph graph;
     input Vector<Integer> vCount;
     input Vector<Integer> eCount;
-    input output NameVertexTable.Table nmvTable;
+    input NameVertexTable nmvTable;
   protected
     ComponentRef lhs_cr, rhs_cr;
     list<Subscript> lhs_subs, rhs_subs;
@@ -319,8 +266,8 @@ protected
     lhs_conn := Connector.fromCref(lhs_cr, ComponentRef.nodeType(lhs_cr), source);
     rhs_conn := Connector.fromCref(rhs_cr, ComponentRef.nodeType(rhs_cr), source);
 
-    (mi1, d1, nmvTable) := getConnectIntervals(lhs_conn, lhs_subs, graph, vCount, nmvTable);
-    (mi2, d2, nmvTable) := getConnectIntervals(rhs_conn, rhs_subs, graph, vCount, nmvTable);
+    (mi1, d1) := getConnectIntervals(lhs_conn, lhs_subs, graph, vCount, nmvTable);
+    (mi2, d2) := getConnectIntervals(rhs_conn, rhs_subs, graph, vCount, nmvTable);
 
     updateGraph(d1, d2, mi1, mi2, graph, eCount);
   end createConnection;
@@ -340,12 +287,11 @@ protected
     input list<Subscript> subs;
     input SBGraph graph;
     input Vector<Integer> vCount;
-    input NameVertexTable.Table nmvTable;
+    input NameVertexTable nmvTable;
     output SBMultiInterval outMI;
     output VertexDescriptor d;
-    output NameVertexTable.Table outNmvTable = nmvTable;
   algorithm
-    (outMI, d, outNmvTable) := createVertex(conn, graph, vCount, nmvTable);
+    (outMI, d) := createVertex(conn, graph, vCount, nmvTable);
     outMI := SBGraphUtil.multiIntervalFromSubscripts(subs, vCount, outMI);
   end getConnectIntervals;
 
@@ -353,10 +299,9 @@ protected
     input Connector conn;
     input SBGraph graph;
     input Vector<Integer> vCount;
-    input NameVertexTable.Table nmvTable;
+    input NameVertexTable nmvTable;
     output SBMultiInterval mi;
     output VertexDescriptor d;
-    output NameVertexTable.Table outNmvTable = nmvTable;
   protected
     Option<VertexDescriptor> od;
     SetVertex v;
@@ -383,7 +328,7 @@ protected
     d := IncidenceList.addVertex(graph, v);
 
     name := Connector.toString(conn) + "$" + Connector.faceString(conn);
-    outNmvTable := BaseHashTable.addUnique((name, mi), nmvTable);
+    UnorderedMap.addUnique(name, mi, nmvTable);
   end createVertex;
 
   function crefDims
@@ -452,7 +397,7 @@ protected
     input FlatModel flatModel;
     input SBGraph graph;
     input Vector<Integer> vCount;
-    input NameVertexTable.Table nmvTable;
+    input NameVertexTable nmvTable;
     output list<Equation> equations = {};
   protected
     SBSet vc_dom, vc_im, aux_s, vc_domi, vc_domi_aux;
@@ -466,11 +411,7 @@ protected
 
     iterators := arrayCreate(Vector.size(vCount), InstNode.EMPTY_NODE());
     for i in 1:arrayLength(iterators) loop
-      iterators[i] := InstNode.fromComponent(
-        "$i" + String(i),
-        Component.newIterator(Type.INTEGER(), AbsynUtil.dummyInfo),
-        InstNode.EMPTY_NODE()
-      );
+      iterators[i] := InstNode.newIndexedIterator(i);
     end for;
 
     iter_expl := list(Expression.fromCref(ComponentRef.makeIterator(i, Type.INTEGER())) for i in iterators);
@@ -514,7 +455,7 @@ protected
     input list<Expression> iterExps;
     input list<Variable> potVars;
     input SBGraph graph;
-    input NameVertexTable.Table nmvTable;
+    input NameVertexTable nmvTable;
     input output list<Equation> equations;
   protected
     SBSet aux_s, sauxi, vc_domi, vc_domi_aux;
@@ -583,7 +524,7 @@ protected
     input array<InstNode> iterators;
     input list<Variable> flowVars;
     input SBGraph graph;
-    input NameVertexTable.Table nmvTable;
+    input NameVertexTable nmvTable;
     input output list<Equation> equations;
   protected
     SBMultiInterval mi, mi_range, mi_range2;
@@ -667,8 +608,7 @@ protected
         // Scalar range means the interval had the same lower and upper bound,
         // in which case the iterator can be replaced with the scalar expression
         // instead of creating an unnecessary for loop here.
-        body := Equation.mapExpList(body,
-          function Expression.replaceIterator(iterator = iterators[i], iteratorValue = ranges[i]));
+        body := Equation.replaceIteratorList(body, iterators[i], ranges[i]);
       else
         body := {Equation.FOR(iterators[i], SOME(ranges[i]), body, DAE.emptyElementSource)};
       end if;
@@ -696,7 +636,7 @@ protected
 
   function getOffset
     input SBMultiInterval mi;
-    input NameVertexTable.Table nmvTable;
+    input NameVertexTable nmvTable;
     output array<Integer> res;
   protected
     SBMultiInterval i, aux;
@@ -704,7 +644,7 @@ protected
     res := listArray({});
 
     // TODO: Surely this isn't the best way to do this.
-    for i in BaseHashTable.hashTableValueList(nmvTable) loop
+    for i in UnorderedMap.valueList(nmvTable) loop
       aux := SBMultiInterval.intersection(mi, i);
 
       if not SBMultiInterval.isEmpty(aux) then

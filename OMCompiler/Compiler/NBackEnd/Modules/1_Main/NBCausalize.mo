@@ -42,7 +42,7 @@ protected
   import ComponentRef = NFComponentRef;
   import Dimension = NFDimension;
   import Expression = NFExpression;
-  import NFFlatten.FunctionTree;
+  import NFFlatten.{FunctionTree, FunctionTreeImpl};
   import InstNode = NFInstNode.InstNode;
   import SBGraphUtil = NFSBGraphUtil;
   import Subscript = NFSubscript;
@@ -55,17 +55,13 @@ protected
   import BackendDAE = NBackendDAE;
   import BEquation = NBEquation;
   import Differentiate = NBDifferentiate;
-  import NBEquation.EqData;
-  import NBEquation.Equation;
-  import NBEquation.EquationAttributes;
-  import NBEquation.EquationPointers;
+  import NBEquation.{Equation, EquationPointers, EqData, EquationAttributes};
   import Matching = NBMatching;
   import Sorting = NBSorting;
   import StrongComponent = NBStrongComponent;
   import System = NBSystem;
   import BVariable = NBVariable;
-  import NBVariable.VarData;
-  import NBVariable.VariablePointers;
+  import NBVariable.{VariablePointers, VarData};
 
   // util imports
   import BackendUtil = NBBackendUtil;
@@ -85,6 +81,10 @@ protected
   import SBSet;
   import NBGraphUtil.{SetVertex, SetEdge};
 
+  // ############################################################
+  //                      Main Functions
+  // ############################################################
+
 public
   function main extends Module.wrapper;
     input System.SystemType systemType;
@@ -102,7 +102,7 @@ public
       case (System.SystemType.ODE, BackendDAE.MAIN(ode = systems, varData = varData, eqData = eqData, funcTree = funcTree))
         algorithm
           for system in systems loop
-            (new_system, varData, eqData, funcTree) := func(system, varData, eqData, funcTree, NBAdjacency.MatrixStrictness.FULL);
+            (new_system, varData, eqData, funcTree) := func(system, varData, eqData, funcTree);
             new_systems := new_system :: new_systems;
           end for;
           bdae.ode := listReverse(new_systems);
@@ -116,7 +116,7 @@ public
             print(StringUtil.headline_1("Balance Initialization") + "\n");
           end if;
           for system in systems loop
-            (new_system, varData, eqData, funcTree) := func(system, varData, eqData, funcTree, NBAdjacency.MatrixStrictness.INIT);
+            (new_system, varData, eqData, funcTree) := func(system, varData, eqData, funcTree);
             new_systems := new_system :: new_systems;
           end for;
           bdae.init := listReverse(new_systems);
@@ -127,7 +127,7 @@ public
       case (System.SystemType.DAE, BackendDAE.MAIN(dae = SOME(systems), varData = varData, eqData = eqData, funcTree = funcTree))
         algorithm
           for system in systems loop
-            (new_system, varData, eqData, funcTree) := causalizeDAEMode(system, varData, eqData, funcTree, NBAdjacency.MatrixStrictness.FULL);
+            (new_system, varData, eqData, funcTree) := causalizeDAEMode(system, varData, eqData, funcTree);
             new_systems := new_system :: new_systems;
           end for;
           bdae.dae := SOME(listReverse(new_systems));
@@ -143,15 +143,16 @@ public
 
   function simple
     input VariablePointers vars;
-    input BEquation.EquationPointers eqs;
+    input EquationPointers eqs;
+    input Adjacency.MatrixType matrixType = NBAdjacency.MatrixType.PSEUDO;
     output list<StrongComponent> comps;
   protected
     Adjacency.Matrix adj;
     Matching matching;
   algorithm
      // create scalar adjacency matrix for now
-    adj := Adjacency.Matrix.create(vars, eqs, NBAdjacency.MatrixType.SCALAR);
-    matching := Matching.regular(adj);
+    adj := Adjacency.Matrix.create(vars, eqs, matrixType);
+    matching := Matching.regular(Matching.EMPTY_MATCHING(), adj);
     comps := Sorting.tarjan(adj, matching, vars, eqs);
   end simple;
 
@@ -162,15 +163,20 @@ public
     String flag = Flags.getConfigString(Flags.MATCHING_ALGORITHM);
   algorithm
     (func) := match flag
-      case "PFPlusExt"  then causalizeScalar;
+      case "PFPlusExt"  then causalizePseudoArray;
       case "SBGraph"    then causalizeArray;
-      case "linear"     then causalizeLinear;
+      case "linear"     then causalizeScalar;
+      case "pseudo"     then causalizePseudoArray;
       /* ... New causalize modules have to be added here */
       else algorithm
         Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for unknown option: " + flag});
       then fail();
     end match;
   end getModule;
+
+  // ############################################################
+  //                Protected Functions and Types
+  // ############################################################
 
 protected
   function causalizeScalar extends Module.causalizeInterface;
@@ -185,8 +191,10 @@ protected
     variables := VariablePointers.compress(system.unknowns);
     equations := EquationPointers.compress(system.equations);
 
-    adj := Adjacency.Matrix.create(variables, equations, NBAdjacency.MatrixType.SCALAR, matrixStrictness);
-    (matching, adj, variables, equations, funcTree, varData, eqData) := Matching.singular(adj, variables, equations, funcTree, varData, eqData, false, true);
+    // create solvable adjacency matrix for matching and full for sorting
+    adj := Adjacency.Matrix.create(variables, equations, NBAdjacency.MatrixType.SCALAR, NBAdjacency.MatrixStrictness.SOLVABLE);
+    (matching, adj, variables, equations, funcTree, varData, eqData) := Matching.singular(Matching.EMPTY_MATCHING(), adj, variables, equations, funcTree, varData, eqData, system.systemType, false, true);
+    adj := Adjacency.Matrix.create(variables, equations, NBAdjacency.MatrixType.SCALAR, NBAdjacency.MatrixStrictness.FULL);
     comps := Sorting.tarjan(adj, matching, variables, equations);
 
     system.unknowns := variables;
@@ -195,6 +203,70 @@ protected
     system.matching := SOME(matching);
     system.strongComponents := SOME(listArray(comps));
   end causalizeScalar;
+
+  function causalizePseudoArray extends Module.causalizeInterface;
+  protected
+    VariablePointers variables;
+    EquationPointers equations;
+    Adjacency.Matrix adj;
+    Matching matching;
+    list<StrongComponent> comps;
+  algorithm
+    (variables, equations, adj, matching, comps) := match system.systemType
+      local
+        list<Pointer<Variable>> fixable, unfixable;
+        list<Pointer<Equation>> initials, simulation;
+
+      case NBSystem.SystemType.INI algorithm
+        (fixable, unfixable)    := List.splitOnTrue(VariablePointers.toList(system.unknowns), BVariable.isFixable);
+        (initials, simulation)  := List.splitOnTrue(EquationPointers.toList(system.equations), Equation.isInitial);
+        matching                := Matching.EMPTY_MATCHING();
+
+        // #################################################
+        // Phase I: match initial equations <-> unfixable vars
+        // #################################################
+        variables := VariablePointers.fromList(unfixable);
+        equations := EquationPointers.fromList(initials);
+        adj := Adjacency.Matrix.create(variables, equations, NBAdjacency.MatrixType.PSEUDO, NBAdjacency.MatrixStrictness.SOLVABLE);
+        // do not resolve potential singular systems in Phase I or II! -> regular matching
+        matching := Matching.regular(matching, adj, true, true);
+
+        // #################################################
+        // Phase II: match all equations <-> unfixables
+        // #################################################
+        (adj, variables, equations) := Adjacency.Matrix.expand(adj, variables, equations, {}, simulation);
+        // do not resolve potential singular systems in Phase I or II! -> regular matching
+        matching := Matching.regular(matching, adj, true, true);
+
+        // #################################################
+        // Phase III: match all equations <-> all vars
+        // #################################################
+        (adj, variables, equations) := Adjacency.Matrix.expand(adj, variables, equations, fixable, {});
+        (matching, adj, variables, equations, funcTree, varData, eqData) := Matching.singular(matching, adj, variables, equations, funcTree, varData, eqData, system.systemType, false, true, false);
+
+        adj := Adjacency.Matrix.create(variables, equations, NBAdjacency.MatrixType.PSEUDO, NBAdjacency.MatrixStrictness.FULL);
+        comps := Sorting.tarjan(adj, matching, variables, equations);
+      then (variables, equations, adj, matching, comps);
+
+      else algorithm
+        // compress the arrays to remove gaps
+        variables := VariablePointers.compress(system.unknowns);
+        equations := EquationPointers.compress(system.equations);
+
+        // create solvable adjacency matrix for matching and full for sorting
+        adj := Adjacency.Matrix.create(variables, equations, NBAdjacency.MatrixType.PSEUDO, NBAdjacency.MatrixStrictness.SOLVABLE);
+        (matching, adj, variables, equations, funcTree, varData, eqData) := Matching.singular(Matching.EMPTY_MATCHING(), adj, variables, equations, funcTree, varData, eqData, system.systemType, false, true);
+        adj := Adjacency.Matrix.create(variables, equations, NBAdjacency.MatrixType.PSEUDO, NBAdjacency.MatrixStrictness.FULL);
+        comps := Sorting.tarjan(adj, matching, variables, equations);
+      then (variables, equations, adj, matching, comps);
+    end match;
+
+    system.unknowns := variables;
+    system.equations := equations;
+    system.adjacencyMatrix := SOME(adj);
+    system.matching := SOME(matching);
+    system.strongComponents := SOME(listArray(comps));
+  end causalizePseudoArray;
 
   function causalizeArray extends Module.causalizeInterface;
   protected
@@ -209,8 +281,8 @@ protected
     equations := EquationPointers.compress(system.equations);
 
     // create scalar adjacency matrix for now
-    adj := Adjacency.Matrix.create(variables, equations, NBAdjacency.MatrixType.ARRAY, matrixStrictness);
-    matching := Matching.regular(adj);
+    adj := Adjacency.Matrix.create(variables, equations, NBAdjacency.MatrixType.ARRAY, NBAdjacency.MatrixStrictness.SOLVABLE);
+    matching := Matching.regular(Matching.EMPTY_MATCHING(), adj);
   end causalizeArray;
 
   function causalizeLinear extends Module.causalizeInterface;
@@ -226,7 +298,7 @@ protected
     equations := EquationPointers.compress(system.equations);
 
     // create scalar adjacency matrix for now
-    adj := Adjacency.Matrix.create(variables, equations, NBAdjacency.MatrixType.SCALAR, matrixStrictness);
+    adj := Adjacency.Matrix.create(variables, equations, NBAdjacency.MatrixType.SCALAR, NBAdjacency.MatrixStrictness.LINEAR);
     matching := Matching.linear(adj);
   end causalizeLinear;
 

@@ -57,16 +57,17 @@ protected
   import OldBackendDAE = BackendDAE;
 
   // Backend imports
+  import AliasInfo = NBStrongComponent.AliasInfo;
   import BackendDAE = NBackendDAE;
   import BEquation = NBEquation;
-  import NBEquation.Equation;
-  import NBEquation.EquationPointers;
+  import NBEquation.{Equation, EquationPointers, EqData};
   import NBEvents.EventInfo;
+  import NBVariable.{VariablePointers, VarData};
   import BVariable = NBVariable;
   import System = NBSystem;
 
   // SimCode imports
-  import HashTableSimCode;
+  import SimCodeUtil = NSimCodeUtil;
   import NSimJacobian.SimJacobian;
   import SimStrongComponent = NSimStrongComponent;
   import NSimVar.SimVar;
@@ -82,10 +83,6 @@ protected
 
   // Util imports
   import Error;
-  import HashTable;
-  import HashTableCrIListArray;
-  import HashTableCrILst;
-  import HashTableCrefSimVar;
 
   // Script imports
   import CevalScriptBackend;
@@ -111,23 +108,30 @@ public
       Integer booleanAliasIndex;
       Integer stringAliasIndex;
 
+
       Integer equationIndex;
       Integer linearSystemIndex;
       Integer nonlinearSystemIndex;
 
       Integer jacobianIndex;
-      Integer daeModeResidualIndex;
-      Integer implicitIndex;
+      Integer residualIndex;
+      Integer implicitIndex; // this can be removed i think -> moved to solve
 
+      UnorderedMap<AliasInfo, Integer> alias_map;
     end SIM_CODE_INDICES;
   end SimCodeIndices;
 
-  constant SimCodeIndices EMPTY_SIM_CODE_INDICES = SIM_CODE_INDICES(1,
-                                                                    0,0,0,0,
-                                                                    0,0,0,0,
-                                                                    0,0,0,0,
-                                                                    1,0,0,
-                                                                    0,0,0);
+  function EMPTY_SIM_CODE_INDICES
+    output SimCodeIndices indices = SIM_CODE_INDICES(
+      1,
+      0,0,0,0,
+      0,0,0,0,
+      0,0,0,0,
+      1,0,0,
+      0,0,0,
+      UnorderedMap.new<Integer>(AliasInfo.hash, AliasInfo.isEqual)
+    );
+  end EMPTY_SIM_CODE_INDICES;
 
   uniontype SimCode
     record SIM_CODE
@@ -146,7 +150,7 @@ public
       list<SimStrongComponent.Block> param              "Blocks for parameter equations";
       list<SimStrongComponent.Block> no_ret             "Blocks for equations without return value";
       list<SimStrongComponent.Block> algorithms         "Blocks for algorithms and asserts";
-      list<SimStrongComponent.Block> event_blocks  "Blocks for zero crossing functions";
+      list<SimStrongComponent.Block> event_blocks       "Blocks for zero crossing functions";
       list<SimStrongComponent.Block> jac_blocks         "Blocks for jacobian equations";
       list<SimStrongComponent.Block> start              "Blocks for start value equations";
       list<SimStrongComponent.Block> init               "Blocks for initial equations";
@@ -162,7 +166,7 @@ public
       //DelayedExpression delayedExps;
       list<SimJacobian> jacobians       "List of symbolic jacobians";
       Option<OldSimCode.SimulationSettings> simulationSettingsOpt; // replace this with new struct
-      //String fileNamePrefix, fullPathPrefix "Used in FMI where files are generated in a special directory";
+      String fileNamePrefix;//, fullPathPrefix "Used in FMI where files are generated in a special directory";
       //String fmuTargetName;
       //HpcOmSimCode.HpcOmData hpcomData;
       //AvlTreeCRToInt.Tree valueReferences "Used in FMI";
@@ -171,7 +175,7 @@ public
       //HashTableCrIListArray.HashTable varToArrayIndexMapping;
       //*** a protected section *** not exported to SimCodeTV
       //HashTableCrILst.HashTable varToIndexMapping;
-      HashTableSimCode.HashTable crefToSimVarHT "hidden from typeview - used by cref2simvar() for cref -> SIMVAR lookup available in templates.";
+      UnorderedMap<ComponentRef, SimVar> simcode_map;
       //HashTable.HashTable crefToClockIndexHT "map variables to clock indices";
       //Option<BackendMapping> backendMapping;
       //FMI 2.0 data for model structure
@@ -189,7 +193,7 @@ public
     protected
       Integer idx = 1;
     algorithm
-      str := StringUtil.headline_1("SimCode " + str + "(" + AbsynUtil.pathString(simCode.modelInfo.name) + ")");
+      str := StringUtil.headline_1("SimCode " + str + "(" + simCode.fileNamePrefix + ")");
       str := str + ModelInfo.toString(simCode.modelInfo);
       str := str + SimStrongComponent.Block.listToString(simCode.init, "  ", "INIT") + "\n";
       for blck_lst in simCode.ode loop
@@ -214,14 +218,18 @@ public
     function create
       input BackendDAE bdae;
       input Absyn.Path name;
+      input String fileNamePrefix;
       input Option<OldSimCode.SimulationSettings> simSettingsOpt;
       output SimCode simCode;
     algorithm
       simCode := match bdae
         local
           BackendDAE qual;
-          EquationPointers no_ret_eq;
+          VarData varData;
+          EqData eqData;
           FunctionTree funcTree;
+          VariablePointers residual_vars;
+          SimVars vars;
           // old SimCode strcutures
           Absyn.Program program;
           list<String> libs, includes, includeDirs, libPaths;
@@ -242,18 +250,22 @@ public
           list<SimStrongComponent.Block> linearLoops, nonlinearLoops;
           list<ComponentRef> discreteVars;
           list<SimJacobian> jacobians;
-          HashTableSimCode.HashTable crefToSimVarHT;
+          UnorderedMap<ComponentRef, SimVar> simcode_map;
           Option<DaeModeData> daeModeData;
           SimJacobian jacA, jacB, jacC, jacD, jacF;
           list<SimStrongComponent.Block> inlineEquations; // ToDo: what exactly is this?
 
-        case BackendDAE.MAIN(eqData = BEquation.EQ_DATA_SIM(removed = no_ret_eq))
+        case BackendDAE.MAIN(varData = varData as BVariable.VAR_DATA_SIM(), eqData = eqData as BEquation.EQ_DATA_SIM())
           algorithm
             // somehow this cannot be set at definition (metamodelica bug?)
-            simCodeIndices := EMPTY_SIM_CODE_INDICES;
+            simCodeIndices := EMPTY_SIM_CODE_INDICES();
             funcTree := BackendDAE.getFunctionTree(bdae);
 
-            // for now approximate number of equations
+            // create sim vars before everything else
+            residual_vars           := BackendDAE.getLoopResiduals(bdae);
+            (vars, simCodeIndices)  := SimVars.create(varData, residual_vars, simCodeIndices);
+            simcode_map             := SimCodeUtil.createSimCodeMap(vars);
+
             literals := {};
             externalFunctionIncludes := {};
             independent := {};
@@ -263,10 +275,13 @@ public
             // all non constant parameter equations will be added to the initial system.
             // There is no actual need for parameter equations block
             param := {};
-            // start allSim with no return equations
-            (no_ret, simCodeIndices, funcTree) := SimStrongComponent.Block.createNoReturnBlocks(no_ret_eq, simCodeIndices, funcTree, NBSystem.SystemType.ODE);
             algorithms := {};
-            (init, simCodeIndices, funcTree) := SimStrongComponent.Block.createInitialBlocks(bdae.init, simCodeIndices, funcTree);
+
+            // init before everything else!
+            (init, simCodeIndices) := SimStrongComponent.Block.createInitialBlocks(bdae.init, simCodeIndices, simcode_map);
+
+            // start allSim with no return equations
+            (no_ret, simCodeIndices) := SimStrongComponent.Block.createNoReturnBlocks(eqData.removed, simCodeIndices, NBSystem.SystemType.ODE, simcode_map);
             init_0 := {};
             init_no_ret := {};
             start := {};
@@ -280,14 +295,14 @@ public
               else
                 algebraic := {};
               end if;
-              (daeModeData, simCodeIndices, funcTree) := DaeModeData.create(Util.getOption(bdae.dae), simCodeIndices, funcTree);
+              (daeModeData, simCodeIndices) := DaeModeData.create(Util.getOption(bdae.dae), simCodeIndices, simcode_map);
             else
               // Normal Simulation
               daeModeData := NONE();
-              (ode, allSim, simCodeIndices, funcTree) := SimStrongComponent.Block.createBlocks(bdae.ode, allSim, simCodeIndices, funcTree);
-              (algebraic, allSim, simCodeIndices, funcTree) := SimStrongComponent.Block.createBlocks(bdae.algebraic, allSim, simCodeIndices, funcTree);
-              (ode, allSim, event_blocks, simCodeIndices, funcTree) := SimStrongComponent.Block.createDiscreteBlocks(bdae.ode_event, ode, allSim, event_blocks,  simCodeIndices, funcTree);
-              (algebraic, allSim, event_blocks,  simCodeIndices, funcTree) := SimStrongComponent.Block.createDiscreteBlocks(bdae.alg_event, algebraic, allSim, event_blocks,  simCodeIndices, funcTree);
+              (ode, allSim, simCodeIndices)                     := SimStrongComponent.Block.createBlocks(bdae.ode, allSim, simCodeIndices, simcode_map);
+              (algebraic, allSim, simCodeIndices)               := SimStrongComponent.Block.createBlocks(bdae.algebraic, allSim, simCodeIndices, simcode_map);
+              (ode, allSim, event_blocks, simCodeIndices)       := SimStrongComponent.Block.createDiscreteBlocks(bdae.ode_event, ode, allSim, event_blocks, simCodeIndices, simcode_map);
+              (algebraic, allSim, event_blocks, simCodeIndices) := SimStrongComponent.Block.createDiscreteBlocks(bdae.alg_event, algebraic, allSim, event_blocks, simCodeIndices, simcode_map);
               if not listEmpty(no_ret) then
                 algebraic := no_ret :: algebraic;
                 allSim := listAppend(no_ret, allSim);
@@ -303,31 +318,34 @@ public
             // Will probably be mostly the same in all other regards
             program := SymbolTable.getAbsyn();
             directory := CevalScriptBackend.getFileDir(AbsynUtil.pathToCref(name), program);
-            (libs, libPaths, _, includeDirs, recordDecls, functions, _) := SimCodeUtil.createFunctions(program, ConvertDAE.convertFunctionTree(funcTree));
+            (libs, libPaths, _, includeDirs, recordDecls, functions, _) := OldSimCodeUtil.createFunctions(program, ConvertDAE.convertFunctionTree(funcTree));
             makefileParams := OldSimCodeFunctionUtil.createMakefileParams(includeDirs, libs, libPaths, false, false);
-
-            (linearLoops, nonlinearLoops, jacobians) := collectAlgebraicLoops(init, ode, algebraic, daeModeData);
 
             // This needs to be done after the variables have been created by ModelInfo.create()
             // for now do not allow dae mode -- this has to be fixed and redesigned to fit before modelInfo!
             //if isSome(bdae.dae) then
-              //(daeModeData, modelInfo, jacA, crefToSimVarHT, simCodeIndices) := DaeModeData.createSparsityJacobian(daeModeData, modelInfo, Util.getOption(bdae.dae), crefToSimVarHT, simCodeIndices);
+              //(daeModeData, modelInfo, jacA, simcode_map, simCodeIndices) := DaeModeData.createSparsityJacobian(daeModeData, modelInfo, Util.getOption(bdae.dae), simcode_map, simCodeIndices);
             //else
-              (jacA, simCodeIndices, funcTree) := SimJacobian.createSimulationJacobian(bdae.ode, simCodeIndices, funcTree);
-            //end if;
 
-            // fix the equation indices (necessary for conversion to old simcode)
+            (linearLoops, nonlinearLoops, jacobians, simCodeIndices) := collectAlgebraicLoops(init, ode, algebraic, daeModeData, simCodeIndices, simcode_map);
+            for jac in jacobians loop
+              if Util.isSome(jac.jac_map) then
+                vars := SimVars.addSeedAndJacobianVars(vars, UnorderedMap.toList(Util.getOption(jac.jac_map)));
+              end if;
+            end for;
 
+            (jacA, simCodeIndices) := SimJacobian.createSimulationJacobian(bdae.ode, bdae.ode_event, simCodeIndices, simcode_map);
             (jacB, simCodeIndices) := SimJacobian.empty("B", simCodeIndices);
             (jacC, simCodeIndices) := SimJacobian.empty("C", simCodeIndices);
             (jacD, simCodeIndices) := SimJacobian.empty("D", simCodeIndices);
             (jacF, simCodeIndices) := SimJacobian.empty("F", simCodeIndices);
-            jacobians := jacA :: jacB :: jacC :: jacD :: jacF :: jacobians;
-            jac_blocks := SimJacobian.getJacobianBlocks(jacobians);
+            //jacobians := jacA :: jacB :: jacC :: jacD :: jacF :: jacobians;
+            jacobians := listReverse(jacF :: jacD :: jacC :: jacB :: jacA :: jacobians);
+            // jacobian blocks only from simulation jacobians
+            jac_blocks := SimJacobian.getJacobiansBlocks({jacA, jacB, jacC, jacD, jacF});
             (jac_blocks, simCodeIndices) := SimStrongComponent.Block.fixIndices(jac_blocks, {}, simCodeIndices);
 
-            (modelInfo, simCodeIndices) := ModelInfo.create(bdae.varData, name, directory, functions, linearLoops, nonlinearLoops, bdae.eventInfo, simCodeIndices);
-            crefToSimVarHT := HashTableSimCode.create(modelInfo.vars);
+            (modelInfo, simCodeIndices) := ModelInfo.create(vars, name, directory, functions, linearLoops, nonlinearLoops, bdae.eventInfo, simCodeIndices);
 
             simCode := SIM_CODE(
               modelInfo                 = modelInfo,
@@ -354,7 +372,8 @@ public
               makefileParams            = makefileParams,
               jacobians                 = jacobians,
               simulationSettingsOpt     = simSettingsOpt,
-              crefToSimVarHT            = crefToSimVarHT,
+              fileNamePrefix            = fileNamePrefix,
+              simcode_map               = simcode_map,
               eventInfo                 = bdae.eventInfo,
               daeModeData               = daeModeData,
               inlineEquations           = inlineEquations
@@ -390,7 +409,8 @@ public
       for jac in listReverse(simCode.jacobians) loop
         jacobians := SimJacobian.convert(jac) :: jacobians;
       end for;
-      crefToSimVarHT := OldSimCodeUtil.createCrefToSimVarHT(modelInfo);
+      crefToSimVarHT := SimCodeUtil.convertSimCodeMap(simCode.simcode_map);
+      // do we still need the following for DAE mode?
       if isSome(simCode.daeModeData) then
           SOME(DAE_MODE_DATA(residualVars = residualVars)) := simCode.daeModeData;
           crefToSimVarHT:= List.fold(SimVar.SimVar.convertList(residualVars), HashTableCrefSimVar.addSimVarToHashTable, crefToSimVarHT);
@@ -435,7 +455,7 @@ public
         spatialInfo                   = OldSimCode.SPATIAL_DISTRIBUTION_INFO({}, 0),
         jacobianMatrixes              = jacobians,
         simulationSettingsOpt         = simCode.simulationSettingsOpt, // replace with new struct later on
-        fileNamePrefix                = AbsynUtil.pathString(simCode.modelInfo.name),
+        fileNamePrefix                = simCode.fileNamePrefix,
         fullPathPrefix                = "", // FMI stuff
         fmuTargetName                 = "", // FMI stuff
         hpcomData                     = HpcOmSimCode.emptyHpcomData,
@@ -477,15 +497,17 @@ public
       output list<SimStrongComponent.Block> linearLoops = {};
       output list<SimStrongComponent.Block> nonlinearLoops = {};
       output list<SimJacobian> jacobians = {};
+      input output SimCodeIndices simCodeIndices;
+      input UnorderedMap<ComponentRef, SimVar> simcode_map;
     protected
       list<list<SimStrongComponent.Block>> dae_mode_blcks;
     algorithm
-      (linearLoops, nonlinearLoops, jacobians) := SimStrongComponent.Block.collectAlgebraicLoops({init}, linearLoops, nonlinearLoops, jacobians);
-      (linearLoops, nonlinearLoops, jacobians) := SimStrongComponent.Block.collectAlgebraicLoops(ode, linearLoops, nonlinearLoops, jacobians);
-      (linearLoops, nonlinearLoops, jacobians) := SimStrongComponent.Block.collectAlgebraicLoops(algebraic, linearLoops, nonlinearLoops, jacobians);
+      (linearLoops, nonlinearLoops, jacobians, simCodeIndices) := SimStrongComponent.Block.collectAlgebraicLoops({init}, linearLoops, nonlinearLoops, jacobians, simCodeIndices, simcode_map);
+      (linearLoops, nonlinearLoops, jacobians, simCodeIndices) := SimStrongComponent.Block.collectAlgebraicLoops(ode, linearLoops, nonlinearLoops, jacobians, simCodeIndices, simcode_map);
+      (linearLoops, nonlinearLoops, jacobians, simCodeIndices) := SimStrongComponent.Block.collectAlgebraicLoops(algebraic, linearLoops, nonlinearLoops, jacobians, simCodeIndices, simcode_map);
       if isSome(daeModeData) then
         SOME(DAE_MODE_DATA(blcks = dae_mode_blcks)) := daeModeData;
-        (linearLoops, nonlinearLoops, jacobians) := SimStrongComponent.Block.collectAlgebraicLoops(dae_mode_blcks, linearLoops, nonlinearLoops, jacobians);
+        (linearLoops, nonlinearLoops, jacobians, simCodeIndices) := SimStrongComponent.Block.collectAlgebraicLoops(dae_mode_blcks, linearLoops, nonlinearLoops, jacobians, simCodeIndices, simcode_map);
       end if;
     end collectAlgebraicLoops;
   end SimCode;
@@ -519,7 +541,7 @@ public
     end toString;
 
     function create
-      input BVariable.VarData varData;
+      input SimVars vars;
       input Absyn.Path name;
       input String directory;
       input list<OldSimCodeFunction.Function> functions;
@@ -529,10 +551,8 @@ public
       output ModelInfo modelInfo;
       input output SimCodeIndices simCodeIndices;
     protected
-      SimVars vars;
       VarInfo info;
     algorithm
-      (vars, simCodeIndices) := SimVars.create(varData, simCodeIndices);
       info := VarInfo.create(vars, eventInfo, simCodeIndices);
       modelInfo := MODEL_INFO(name, "", directory, vars, info, functions, {}, {}, {}, 0, 0, 0, true, linearLoops, nonlinearLoops);
     end create;
@@ -567,7 +587,7 @@ public
         directory                       = modelInfo.directory,
         varInfo                         = VarInfo.convert(modelInfo.varInfo),
         vars                            = SimVar.SimVars.convert(modelInfo.vars),
-        functions                       = {}, // ToDo: add this once functions are supported
+        functions                       = modelInfo.functions,
         labels                          = modelInfo.labels,
         resourcePaths                   = modelInfo.resourcePaths,
         sortedClasses                   = modelInfo.sortedClasses,
@@ -617,6 +637,7 @@ public
       Integer numSensitivityParameters;
       Integer numSetcVars;
       Integer numDataReconVars;
+      Integer numRealIntputVars;
     end VAR_INFO;
 
     function create
@@ -657,7 +678,8 @@ public
         numOptimizeFinalConstraints = 0,
         numSensitivityParameters    = 0,
         numSetcVars                 = 0,
-        numDataReconVars            = 0);
+        numDataReconVars            = 0,
+        numRealIntputVars           = 0);
     end create;
 
     function convert
@@ -696,7 +718,8 @@ public
         numOptimizeFinalConstraints = varInfo.numOptimizeFinalConstraints,
         numSensitivityParameters    = varInfo.numSensitivityParameters,
         numSetcVars                 = varInfo.numSetcVars,
-        numDataReconVars            = varInfo.numDataReconVars);
+        numDataReconVars            = varInfo.numDataReconVars,
+        numRealInputVars            = varInfo.numRealIntputVars);
     end convert;
   end VarInfo;
 
@@ -730,15 +753,16 @@ public
       input list<System.System> systems;
       output Option<DaeModeData> data;
       input output SimCodeIndices simCodeIndices;
-      input output FunctionTree funcTree;
+      input UnorderedMap<ComponentRef, SimVar> simcode_map;
     protected
       list<list<SimStrongComponent.Block>> blcks;
       list<SimVar> residualVars, algebraicVars;
       Option<SimJacobian> daeModeJac;
     algorithm
-      (blcks, residualVars, simCodeIndices, funcTree) := SimStrongComponent.Block.createDAEModeBlocks(systems, simCodeIndices, funcTree);
-      (daeModeJac, simCodeIndices, funcTree) := SimJacobian.fromSystems(systems, simCodeIndices, funcTree);
-      data := SOME(DAE_MODE_DATA(blcks, daeModeJac, residualVars, {}, {}, DaeModeConfig.ALL));
+      (blcks, residualVars, simCodeIndices) := SimStrongComponent.Block.createDAEModeBlocks(systems, simCodeIndices, simcode_map);
+      //(daeModeJac, simCodeIndices) := SimJacobian.fromSystems(systems, simCodeIndices);
+      //data := SOME(DAE_MODE_DATA(blcks, daeModeJac, residualVars, {}, {}, DaeModeConfig.ALL));
+      data := NONE();
     end create;
 
     function convert
@@ -778,7 +802,7 @@ public
       input output ModelInfo modelInfo;
       input list<System.System> systems;
       output SimJacobian jacobian;
-      input output HashTableSimCode.HashTable simulationHT;
+      input output UnorderedMap<ComponentRef, SimVar> simcode_map;
       input output SimCodeIndices simCodeIndices;
     algorithm
       daeModeDataOpt := match daeModeDataOpt
@@ -790,6 +814,8 @@ public
         case SOME(daeModeData)
           algorithm
             // get sparsity pattern jacobian and update the hashtable and the jacobian
+            // update to UnorderedMap once reactivated
+/*
             simulationHT := HashTableSimCode.addList(daeModeData.residualVars, simulationHT);
             if isSome(daeModeData.sparsityPattern) then
               SOME(jac) := daeModeData.sparsityPattern;
@@ -797,12 +823,14 @@ public
               modelInfo := ModelInfo.setSeedVars(modelInfo, jac.seedVars);
               daeModeData.algebraicVars := rewriteAlgebraicVarsIdx(modelInfo.vars.algVars, simulationHT);
               daeModeData.auxiliaryVars := {}; // this needs to be updated in the future
-              (daeModeJac, simCodeIndices) := SimJacobian.fromSystemsSparsity(systems, daeModeData.sparsityPattern, simulationHT, simCodeIndices);
+              //(daeModeJac, simCodeIndices) := SimJacobian.fromSystemsSparsity(systems, daeModeData.sparsityPattern, simulationHT, simCodeIndices);
               daeModeData.sparsityPattern := daeModeJac;
               jacobian := Util.getOption(daeModeJac);
+
             else
+*/
               (jacobian, simCodeIndices) := SimJacobian.empty("A", simCodeIndices);
-            end if;
+//            end if;
         then SOME(daeModeData);
 
         else
@@ -814,17 +842,16 @@ public
 
     function rewriteAlgebraicVarsIdx
       input list<SimVar> simulationAlgVars;
-      input HashTableSimCode.HashTable simulationHT;
+      input UnorderedMap<ComponentRef, SimVar> simcode_map;
       output list<SimVar> daeModeAlgVars = {};
     protected
       ComponentRef seedCref, cref;
     algorithm
-      BaseHashTable.dumpHashTable(simulationHT);
       seedCref := ComponentRef.fromNode(InstNode.VAR_NODE(NBVariable.SEED_STR + "_A", Pointer.create(NBVariable.DUMMY_VARIABLE)), Type.UNKNOWN());
       for var in listReverse(simulationAlgVars) loop
         cref := ComponentRef.append(var.name, seedCref);
         print("Searching for: " + ComponentRef.toString(cref) + "\n");
-        var.index := SimVar.getIndex(BaseHashTable.get(cref, simulationHT));
+        var.index := SimVar.getIndex(UnorderedMap.getSafe(cref, simcode_map));
         daeModeAlgVars := var :: daeModeAlgVars;
       end for;
     end rewriteAlgebraicVarsIdx;

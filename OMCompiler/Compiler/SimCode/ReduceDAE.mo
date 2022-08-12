@@ -514,7 +514,6 @@ protected function addLabelToAlgorithms
       Boolean iterIsArray;
       DAE.Ident iter;
       list<Integer> helpVarIndices;
-    Integer index;
     list<DAE.ComponentRef> conditions;
     Boolean initialCall;
     case({},vars,idx,_,_)
@@ -552,7 +551,7 @@ protected function addLabelToAlgorithms
       then
         (DAE.STMT_IF(e,stmtLst2,else_,source)::rest2,vars_2,idx3,labels3);
 
-    case(DAE.STMT_FOR(ty,iterIsArray,iter,index,e,stmtLst,source)::rest,vars,idx,_,_)
+    case(DAE.STMT_FOR(ty,iterIsArray,iter,e,stmtLst,source)::rest,vars,idx,_,_)
       equation
 
         if(Flags.isSet(Flags.REDUCE_DAE)) then
@@ -562,7 +561,7 @@ protected function addLabelToAlgorithms
         (rest2,vars_2,idx3,labels2) = addLabelToAlgorithms(rest,vars_1,idx2,reduceList,inVarRepl);
         labels3=listAppend(labels,labels2);
       then
-        (DAE.STMT_FOR(ty,iterIsArray,iter,index,e,stmtLst2,source)::rest2,vars_2,idx3,labels3);
+        (DAE.STMT_FOR(ty,iterIsArray,iter,e,stmtLst2,source)::rest2,vars_2,idx3,labels3);
 
     case(DAE.STMT_WHILE(e,stmtLst,source)::rest,vars,idx,_,_)
       equation
@@ -2192,14 +2191,14 @@ algorithm
         //create simVar for label_1
 
         simVar_1 = SimCodeVar.SIMVAR(DAE.CREF_IDENT(name1,DAE.T_REAL_DEFAULT,{}),BackendDAE.PARAM(),"","","",p,NONE(),NONE(),SOME(DAE.RCONST(1.0)),NONE(),
-                   true,DAE.T_REAL_DEFAULT,false,NONE(),SimCodeVar.NOALIAS(),DAE.emptyElementSource,SOME(SimCodeVar.LOCAL()),NONE(),NONE(),{},false,false,false,NONE(),NONE(),NONE(),NONE(),NONE());
+                   true,DAE.T_REAL_DEFAULT,false,NONE(),SimCodeVar.NOALIAS(),DAE.emptyElementSource,SOME(SimCodeVar.LOCAL()),NONE(),NONE(),{},false,false,NONE(),NONE(),NONE(),NONE(),NONE(),NONE());
         param=listReverse(param);
         //add simVar_1 to parameter list
         param_1=simVar_1::param;
         p=p+1;
         //create simVar_2 to parameter list
         simVar_2 = SimCodeVar.SIMVAR(DAE.CREF_IDENT(name2,DAE.T_REAL_DEFAULT,{}),BackendDAE.PARAM(),"","","",p,NONE(),NONE(),SOME(DAE.RCONST(0.0)),NONE(),
-                   true,DAE.T_REAL_DEFAULT,false,NONE(),SimCodeVar.NOALIAS(),DAE.emptyElementSource,SOME(SimCodeVar.LOCAL()),NONE(),NONE(),{},false,false,false,NONE(),NONE(),NONE(),NONE(),NONE());
+                   true,DAE.T_REAL_DEFAULT,false,NONE(),SimCodeVar.NOALIAS(),DAE.emptyElementSource,SOME(SimCodeVar.LOCAL()),NONE(),NONE(),{},false,false,NONE(),NONE(),NONE(),NONE(),NONE(),NONE());
         //add simVar_2 to parameter list
         param_2=simVar_2::param_1;
         param_2=listReverse(param_2);
@@ -2299,7 +2298,7 @@ algorithm
        var1 = BackendDAE.VAR(DAE.CREF_IDENT(name1,DAE.T_REAL_DEFAULT,{}), BackendDAE.PARAM(),DAE.BIDIR(),DAE.NON_PARALLEL(),DAE.T_REAL_DEFAULT,NONE(),SOME(DAE.RCONST(1.0)),{},
                             DAE.emptyElementSource,
                             SOME(DAE.VAR_ATTR_REAL(NONE(),NONE(),NONE(),NONE(),NONE(),NONE(),NONE(),NONE(),NONE(),NONE(),NONE(),NONE(),NONE(),NONE(),NONE())),
-                            NONE(),DAE.ICONST(p),NONE(),DAE.NON_CONNECTOR(),DAE.NOT_INNER_OUTER(),false);
+                            NONE(),NONE(),NONE(),DAE.NON_CONNECTOR(),DAE.NOT_INNER_OUTER(),false);
 
       p=p+1;
 
@@ -2308,7 +2307,7 @@ algorithm
       var2 = BackendDAE.VAR(DAE.CREF_IDENT(name2,DAE.T_REAL_DEFAULT,{}), BackendDAE.PARAM(),DAE.BIDIR(),DAE.NON_PARALLEL(),DAE.T_REAL_DEFAULT,NONE(),SOME(DAE.RCONST(0.0)),{},
                             DAE.emptyElementSource,
                             SOME(DAE.VAR_ATTR_REAL(NONE(),NONE(),NONE(),NONE(),NONE(),NONE(),NONE(),NONE(),NONE(),NONE(),NONE(),NONE(),NONE(),NONE(),NONE())),
-                            NONE(),DAE.ICONST(p),NONE(),DAE.NON_CONNECTOR(),DAE.NOT_INNER_OUTER(),false);
+                            NONE(),NONE(),NONE(),DAE.NON_CONNECTOR(),DAE.NOT_INNER_OUTER(),false);
 
       list1={var1,var2};
       p=p+1;

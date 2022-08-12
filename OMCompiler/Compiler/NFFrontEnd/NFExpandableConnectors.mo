@@ -185,6 +185,7 @@ function addNestedExpandableConnectorsToSets
 protected
   list<Connector> ecl1, ecl2;
   Option<Connector> oec;
+  list<Connection> conns = {};
 algorithm
   ecl1 := getExpandableConnectorsInConnector(c1);
   ecl2 := getExpandableConnectorsInConnector(c2);
@@ -197,9 +198,11 @@ algorithm
     (ecl2, oec) := List.deleteMemberOnTrue(ec1, ecl2, Connector.isNodeNameEqual);
 
     if isSome(oec) then
-      csets := addConnectionToSets(ec1, Util.getOption(oec), csets);
+      conns := Connection.CONNECTION(ec1, Util.getOption(oec)) :: conns;
     end if;
   end for;
+
+  csets := addExpandableConnectorsToSets(conns, csets);
 end addNestedExpandableConnectorsToSets;
 
 function getExpandableConnectorsInConnector
@@ -395,7 +398,7 @@ algorithm
       elem_name := ComponentRef.prefixCref(node, ty, {}, exp_name);
       // TODO: This needs more work, the new connector might be a complex connector.
       var := Variable.VARIABLE(elem_name, ty, NFBinding.EMPTY_BINDING,
-        Visibility.PUBLIC, NFComponent.DEFAULT_ATTR, {}, {},
+        Visibility.PUBLIC, NFAttributes.DEFAULT_ATTR, {}, {},
         SOME(SCode.COMMENT(NONE(), SOME("virtual variable in expandable connector"))),
         ElementSource.getInfo(c.source), NFBackendExtension.DUMMY_BACKEND_INFO);
       vars := var :: vars;

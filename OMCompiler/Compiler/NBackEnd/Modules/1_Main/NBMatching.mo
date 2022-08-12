@@ -35,7 +35,7 @@ encapsulated uniontype NBMatching
 "
   // self import
   import Matching = NBMatching;
-  import GC;
+  import GCExt;
 
   // SetBased Graph imports
   import NBAdjacency.BipartiteGraph;
@@ -55,30 +55,32 @@ protected
 
   // NB import
   import Adjacency = NBAdjacency;
-  import NBEquation.Equation;
-  import NBEquation.EqData;
-  import NBEquation.EquationPointers;
+  import NBEquation.{Equation, EqData, EquationPointer, EquationPointers};
   import Module = NBModule;
-  import BVariable = NBVariable;
-  import NBVariable.VarData;
-  import NBVariable.VariablePointers;
   import ResolveSingularities = NBResolveSingularities;
+  import System = NBSystem;
+  import BVariable = NBVariable;
+  import NBVariable.{VarData, VariablePointer, VariablePointers};
+
+  // OB import
+  import BackendDAEEXT;
 
   // Util import
   import BackendUtil = NBBackendUtil;
-
+  import Slice = NBSlice;
+  import NBSlice.IntLst;
 public
   // =======================================
   //                MATCHING
   // =======================================
-  record ARRAY_MATCHING
-    // to fill
-  end ARRAY_MATCHING;
-
   record SCALAR_MATCHING
     array<Integer> var_to_eqn;
     array<Integer> eqn_to_var;
   end SCALAR_MATCHING;
+
+  record ARRAY_MATCHING
+    // to fill
+  end ARRAY_MATCHING;
 
   record LINEAR_MATCHING
     array<VertMark> F_marks;
@@ -108,7 +110,7 @@ public
       case ARRAY_MATCHING() algorithm
         Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because array matching is not yet supported."});
       then fail();
-      case EMPTY_MATCHING() then str + StringUtil.headline_2(str + "Empty Matching") + "\n";
+      case EMPTY_MATCHING() then StringUtil.headline_2(str + "Empty Matching") + "\n";
       else algorithm
         Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed."});
       then fail();
@@ -119,32 +121,19 @@ public
     "author: kabdelhak
     Regular matching algorithm for bipartite graphs by Constantinos C. Pantelides.
     First published in doi:10.1137/0909014"
+    input output Matching matching;
     input Adjacency.Matrix adj;
     input Boolean transposed = false        "transpose matching if true";
     input Boolean partially = false         "do not fail on singular systems and return partial matching if true";
-    output Matching matching;
+    input Boolean clear = true              "start from scratch if true";
+  protected
+    list<list<Integer>> marked_eqns;
   algorithm
-     matching := match adj
-      case Adjacency.Matrix.SCALAR_ADJACENCY_MATRIX() algorithm
-        // marked equations irrelevant for regular matching
-        if transposed then
-          (matching, _) := scalarMatching(adj.mT, adj.m, transposed, partially);
-        else
-          (matching, _) := scalarMatching(adj.m, adj.mT, transposed, partially);
-        end if;
-      then matching;
-
-      case Adjacency.Matrix.ARRAY_ADJACENCY_MATRIX() algorithm
-        //Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because array matching is not yet supported."});
-        matching := arrayMatching(adj.graph);
-      then matching;
-
-      case Adjacency.Matrix.EMPTY_ADJACENCY_MATRIX() then EMPTY_MATCHING();
-
-      else algorithm
-        Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed."});
-      then fail();
-    end match;
+    (matching, marked_eqns, _, _, _) := continue_(matching, adj, transposed, clear);
+    if not partially and not listEmpty(List.flatten(marked_eqns)) then
+      Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because the system is strcturally singular."});
+      fail();
+    end if;
   end regular;
 
   function singular
@@ -156,77 +145,96 @@ public
     First published in doi:10.1137/0914043
 
     algorithm:
-      - apply pantelides but carry list of singular markings (eqs)
-      - whenever singular - add all current marks to singular markings
-      - if done and list is not empty -> index reduction / balance initialization
+      1. apply pantelides but carry list of singular markings (eqs)
+         whenever singular - add all current marks to singular markings
+      2. if done and not everything is matched -> index reduction / balance initialization
+      3. restart matching if step 2. changed the system
     "
-    output Matching matching;
-    input Adjacency.Matrix adj;
-    output Adjacency.Matrix new_adj = adj;
+    input output Matching matching;
+    input output Adjacency.Matrix adj;
     input output VariablePointers vars;
     input output EquationPointers eqns;
     input output FunctionTree funcTree;
     input output VarData varData;
     input output EqData eqData;
+    input System.SystemType systemType;
     input Boolean transposed = false        "transpose matching if true";
     input Boolean partially = false         "do not resolve singular systems and return partial matching if true";
+    input Boolean clear = true              "start from scratch if true";
+  protected
+    list<list<Integer>> marked_eqns;
+    Option<Adjacency.Mapping> mapping;
+    Adjacency.MatrixType matrixType;
+    Adjacency.MatrixStrictness matrixStrictness;
+    Boolean changed;
   algorithm
-    matching := match adj
-      local
-        list<list<Integer>> marked_eqns;
-        list<Pointer<Variable>> unmatched_vars;
-        list<Pointer<Equation>> unmatched_eqns;
+    // 1. match the system
+    (matching, marked_eqns, mapping, matrixType, matrixStrictness) := continue_(matching, adj, transposed, clear);
 
+    // 2. Resolve singular systems if necessary
+    changed := match systemType
+      case NBSystem.SystemType.INI algorithm
+        // ####### BALANCE INITIALIZATION #######
+        (vars, eqns, varData, eqData, funcTree, changed) := ResolveSingularities.balanceInitialization(vars, eqns, varData, eqData, funcTree, mapping, matrixType, matching);
+      then changed;
+
+      else algorithm
+        // ####### INDEX REDUCTION #######
+        (vars, eqns, varData, eqData, funcTree, changed) := ResolveSingularities.indexReduction(vars, eqns, varData, eqData, funcTree, mapping, matrixType, marked_eqns);
+      then changed;
+    end match;
+
+    // 3. Recompute adjacency and restart matching if something changed in step 2.
+    if changed then
+      // ToDo: keep more of old information by only updating changed stuff
+      adj := Adjacency.Matrix.create(vars, eqns, matrixType, matrixStrictness);
+      (matching, adj, vars, eqns, funcTree, varData, eqData) := singular(EMPTY_MATCHING(), adj, vars, eqns, funcTree, varData, eqData, systemType, false, true);
+    end if;
+  end singular;
+
+  function continue_
+    input output Matching matching;
+    input Adjacency.Matrix adj;
+    input Boolean transposed;
+    input Boolean clear;
+    output list<list<Integer>> marked_eqns;
+    output Option<Adjacency.Mapping> mapping;
+    output Adjacency.MatrixType matrixType;
+    output Adjacency.MatrixStrictness matrixStrictness;
+  protected
+    array<Integer> var_to_eqn, eqn_to_var;
+  algorithm
+    // 1. Match the system
+    (matching, marked_eqns, mapping, matrixType, matrixStrictness) := match adj
+      // SCALAR
       case Adjacency.Matrix.SCALAR_ADJACENCY_MATRIX() algorithm
-        if transposed then
-          (matching, marked_eqns) := scalarMatching(adj.mT, adj.m, transposed, partially);
-        else
-          (matching, marked_eqns) := scalarMatching(adj.m, adj.mT, transposed, partially);
-        end if;
+        (var_to_eqn, eqn_to_var) := getAssignments(matching, adj.m, adj.mT);
+        (var_to_eqn, eqn_to_var, marked_eqns) := PFPlusExternal(adj.m, var_to_eqn, eqn_to_var, clear);
+        matching := SCALAR_MATCHING(var_to_eqn, eqn_to_var);
+      then (matching, marked_eqns, NONE(), NBAdjacency.MatrixType.SCALAR, adj.st);
 
-        _ := match adj.st
-          case NBAdjacency.MatrixStrictness.INIT algorithm
-            (_, unmatched_vars, _, unmatched_eqns) := getMatches(matching, vars, eqns);
-            if Flags.isSet(Flags.INITIALIZATION) and partially then
-              print(if listEmpty(unmatched_eqns) then "Not overdetermined.\n" else "Stage " + intString(listLength(unmatched_eqns)) + " overdetermined.\n");
-              print(if listEmpty(unmatched_vars) then "Not underdetermined.\n" else "Stage " + intString(listLength(unmatched_vars)) + " underdetermined.\n");
-              print("\n" + StringUtil.headline_4("(" + intString(listLength(unmatched_eqns)) + ") Unmatched equations:")
-                + List.toString(unmatched_eqns, Equation.pointerToString, "", "\t", ";\n\t", ";\n", false) + "\n");
-              print(StringUtil.headline_4("(" + intString(listLength(unmatched_vars)) + ") Unmatched variables:")
-                + List.toString(unmatched_vars, BVariable.pointerToString, "", "\t", ";\n\t", ";\n", false) + "\n");
-            end if;
-            // some equations or variables could not be matched --> balance initial system
-            if not (listEmpty(unmatched_vars) and listEmpty(unmatched_eqns)) then
-              (vars, eqns, varData, eqData, funcTree) := ResolveSingularities.balanceInitialization(vars, eqns, varData, eqData, funcTree, unmatched_vars, unmatched_eqns);
-              // compute new adjacency matrix (ToDo: keep more of old information)
-              new_adj := Adjacency.Matrix.create(vars, eqns, NBAdjacency.MatrixType.SCALAR, adj.st);
-              (matching, new_adj, vars, eqns, funcTree, varData, eqData) := Matching.singular(new_adj, vars, eqns, funcTree, varData, eqData, false);
-            end if;
-          then ();
+      // PSEUDO ARRAY
+      case Adjacency.Matrix.PSEUDO_ARRAY_ADJACENCY_MATRIX() algorithm
+        (var_to_eqn, eqn_to_var) := getAssignments(matching, adj.m, adj.mT);
+        (var_to_eqn, eqn_to_var, marked_eqns) := PFPlusExternal(adj.m, var_to_eqn, eqn_to_var, clear);
+        matching := SCALAR_MATCHING(var_to_eqn, eqn_to_var);
+      then (matching, marked_eqns, SOME(adj.mapping), NBAdjacency.MatrixType.PSEUDO, adj.st);
 
-          else algorithm
-            // some equations could not be matched --> resolve singular systems
-            if not listEmpty(marked_eqns) then
-              (vars, eqns, varData, eqData, funcTree) := ResolveSingularities.indexReduction(vars, eqns, varData, eqData, funcTree, List.unique(List.flatten(marked_eqns)));
-              // compute new adjacency matrix (ToDo: keep more of old information)
-              new_adj := Adjacency.Matrix.create(vars, eqns, NBAdjacency.MatrixType.SCALAR, adj.st);
-              (matching, new_adj, vars, eqns, funcTree, varData, eqData) := Matching.singular(new_adj, vars, eqns, funcTree, varData, eqData, false, true);
-            end if;
-          then ();
-        end match;
-      then matching;
-
+      // ARRAY
       case Adjacency.Matrix.ARRAY_ADJACENCY_MATRIX() algorithm
         Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because array matching is not yet supported."});
       then fail();
 
-      case Adjacency.Matrix.EMPTY_ADJACENCY_MATRIX() then EMPTY_MATCHING();
+      // EMPTY
+      case Adjacency.Matrix.EMPTY_ADJACENCY_MATRIX()
+      then (EMPTY_MATCHING(), {}, NONE(), NBAdjacency.MatrixType.SCALAR, NBAdjacency.MatrixStrictness.FULL);
 
+      // FAIL
       else algorithm
         Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed."});
       then fail();
     end match;
-  end singular;
+  end continue_;
 
   function linear
     input Adjacency.Matrix adj;
@@ -250,32 +258,98 @@ public
     end match;
   end linear;
 
+  function getAssignments
+    "expands the assignments with -1 if needed"
+    input Matching matching;
+    input array<list<Integer>> m;
+    input array<list<Integer>> mT;
+    output array<Integer> var_to_eqn;
+    output array<Integer> eqn_to_var;
+  protected
+    Integer nVars = arrayLength(mT);
+    Integer nEqns = arrayLength(m);
+  algorithm
+    (var_to_eqn, eqn_to_var) := match matching
+      case EMPTY_MATCHING()
+      then (arrayCreate(nVars, -1), arrayCreate(nEqns, -1));
+
+      case SCALAR_MATCHING(var_to_eqn = var_to_eqn, eqn_to_var = eqn_to_var)
+      then(Array.expandToSize(nVars, var_to_eqn, -1), Array.expandToSize(nEqns, eqn_to_var, -1));
+
+      else algorithm
+        Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed. Not implemented for: \n" + toString(matching)});
+      then fail();
+    end match;
+  end getAssignments;
+
   function getMatches
     input Matching matching;
+    input Option<Adjacency.Mapping> mapping_opt;
     input VariablePointers variables;
     input EquationPointers equations;
-    output list<Pointer<Variable>> matched_vars = {}, unmatched_vars = {};
-    output list<Pointer<Equation>> matched_eqns = {}, unmatched_eqns = {};
+    output list<Slice<VariablePointer>> matched_vars = {}, unmatched_vars = {};
+    output list<Slice<EquationPointer>> matched_eqns = {}, unmatched_eqns = {};
   algorithm
-    _ := match matching
-      case SCALAR_MATCHING() algorithm
+    _ := match (matching, mapping_opt)
+      local
+        Adjacency.Mapping mapping;
+        UnorderedMap<VariablePointer, IntLst> var_map_matched, var_map_unmatched;
+        UnorderedMap<EquationPointer, IntLst> eqn_map_matched, eqn_map_unmatched;
+        Pointer<Variable> arr_var;
+        Pointer<Equation> arr_eqn;
+
+      case (SCALAR_MATCHING(), NONE()) algorithm
         // check if variables are matched and sort them accordingly
         for var in 1:arrayLength(matching.var_to_eqn) loop
           if matching.var_to_eqn[var] > 0 then
-            matched_vars := ExpandableArray.get(var, variables.varArr) :: matched_vars;
+            matched_vars    := Slice.SLICE(ExpandableArray.get(var, variables.varArr),{}) :: matched_vars;
           else
-            unmatched_vars := ExpandableArray.get(var, variables.varArr) :: unmatched_vars;
+            unmatched_vars  := Slice.SLICE(ExpandableArray.get(var, variables.varArr),{}) :: unmatched_vars;
           end if;
         end for;
 
         // check if equations are matched and sort them accordingly
         for eqn in 1:arrayLength(matching.eqn_to_var) loop
           if matching.eqn_to_var[eqn] > 0 then
-            matched_eqns := ExpandableArray.get(eqn, equations.eqArr) :: matched_eqns;
+            matched_eqns    := Slice.SLICE(ExpandableArray.get(eqn, equations.eqArr),{}) :: matched_eqns;
           else
-            unmatched_eqns := ExpandableArray.get(eqn, equations.eqArr) :: unmatched_eqns;
+            unmatched_eqns  := Slice.SLICE(ExpandableArray.get(eqn, equations.eqArr),{}) :: unmatched_eqns;
           end if;
         end for;
+      then ();
+
+      // pseudo array case
+      case (SCALAR_MATCHING(), SOME(mapping)) algorithm
+        var_map_matched   := UnorderedMap.new<IntLst>(BVariable.hash, BVariable.equalName);
+        var_map_unmatched := UnorderedMap.new<IntLst>(BVariable.hash, BVariable.equalName);
+        eqn_map_matched   := UnorderedMap.new<IntLst>(Equation.hash, Equation.equalName);
+        eqn_map_unmatched := UnorderedMap.new<IntLst>(Equation.hash, Equation.equalName);
+
+        // check if variables are matched and sort them accordingly
+        for var in 1:arrayLength(matching.var_to_eqn) loop
+          arr_var := ExpandableArray.get(mapping.var_StA[var], variables.varArr);
+          if matching.var_to_eqn[var] > 0 then
+            Slice.addToSliceMap(arr_var, var, var_map_matched);
+          else
+            Slice.addToSliceMap(arr_var, var, var_map_unmatched);
+          end if;
+        end for;
+
+        // check if equations are matched and sort them accordingly
+        for eqn in 1:arrayLength(matching.eqn_to_var) loop
+          arr_eqn := ExpandableArray.get(mapping.eqn_StA[eqn], equations.eqArr);
+          if matching.eqn_to_var[eqn] > 0 then
+            Slice.addToSliceMap(arr_eqn, eqn, eqn_map_matched);
+          else
+            Slice.addToSliceMap(arr_eqn, eqn, eqn_map_unmatched);
+          end if;
+        end for;
+
+        // get the slice lists while sorting indices and simplifying whole slices to {}
+        matched_vars    := list(Slice.simplify(slice, BVariable.size) for slice in Slice.fromMap(var_map_matched));
+        unmatched_vars  := list(Slice.simplify(slice, BVariable.size) for slice in Slice.fromMap(var_map_unmatched));
+        matched_eqns    := list(Slice.simplify(slice, Equation.size) for slice in Slice.fromMap(eqn_map_matched));
+        unmatched_eqns  := list(Slice.simplify(slice, Equation.size) for slice in Slice.fromMap(eqn_map_unmatched));
       then ();
 
       else algorithm
@@ -349,8 +423,8 @@ protected
 
     // free auxiliary arrays
     if nEqns > 0 then
-      GC.free(var_marks);
-      GC.free(eqn_marks);
+      GCExt.free(var_marks);
+      GCExt.free(eqn_marks);
     end if;
 
     // create the matching structure
@@ -390,6 +464,23 @@ protected
       end if;
     end for;
   end augmentPath;
+
+  function PFPlusExternal
+    input array<list<Integer>> m;
+    input output array<Integer> ass1;
+    input output array<Integer> ass2;
+    input Boolean clear;
+    // this needs partially = true to get computed. Otherwise it fails on singular systems
+    output list<list<Integer>> marked_eqns = {}   "marked equations for index reduction in the case of a singular system";
+  protected
+    Integer n1 = arrayLength(ass1), n2 = arrayLength(ass2), nonZero = BackendUtil.countElem(m);
+    Integer cheap = 0, algIndx = 5 "PFPlusExternal index";
+  algorithm
+    BackendDAEEXT.setAssignment(n2, n1, ass2, ass1);
+    BackendDAEEXT.setAdjacencyMatrix(n1, n2, nonZero, m);
+    BackendDAEEXT.matching(n1, n2, algIndx, cheap, 1.0, if clear then 1 else 0);
+    BackendDAEEXT.getAssignment(ass2, ass1);
+  end PFPlusExternal;
 
   // ######################################
   //            LINEAR MATCHING
@@ -854,6 +945,7 @@ protected
     matching := ARRAY_MATCHING();
   end arrayMatching;
 
+/*
   function SBGMatching
     input BipartiteGraph graph                               "full bipartite graph";
     input UnorderedMap<SetVertex, Integer> vertexMap  "maps a vertex to its index";
@@ -1024,7 +1116,7 @@ protected
         + SBSet.toString(path_edge), sourceInfo());
     end try;
   end addMatchedF;
-
+*/
   annotation(__OpenModelica_Interface="backend");
 end NBMatching;
 

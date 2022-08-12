@@ -38,6 +38,13 @@
 #include "Util/StringHandler.h"
 #include "Element/Transformation.h"
 #include "FlatModelica/Expression.h"
+#include "BooleanAnnotation.h"
+#include "ColorAnnotation.h"
+#include "ExtentAnnotation.h"
+#include "RealAnnotation.h"
+#include "PointAnnotation.h"
+#include "StringAnnotation.h"
+#include "Modeling/Model.h"
 
 #include <QGraphicsItem>
 #include <QSettings>
@@ -63,6 +70,7 @@ public:
   void setDefaults();
   void setDefaults(ShapeAnnotation *pShapeAnnotation);
   void parseShapeAnnotation(QString annotation);
+  void parseShapeAnnotation(ModelInstance::GraphicItem *pGraphicItem);
   QStringList getOMCShapeAnnotation();
   QStringList getShapeAnnotation();
   void setOrigin(QPointF origin) {mOrigin = origin;}
@@ -70,15 +78,9 @@ public:
   void setRotationAngle(qreal rotation) {mRotation = rotation;}
   qreal getRotation() {return mRotation;}
 protected:
-  bool mVisible;
-  QString mDynamicVisible; /* Dynamic variable for visible attribute */
-  bool mDynamicVisibleValue; /* Dynamic value for visible attribute */
-  QPointF mOrigin;
-  QString mDynamicOrigin; /* Dynamic variable for origin attribute */
-  QPointF mDynamicOriginValue; /* Dynamic value for origin attribute */
-  qreal mRotation;
-  QString mDynamicRotation; /* Dynamic variable for origin attribute */
-  qreal mDynamicRotationValue; /* Dynamic value for origin attribute */
+  BooleanAnnotation mVisible;
+  PointAnnotation mOrigin;
+  RealAnnotation mRotation;
 };
 
 class FilledShape
@@ -88,8 +90,10 @@ public:
   void setDefaults();
   void setDefaults(ShapeAnnotation *pShapeAnnotation);
   void parseShapeAnnotation(QString annotation);
+  void parseShapeAnnotation(ModelInstance::FilledShape *pFilledShape);
   QStringList getOMCShapeAnnotation();
   QStringList getShapeAnnotation();
+  QStringList getTextShapeAnnotation();
   void setLineColor(QColor color) {mLineColor = color;}
   QColor getLineColor() {return mLineColor;}
   void setFillColor(QColor color) {mFillColor = color;}
@@ -101,11 +105,11 @@ public:
   void setLineThickness(qreal thickness) {mLineThickness = thickness;}
   qreal getLineThickness() {return mLineThickness;}
 protected:
-  QColor mLineColor;
-  QColor mFillColor;
+  ColorAnnotation mLineColor;
+  ColorAnnotation mFillColor;
   StringHandler::LinePattern mLinePattern;
   StringHandler::FillPattern mFillPattern;
-  qreal mLineThickness;
+  RealAnnotation mLineThickness;
 };
 
 class ShapeAnnotation : public QObject, public QGraphicsItem, public GraphicItem, public FilledShape
@@ -131,6 +135,7 @@ private:
 public:
   enum LineGeometryType {VerticalLine, HorizontalLine};
   Transformation mTransformation;
+  ShapeAnnotation(QGraphicsItem *pParent);
   ShapeAnnotation(ShapeAnnotation *pShapeAnnotation, QGraphicsItem *pParent);
   ShapeAnnotation(bool inheritedShape, GraphicsView *pGraphicsView, ShapeAnnotation *pShapeAnnotation, QGraphicsItem *pParent = 0);
   void setDefaults();
@@ -189,7 +194,7 @@ public:
   void setClosure(StringHandler::EllipseClosure closure) {mClosure = closure;}
   StringHandler::EllipseClosure getClosure() {return mClosure;}
   void setTextString(QString textString);
-  QString getTextString() {return mOriginalTextString;}
+  QString getTextString() {return mTextString;}
   void setFontName(QString fontName) {mFontName = fontName;}
   QString getFontName() {return mFontName;}
   void setFontSize(qreal fontSize) {mFontSize = fontSize;}
@@ -260,6 +265,7 @@ public slots:
   void referenceShapeChanged();
   void referenceShapeDeleted();
   void updateDynamicSelect(double time);
+  void resetDynamicSelect();
 protected:
   GraphicsView *mpGraphicsView;
   Element *mpParentComponent;
@@ -267,17 +273,16 @@ protected:
   QList<QPointF> mPoints;
   QList<LineGeometryType> mGeometries;
   QList<StringHandler::Arrow> mArrow;
-  qreal mArrowSize;
+  RealAnnotation mArrowSize;
   StringHandler::Smooth mSmooth;
-  QList<QPointF> mExtents;
+  ExtentAnnotation mExtents;
   StringHandler::BorderPattern mBorderPattern;
-  qreal mRadius;
-  qreal mStartAngle;
-  qreal mEndAngle;
+  RealAnnotation mRadius;
+  RealAnnotation mStartAngle;
+  RealAnnotation mEndAngle;
   StringHandler::EllipseClosure mClosure;
-  QString mOriginalTextString;
-  QString mTextString;
-  qreal mFontSize;
+  StringAnnotation mTextString;
+  RealAnnotation mFontSize;
   QString mFontName;
   QList<StringHandler::TextStyle> mTextStyles;
   StringHandler::TextAlignment mHorizontalAlignment;

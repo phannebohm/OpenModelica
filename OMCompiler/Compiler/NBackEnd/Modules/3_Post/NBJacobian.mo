@@ -70,9 +70,12 @@ protected
   import AvlSetPath;
   import StringUtil;
   import UnorderedMap;
+  import UnorderedSet;
   import Util;
 
 public
+  type JacobianType = enumeration(SIMULATION, NONLINEAR);
+
   function main
     "Wrapper function for any jacobian function. This will be called during
      simulation and gets the corresponding subfunction from Config."
@@ -85,7 +88,6 @@ public
       local
         String name                                     "Context name for jacobian";
         VariablePointers knowns                         "Variable array of knowns";
-        Option<Jacobian> jacobian                       "Resulting jacobian";
         FunctionTree funcTree                           "Function call bodies";
         list<System.System> oldSystems, newSystems = {} "Equation systems before and afterwards";
         list<System.System> oldEvents, newEvents = {}   "Event Equation systems before and afterwards";
@@ -100,19 +102,17 @@ public
             then fail();
           end match;
 
+          if Flags.isSet(Flags.JAC_DUMP) then
+            print(StringUtil.headline_1("[symjacdump] Creating symbolic Jacobians:") + "\n");
+          end if;
+
           for syst in listReverse(oldSystems) loop
-            (jacobian, funcTree) := match syst
-              case System.SYSTEM() then func(name, syst.unknowns, syst.daeUnknowns, syst.equations, knowns, syst.strongComponents, funcTree);
-            end match;
-            syst.jacobian := jacobian;
-            newSystems := syst::newSystems;
+            (syst, funcTree) := systJacobian(syst, funcTree, knowns, name, func);
+            newEvents := syst::newEvents;
           end for;
 
           for syst in listReverse(oldEvents) loop
-            (jacobian, funcTree) := match syst
-              case System.SYSTEM() then func(name, syst.unknowns, syst.daeUnknowns, syst.equations, knowns, syst.strongComponents, funcTree);
-            end match;
-            syst.jacobian := jacobian;
+            (syst, funcTree) := systJacobian(syst, funcTree, knowns, name, func);
             newEvents := syst::newEvents;
           end for;
 
@@ -138,263 +138,248 @@ public
     end match;
   end main;
 
-  function simple
+  function nonlinear
     input VariablePointers variables;
     input EquationPointers equations;
-    input StrongComponent comp;
+    input array<StrongComponent> comps;
     output Option<Jacobian> jacobian;
     input output FunctionTree funcTree;
     input String name;
   algorithm
     (jacobian, funcTree) := jacobianSymbolic(
         name              = name,
-        unknowns          = variables,
-        daeUnknowns       = NONE(),
+        jacType           = JacobianType.NONLINEAR,
+        seedCandidates    = variables,
+        partialCandidates = EquationPointers.getResiduals(equations),      // these have to be updated once there are inner equations in torn systems
         equations         = equations,
-        knowns            = VariablePointers.empty(0), // remove them? are they necessary?
-        strongComponents  = SOME(arrayCreate(1, comp)),
+        knowns            = VariablePointers.empty(0),      // remove them? are they necessary?
+        strongComponents  = SOME(comps),
         funcTree          = funcTree
       );
-  end simple;
+  end nonlinear;
 
   function combine
     input list<BackendDAE> jacobians;
     input String name;
     output BackendDAE jacobian;
   protected
+    JacobianType jacType;
     list<Pointer<Variable>> variables = {}, unknowns = {}, knowns = {}, auxiliaryVars = {}, aliasVars = {};
     list<Pointer<Variable>> diffVars = {}, dependencies = {}, resultVars = {}, tmpVars = {}, seedVars = {};
-    list<Pointer<Equation>> equations = {}, results = {}, temporary = {}, auxiliaries= {}, removed = {};
+    list<StrongComponent> comps = {};
     list<SparsityPatternCol> col_wise_pattern = {};
     list<SparsityPatternRow> row_wise_pattern = {};
-    list<ComponentRef> independent_vars = {};
-    list<ComponentRef> residual_vars = {};
+    list<ComponentRef> seed_vars = {};
+    list<ComponentRef> partial_vars = {};
     Integer nnz = 0;
     VarData varData;
     EqData eqData;
     SparsityPattern sparsityPattern;
-    list<list<ComponentRef>> sparsityColoring = {};
+    SparsityColoring sparsityColoring = SparsityColoring.lazy(EMPTY_SPARSITY_PATTERN, UnorderedMap.new<CrefLst>(ComponentRef.hash, ComponentRef.isEqual));
   algorithm
-    for jac in jacobians loop
-      _ := match jac
-        local
-          VarData tmpVarData;
-          EqData tmpEqData;
-          SparsityPattern tmpPattern;
-          Integer size1, size2;
-          list<list<ComponentRef>> coloring1, coloring2;
 
-        case BackendDAE.JACOBIAN(varData = tmpVarData as VarData.VAR_DATA_JAC(), eqData = tmpEqData as EqData.EQ_DATA_JAC(), sparsityPattern = tmpPattern) algorithm
-          variables := listAppend(VariablePointers.toList(tmpVarData.variables), variables);
-          unknowns := listAppend(VariablePointers.toList(tmpVarData.unknowns), unknowns);
-          knowns := listAppend(VariablePointers.toList(tmpVarData.knowns), knowns);
-          auxiliaryVars := listAppend(VariablePointers.toList(tmpVarData.auxiliaries), auxiliaryVars);
-          aliasVars := listAppend(VariablePointers.toList(tmpVarData.aliasVars), aliasVars);
-          diffVars := listAppend(VariablePointers.toList(tmpVarData.diffVars), diffVars);
-          dependencies := listAppend(VariablePointers.toList(tmpVarData.dependencies), dependencies);
-          resultVars := listAppend(VariablePointers.toList(tmpVarData.resultVars), resultVars);
-          tmpVars := listAppend(VariablePointers.toList(tmpVarData.tmpVars), tmpVars);
-          seedVars := listAppend(VariablePointers.toList(tmpVarData.seedVars), seedVars);
+    if listLength(jacobians) == 1 then
+      jacobian := List.first(jacobians);
+      jacobian := match jacobian case BackendDAE.JACOBIAN() algorithm jacobian.name := name; then jacobian; end match;
+    else
+      for jac in jacobians loop
+        _ := match jac
+          local
+            VarData tmpVarData;
+            SparsityPattern tmpPattern;
 
-          equations := listAppend(EquationPointers.toList(tmpEqData.equations), equations);
-          results := listAppend(EquationPointers.toList(tmpEqData.results), results);
-          temporary := listAppend(EquationPointers.toList(tmpEqData.temporary), temporary);
-          auxiliaries := listAppend(EquationPointers.toList(tmpEqData.auxiliaries), auxiliaries);
-          removed := listAppend(EquationPointers.toList(tmpEqData.removed), removed);
+          case BackendDAE.JACOBIAN(varData = tmpVarData as VarData.VAR_DATA_JAC(), sparsityPattern = tmpPattern) algorithm
+            jacType       := jac.jacType;
+            variables     := listAppend(VariablePointers.toList(tmpVarData.variables), variables);
+            unknowns      := listAppend(VariablePointers.toList(tmpVarData.unknowns), unknowns);
+            knowns        := listAppend(VariablePointers.toList(tmpVarData.knowns), knowns);
+            auxiliaryVars := listAppend(VariablePointers.toList(tmpVarData.auxiliaries), auxiliaryVars);
+            aliasVars     := listAppend(VariablePointers.toList(tmpVarData.aliasVars), aliasVars);
+            diffVars      := listAppend(VariablePointers.toList(tmpVarData.diffVars), diffVars);
+            dependencies  := listAppend(VariablePointers.toList(tmpVarData.dependencies), dependencies);
+            resultVars    := listAppend(VariablePointers.toList(tmpVarData.resultVars), resultVars);
+            tmpVars       := listAppend(VariablePointers.toList(tmpVarData.tmpVars), tmpVars);
+            seedVars      := listAppend(VariablePointers.toList(tmpVarData.seedVars), seedVars);
 
-          col_wise_pattern := listAppend(tmpPattern.col_wise_pattern, col_wise_pattern);
-          row_wise_pattern := listAppend(tmpPattern.col_wise_pattern, row_wise_pattern);
-          independent_vars := listAppend(tmpPattern.independent_vars, independent_vars);
-          residual_vars := listAppend(tmpPattern.residual_vars, residual_vars);
-          nnz := nnz + tmpPattern.nnz;
+            comps         := listAppend(arrayList(jac.comps), comps);
 
-          // combine the sparsity colorings since all are independent
-          size1 := listLength(sparsityColoring);
-          size2 := listLength(jac.sparsityColoring);
-          (coloring1, coloring2) := if size1 > size2
-                                    then (sparsityColoring, jac.sparsityColoring)
-                                    else (jac.sparsityColoring, sparsityColoring);
+            col_wise_pattern  := listAppend(tmpPattern.col_wise_pattern, col_wise_pattern);
+            row_wise_pattern  := listAppend(tmpPattern.row_wise_pattern, row_wise_pattern);
+            seed_vars         := listAppend(tmpPattern.seed_vars, seed_vars);
+            partial_vars      := listAppend(tmpPattern.partial_vars, partial_vars);
+            nnz               := nnz + tmpPattern.nnz;
+            sparsityColoring  := SparsityColoring.combine(sparsityColoring, jac.sparsityColoring);
+          then ();
 
-          // fill up the smaller coloring with empty groups
-          for i in 1:intAbs(size1-size2) loop
-            coloring2 := {} :: coloring2;
-          end for;
+          else algorithm
+            Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for\n" + BackendDAE.toString(jac)});
+          then fail();
+        end match;
+      end for;
 
-          sparsityColoring := List.threadMap(coloring1, coloring2, listAppend);
-        then ();
+      varData := VarData.VAR_DATA_JAC(
+        variables     = VariablePointers.fromList(variables),
+        unknowns      = VariablePointers.fromList(unknowns),
+        knowns        = VariablePointers.fromList(knowns),
+        auxiliaries   = VariablePointers.fromList(auxiliaryVars),
+        aliasVars     = VariablePointers.fromList(aliasVars),
+        diffVars      = VariablePointers.fromList(diffVars),
+        dependencies  = VariablePointers.fromList(dependencies),
+        resultVars    = VariablePointers.fromList(resultVars),
+        tmpVars       = VariablePointers.fromList(tmpVars),
+        seedVars      = VariablePointers.fromList(seedVars)
+      );
 
-        else algorithm
-          Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for\n" + BackendDAE.toString(jac)});
-        then fail();
-      end match;
-    end for;
+      sparsityPattern := SPARSITY_PATTERN(
+        col_wise_pattern  = col_wise_pattern,
+        row_wise_pattern  = row_wise_pattern,
+        seed_vars         = seed_vars,
+        partial_vars      = partial_vars,
+        nnz               = nnz
+      );
 
-    varData := VarData.VAR_DATA_JAC(
-      variables     = VariablePointers.fromList(variables),
-      unknowns      = VariablePointers.fromList(unknowns),
-      knowns        = VariablePointers.fromList(knowns),
-      auxiliaries   = VariablePointers.fromList(auxiliaryVars),
-      aliasVars     = VariablePointers.fromList(aliasVars),
-      diffVars      = VariablePointers.fromList(diffVars),
-      dependencies  = VariablePointers.fromList(dependencies),
-      resultVars    = VariablePointers.fromList(resultVars),
-      tmpVars       = VariablePointers.fromList(tmpVars),
-      seedVars      = VariablePointers.fromList(seedVars)
-    );
-
-    eqData := EqData.EQ_DATA_JAC(
-      uniqueIndex   = Pointer.create(0),
-      equations     = EquationPointers.fromList(equations),
-      results       = EquationPointers.fromList(results),
-      temporary     = EquationPointers.fromList(temporary),
-      auxiliaries   = EquationPointers.fromList(auxiliaries),
-      removed       = EquationPointers.fromList(removed)
-    );
-
-    sparsityPattern := SPARSITY_PATTERN(
-      col_wise_pattern  = col_wise_pattern,
-      row_wise_pattern  = row_wise_pattern,
-      independent_vars  = independent_vars,
-      residual_vars     = residual_vars,
-      nnz               = nnz
-    );
-
-    jacobian := BackendDAE.JACOBIAN(
-      name              = name,
-      varData           = varData,
-      eqData            = eqData,
-      sparsityPattern   = sparsityPattern,
-      sparsityColoring  = sparsityColoring
-    );
+      jacobian := BackendDAE.JACOBIAN(
+        name              = name,
+        jacType           = jacType,
+        varData           = varData,
+        comps             = listArray(comps),
+        sparsityPattern   = sparsityPattern,
+        sparsityColoring  = sparsityColoring
+      );
+    end if;
   end combine;
 
   function getModule
     "Returns the module function that was chosen by the user."
     output Module.jacobianInterface func;
-  protected
-    String flag = "default"; //Flags.getConfigString(Flags.JACOBIAN)
   algorithm
-    (func) := match flag
-      case "default"  then (jacobianSymbolic);
-      case "symbolic" then (jacobianSymbolic);
-      case "numeric"  then (jacobianNumeric);
-      /* ... New jacobian modules have to be added here */
-      else fail();
-    end match;
+    if Flags.getConfigBool(Flags.GENERATE_SYMBOLIC_JACOBIAN) then
+      func := jacobianSymbolic;
+    else
+      func := jacobianNumeric;
+    end if;
   end getModule;
 
   function toString
     input BackendDAE jacobian;
-    input output String str = "";
-    input Boolean compact = false;
+    input output String str;
   algorithm
-    if not compact then
-      str := BackendDAE.toString(jacobian, str);
-    else
-      str := match jacobian
-        case BackendDAE.JACOBIAN() then StringUtil.headline_3("Jacobian " + jacobian.name + ": " + str)
-                                        + BEquation.EqData.toString(jacobian.eqData, 1);
-        else algorithm
-          Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed."});
-        then fail();
-      end match;
-    end if;
+    str := BackendDAE.toString(jacobian, str);
   end toString;
 
-  type SparsityPatternCol = tuple<ComponentRef, list<ComponentRef>> "residual, {independents}";
-  type SparsityPatternRow = SparsityPatternCol                      "independent, {residuals}";
+  function jacobianTypeString
+    input JacobianType jacType;
+    output String str;
+  algorithm
+    str := match jacType
+      case JacobianType.SIMULATION  then "[SIM]";
+      case JacobianType.NONLINEAR   then "[NLS]";
+                                    else "[ERR]";
+    end match;
+  end jacobianTypeString;
+
+  // necessary as wrapping value type for UnorderedMap
+  type CrefLst = list<ComponentRef>;
+
+  type SparsityPatternCol = tuple<ComponentRef, CrefLst>  "partial_vars, {seed_vars}";
+  type SparsityPatternRow = SparsityPatternCol            "seed_vars, {partial_vars}";
 
   uniontype SparsityPattern
     record SPARSITY_PATTERN
       list<SparsityPatternCol> col_wise_pattern   "colum-wise sparsity pattern";
       list<SparsityPatternRow> row_wise_pattern   "row-wise sparsity pattern";
-      list<ComponentRef> independent_vars         "independent variables solved here";
-      list<ComponentRef> residual_vars            "residual vars e.g. $RES_DAE_0";
+      list<ComponentRef> seed_vars                "independent variables solved here ($SEED)";
+      list<ComponentRef> partial_vars             "LHS variables of the jacobian ($pDER)";
       Integer nnz                                 "number of nonzero elements";
     end SPARSITY_PATTERN;
 
     function toString
       input SparsityPattern pattern;
-      input SparsityColoring coloring;
-      output String str = StringUtil.headline_3("Sparsity Pattern (nnz: " + intString(pattern.nnz) + ")");
+      output String str = StringUtil.headline_2("Sparsity Pattern (nnz: " + intString(pattern.nnz) + ")");
     protected
       ComponentRef cref;
       list<ComponentRef> dependencies;
+      Boolean colEmpty = listEmpty(pattern.col_wise_pattern);
+      Boolean rowEmpty = listEmpty(pattern.row_wise_pattern);
     algorithm
-      if not listEmpty(pattern.col_wise_pattern) then
+      if not colEmpty then
+        str := str + "\n" + StringUtil.headline_3("### Columns ###");
         for col in pattern.col_wise_pattern loop
           (cref, dependencies) := col;
-          str := str + "(" + ComponentRef.toString(cref) + ")\t" + ComponentRef.listToString(dependencies) + "\n";
+          str := str + "(" + ComponentRef.toString(cref) + ")\t affects:\t" + ComponentRef.listToString(dependencies) + "\n";
         end for;
-      else
-        str := str + "<empty sparsity pattern>\n";
       end if;
-      str := str + "\n" + StringUtil.headline_3("Sparsity Coloring Groups");
-      if not listEmpty(coloring) then
-        for group in coloring loop
-          str := str + ComponentRef.listToString(group) + "\n";
+      if not rowEmpty then
+        str := str + "\n" + StringUtil.headline_3("##### Rows #####");
+        for row in pattern.row_wise_pattern loop
+          (cref, dependencies) := row;
+          str := str + "(" + ComponentRef.toString(cref) + ")\t depends on:\t" + ComponentRef.listToString(dependencies) + "\n";
         end for;
-      else
-        str := str + "<empty sparsity coloring>\n";
       end if;
     end toString;
 
-    // necessary as wrapping value type for UnorderedMap
-    type CrefLst = list<ComponentRef>;
-
     function create
-      input VariablePointers independentVars;
-      input VariablePointers residualVars;
-      input EquationPointers equations;
+      input VariablePointers seedCandidates;
+      input VariablePointers partialCandidates;
       input Option<array<StrongComponent>> strongComponents "Strong Components";
+      input JacobianType jacType;
       output SparsityPattern sparsityPattern;
       output SparsityColoring sparsityColoring;
+    protected
+      UnorderedMap<ComponentRef, CrefLst> map;
     algorithm
-      sparsityPattern := match strongComponents
+      (sparsityPattern, map) := match strongComponents
         local
           array<StrongComponent> comps;
-          list<ComponentRef> independent_vars, residual_vars, tmp;
-          UnorderedMap<ComponentRef, list<ComponentRef>> map;
+          list<ComponentRef> seed_vars, seed_vars_array, partial_vars, partial_vars_array, tmp;
+          UnorderedSet<ComponentRef> set;
           list<SparsityPatternCol> cols = {};
           list<SparsityPatternRow> rows = {};
           Integer nnz = 0;
 
         case SOME(comps) guard(arrayEmpty(comps)) algorithm
-        then EMPTY_SPARSITY_PATTERN;
+        then (EMPTY_SPARSITY_PATTERN, UnorderedMap.new<CrefLst>(ComponentRef.hash, ComponentRef.isEqual));
 
         case SOME(comps) algorithm
           // get all relevant crefs
-          residual_vars := VariablePointers.getVarNames(residualVars);
-          independent_vars := VariablePointers.getVarNames(independentVars);
+          partial_vars      := VariablePointers.getVarNames(VariablePointers.scalarize(partialCandidates));
+          seed_vars         := VariablePointers.getVarNames(VariablePointers.scalarize(seedCandidates));
+          // unscalarized seed vars are currently needed for sparsity pattern
+          seed_vars_array  := VariablePointers.getVarNames(seedCandidates);
+          partial_vars_array  := VariablePointers.getVarNames(partialCandidates);
 
           // create a sufficiant big unordered map
-          map := UnorderedMap.new<CrefLst>(ComponentRef.hash, ComponentRef.isEqual, Util.nextPrime(listLength(independent_vars) + listLength(residual_vars)));
+          map := UnorderedMap.new<CrefLst>(ComponentRef.hash, ComponentRef.isEqual, Util.nextPrime(listLength(seed_vars) + listLength(partial_vars)));
+          set := UnorderedSet.new(ComponentRef.hash, ComponentRef.isEqual, Util.nextPrime(listLength(seed_vars_array)));
 
-          // save all relevant crefs to know later on if a cref should be added
-          for cref in independent_vars loop
-            UnorderedMap.add(cref, {}, map);
-          end for;
-          for cref in residual_vars loop
-            UnorderedMap.add(cref, {}, map);
-          end for;
+          // save all seed_vars and partial_vars to know later on if a cref should be added
+          for cref in seed_vars loop UnorderedMap.add(cref, {}, map); end for;
+          for cref in partial_vars loop UnorderedMap.add(cref, {}, map); end for;
+          for cref in seed_vars_array loop UnorderedSet.add(cref, set); end for;
+          for cref in partial_vars_array loop UnorderedSet.add(cref, set); end for;
 
           // traverse all components and save cref dependencies (only column-wise)
           for i in 1:arrayLength(comps) loop
-            StrongComponent.getDependentCrefs(comps[i], map);
+            StrongComponent.collectCrefs(comps[i], map, set, not partialCandidates.scalarized, jacType);
           end for;
 
           // create row-wise sparsity pattern
-          for cref in residual_vars loop
-            tmp := List.uniqueOnTrue(UnorderedMap.getSafe(cref, map), ComponentRef.isEqual);
-            rows := (cref, tmp) :: rows;
-            for dep in tmp loop
-              // also add inverse dependency (indep var) --> (res/tmp) :: rest
-              UnorderedMap.add(dep, cref :: UnorderedMap.getSafe(dep, map), map);
-            end for;
+          for cref in partial_vars loop
+            // only create rows for derivatives
+            if jacType == JacobianType.NONLINEAR or BVariable.checkCref(cref, BVariable.isStateDerivative) then
+              if UnorderedMap.contains(cref, map) then
+                tmp := List.uniqueOnTrue(UnorderedMap.getSafe(cref, map), ComponentRef.isEqual);
+                rows := (cref, tmp) :: rows;
+                for dep in tmp loop
+                  // also add inverse dependency (indep var) --> (res/tmp) :: rest
+                  UnorderedMap.add(dep, cref :: UnorderedMap.getSafe(dep, map), map);
+                end for;
+              end if;
+            end if;
           end for;
 
           // create column-wise sparsity pattern
-          for cref in independent_vars loop
+          for cref in seed_vars loop
             tmp := List.uniqueOnTrue(UnorderedMap.getSafe(cref, map), ComponentRef.isEqual);
             cols := (cref, tmp) :: cols;
           end for;
@@ -404,7 +389,7 @@ public
             (_, tmp) := col;
             nnz := nnz + listLength(tmp);
           end for;
-        then SPARSITY_PATTERN(cols, rows, independent_vars, residual_vars, nnz);
+        then (SPARSITY_PATTERN(cols, rows, seed_vars, partial_vars, nnz), map);
 
         case NONE() algorithm
           Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because of missing strong components."});
@@ -417,480 +402,179 @@ public
       end match;
 
       // create coloring
-      sparsityColoring := createEmptyColoring(sparsityPattern);
+      sparsityColoring := SparsityColoring.PartialD2ColoringAlg(sparsityPattern, map);
+
+      if Flags.isSet(Flags.DUMP_SPARSE) then
+        print(toString(sparsityPattern) + "\n" + SparsityColoring.toString(sparsityColoring));
+      end if;
     end create;
 
     function createEmpty
       output SparsityPattern sparsityPattern = EMPTY_SPARSITY_PATTERN;
-      output SparsityColoring sparsityColoring = createEmptyColoring(sparsityPattern);
+      output SparsityColoring sparsityColoring = EMPTY_SPARSITY_COLORING;
     end createEmpty;
-
-    function createEmptyColoring
-      "creates an empty coloring that just groups each independent variable individually"
-      input SparsityPattern sparsityPattern;
-      output SparsityColoring sparsityColoring = {};
-    algorithm
-      sparsityColoring := list({cref} for cref in sparsityPattern.independent_vars);
-    end createEmptyColoring;
-
   end SparsityPattern;
 
   constant SparsityPattern EMPTY_SPARSITY_PATTERN = SPARSITY_PATTERN({}, {}, {}, {}, 0);
+  constant SparsityColoring EMPTY_SPARSITY_COLORING = SPARSITY_COLORING(listArray({}), listArray({}));
 
-  type SparsityColoring = list<list<ComponentRef>>  "list of independent variable groups belonging to the same color";
+  type SparsityColoringCol = list<ComponentRef>  "seed variable lists belonging to the same color";
+  type SparsityColoringRow = SparsityColoringCol "partial variable lists for each color (multiples allowed!)";
 
-  type LinearJacobianRow = UnorderedMap<Integer, Real>;
-  type LinearJacobianRhs = array<Expression>;
-  type LinearJacobianInd = array<Integer>;
+  uniontype SparsityColoring
+    record SPARSITY_COLORING
+      "column wise coloring with extra row sparsity information"
+      array<SparsityColoringCol> cols;
+      array<SparsityColoringRow> rows;
+    end SPARSITY_COLORING;
 
-  uniontype LinearJacobian
-    record LINEAR_JACOBIAN
-      array<LinearJacobianRow> rows   "all loop variables entries";
-      LinearJacobianRhs rhs           "the expression containing all non loop variable entries";
-      LinearJacobianInd ind           "equation indices  <array, scalar>";
-      array<Boolean> eq_marks         "changed equations";
-    end LINEAR_JACOBIAN;
-
-    public function toString
-      input LinearJacobian linJac;
-      input String heading = "";
-      output String str;
+    function toString
+      input SparsityColoring sparsityColoring;
+      output String str = StringUtil.headline_2("Sparsity Coloring");
+    protected
+      Boolean empty = arrayLength(sparsityColoring.cols) == 0;
     algorithm
-      str := "######################################################\n" +
-          " LinearJacobian sparsity pattern: " + heading + "\n" +
-          "######################################################\n" +
-          "(scal_idx|arr_idx|changed) [var_index, value] || RHS_EXPRESSION\n";
-      for idx in 1:arrayLength(linJac.rows) loop
-        str := str + rowToString(linJac.rows[idx], linJac.rhs[idx], linJac.ind[idx], linJac.eq_marks[idx]);
+       if empty then
+        str := str + "\n<empty sparsity pattern>\n";
+      end if;
+      for i in 1:arrayLength(sparsityColoring.cols) loop
+        str := str + "Color (" + intString(i) + ")\n"
+          + "  - Column: " + ComponentRef.listToString(sparsityColoring.cols[i]) + "\n"
+          + "  - Row:    " + ComponentRef.listToString(sparsityColoring.rows[i]) + "\n\n";
       end for;
-      str := str + "\n";
     end toString;
 
-    function rowToString
-      input LinearJacobianRow row;
-      input Expression rhs;
-      input Integer eqn_index;
-      input Boolean changed;
-      output String str;
+    function lazy
+      "creates a lazy coloring that just groups each independent variable individually
+      and implies dependence for each row"
+      input SparsityPattern sparsityPattern;
+      input UnorderedMap<ComponentRef, CrefLst> map;
+      output SparsityColoring sparsityColoring;
     protected
-      Integer var_index;
-      Real value;
-      list<tuple<Integer, Real>> row_lst = UnorderedMap.toList(row);
+      array<SparsityColoringCol> cols;
+      array<SparsityColoringRow> rows;
     algorithm
-      str := "(" + intString(eqn_index) + "|" + boolString(changed) +"):    ";
-      if listEmpty(row_lst) then
-        str := str + "EMPTY ROW     ";
-      else
-        for element in row_lst loop
-          (var_index, value) := element;
-          str := str + "[" + intString(var_index) + "|" + realString(value) + "] ";
-        end for;
-      end if;
-      str := str + "    || RHS: " + Expression.toString(SimplifyExp.simplify(rhs)) + "\n";
-    end rowToString;
+      cols := listArray(list({cref} for cref in sparsityPattern.seed_vars));
+      rows := arrayCreate(arrayLength(cols), sparsityPattern.partial_vars);
+      sparsityColoring := SPARSITY_COLORING(cols, rows);
+    end lazy;
 
-    function ASSC
-      input output Adjacency.Matrix adj;
-      input output Matching matching;
-      input VariablePointers vars;
-      input EquationPointers eqns;
+    function PartialD2ColoringAlg
+      "author: kabdelhak 2022-03
+      taken from: 'What Color Is Your Jacobian? Graph Coloring for Computing Derivatives'
+      https://doi.org/10.1137/S0036144504444711
+      A greedy partial distance-2 coloring algorithm. Slightly adapted to also track row sparsity."
+      input SparsityPattern sparsityPattern;
+      input UnorderedMap<ComponentRef, CrefLst> map;
+      output SparsityColoring sparsityColoring;
     protected
-      list<StrongComponent> comps;
-      list<tuple<Pointer<Variable>, Integer>> loopVars;
-      list<tuple<Pointer<Equation>, Integer>> loopEqns;
-      LinearJacobian linJac;
+      array<ComponentRef> cref_lookup;
+      UnorderedMap<ComponentRef, Integer> index_lookup;
+      array<Boolean> color_exists;
+      array<Integer> coloring, forbidden_colors;
+      array<list<ComponentRef>> col_coloring, row_coloring;
+      Integer color;
+      list<SparsityColoringCol> cols_lst = {};
+      list<SparsityColoringRow> rows_lst = {};
     algorithm
-      comps := Sorting.tarjan(adj, matching, vars, eqns);
-      for comp in comps loop
-        _ := match comp
-          case StrongComponent.ALGEBRAIC_LOOP() algorithm
-            loopVars := list((var, VariablePointers.getVarIndex(vars, BVariable.getVarName(var))) for var in comp.vars);
-            loopEqns := list((eqn, EquationPointers.getEqnIndex(eqns, Equation.getEqnName(eqn))) for eqn in comp.eqns);
-            linJac := generate(loopVars, loopEqns);
-            if not emptyOrSingle(linJac) then
-              linJac := solve(linJac);
-              (adj, matching) := resolveASSC(linJac, adj, matching, vars, eqns);
-            end if;
-          then ();
-          else ();
-        end match;
-      end for;
-    end ASSC;
-
-    function generate
-      "author: kabdelhak FHB 03-2021
-       Generates a jacobian from algebraic loop equations which are linear
-       w.r.t. all loopVars. Fails if these criteria are not met."
-      input list<tuple<Pointer<Variable>, Integer>> loopVars;
-      input list<tuple<Pointer<Equation>, Integer>> loopEqns;
-      output LinearJacobian linJac;
-    protected
-      Integer eqn_index = 1, var_index;
-      Real constReal;
-      LinearJacobianRow row;
-      list<LinearJacobianRow> tmp_mat = {};
-      list<Expression> tmp_rhs = {};
-      list<Integer> tmp_idx = {};
-      Pointer<Variable> var;
-      Pointer<Equation> eqn;
-      Integer index;
-      Expression res, pDer, constZero = Expression.INTEGER(0);
-      UnorderedMap<ComponentRef, Expression> varRep = UnorderedMap.new<Expression>(ComponentRef.hash, ComponentRef.isEqual);
-      DifferentiationArguments diffArgs = DifferentiationArguments.default(DifferentiationType.SIMPLE);
-    algorithm
-      /* Add a replacement rule var->0 for each loopVar, so that the RHS can be determined afterwards */
-      for loopVar in loopVars loop
-        (var, _) := loopVar;
-        UnorderedMap.add(BVariable.getVarName(var), constZero, varRep);
+      // integer to cref and reverse lookup arrays
+      cref_lookup := listArray(sparsityPattern.seed_vars);
+      index_lookup := UnorderedMap.new<Integer>(ComponentRef.hash, ComponentRef.isEqual, Util.nextPrime(listLength(sparsityPattern.seed_vars)));
+      for i in 1:arrayLength(cref_lookup) loop
+        UnorderedMap.add(cref_lookup[i], i, index_lookup);
       end for;
 
-      /* Loop over all equations and create residual expression. */
-      for loopEq in loopEqns loop
-        row := UnorderedMap.new<Real>(intMod, intEq);
-        (eqn, index) := loopEq;
-        res := Equation.getResidualExp(Pointer.access(eqn));
-        /* Loop over all variables and differentiate residual expression for each. */
-        try
-          for loopVar in loopVars loop
-            (var, var_index) := loopVar;
-            diffArgs.diffCref := BVariable.getVarName(var);
-            (pDer, _) := Differentiate.differentiateExpression(res, diffArgs);
-            pDer := SimplifyExp.simplify(pDer);
-            constReal := Expression.realValue(pDer);
-            if not realEq(constReal, 0.0) then
-              UnorderedMap.add(var_index, constReal, row);
+      // create empty colorings
+      coloring := arrayCreate(arrayLength(cref_lookup), 0);
+      forbidden_colors := arrayCreate(arrayLength(cref_lookup), 0);
+      color_exists := arrayCreate(arrayLength(cref_lookup), false);
+      col_coloring := arrayCreate(arrayLength(cref_lookup), {});
+      row_coloring := arrayCreate(arrayLength(cref_lookup), {});
+
+      for i in 1:arrayLength(cref_lookup) loop
+        for row_var /* w */ in UnorderedMap.getSafe(cref_lookup[i], map) loop
+          for col_var /* x */ in UnorderedMap.getSafe(row_var, map) loop
+            color := coloring[UnorderedMap.getSafe(col_var, index_lookup)];
+            if color > 0 then
+              forbidden_colors[color] := i;
             end if;
           end for;
-          /*
-            Save the full row.
-              - row entries
-              - rhs
-              - equation index
-            Perform var replacements, multiply by -1 and simplify for rhs.
-            NOTE: Multiplication with -1 is not really necessary for the
-                  conversion of analytical to structural singularity, but
-                  would be necessary if used for anything else.
-          */
-          res := Replacements.applySimpleExp(res, varRep);
-          tmp_mat := row :: tmp_mat;
-          tmp_rhs := SimplifyExp.simplify(Expression.MULTARY(
-              arguments     = {Expression.REAL(-1.0), res},
-              inv_arguments = {},
-              operator      = Operator.fromClassification((MathClassification.MULTIPLICATION, SizeClassification.SCALAR), Type.REAL()))
-            ) :: tmp_rhs;
-          tmp_idx := index :: tmp_idx;
-
-          /* set var as matched so that it can be chosen as pivot element for gaussian elimination */
-          eqn_index := eqn_index + 1;
-        else
-          /*
-            Differentiation not possible or not convertible to a real.
-            Purposely fails.
-          */
-        end try;
-      end for;
-      /* convert and store all data */
-      linJac := LINEAR_JACOBIAN(
-        rows      = listArray(tmp_mat),
-        rhs       = listArray(tmp_rhs),
-        ind       = listArray(tmp_idx),
-        eq_marks  = arrayCreate(listLength(tmp_mat), false)
-      );
-    end generate;
-
-    public function emptyOrSingle
-      "author: kabdelhak FHB 03-2021
-       Returns true if the linear real jacobian is empty or has only one single row."
-      input LinearJacobian linJac;
-      output Boolean empty = (arrayLength(linJac.rows) < 2)
-                         and (arrayLength(linJac.rhs) < 2)
-                         and (arrayLength(linJac.ind) < 2)
-                         and (arrayLength(linJac.eq_marks) < 2);
-    end emptyOrSingle;
-
-    public function solve
-      "author: kabdelhak FHB 03-2021
-       Performs a gaussian elimination algorithm on the jacobian without reducing the
-       pivot elements to one to maintain the integer structure. This guarantees that
-       no numerical errors can occur and analytical singularities will be detected.
-       Also keeps track of the RHS for later equation replacement.
-
-      Performs gaussian elimination for one pivot row and all following rows to reduce.
-      new_row = old_row * pivot_element - pivot_row * row_element
-      Example:
-        pivot idx: 2, because the first is zero
-        pivot row:     |  0 -1 -4 |
-        row-to change: | -3  2  3 |
-        new_row:       |  3  0  5 |"
-      input output LinearJacobian linJac;
-    protected
-      Integer col_index;
-      Real piv_value, row_value;
-    algorithm
-      /*
-        Gaussian Algorithm without rearranging rows.
-      */
-      for i in 1:arrayLength(linJac.rows) loop
-        try
-          /*
-            no pivot element can be chosen?
-            jump over all manipulations, nothing to do
-          */
-          (col_index, piv_value) := getPivot(linJac.rows[i]);
-          linJac.rhs[i] := updatePivotRow(linJac.rows[i], linJac.rhs[i], piv_value);
-          for j in i+1:arrayLength(linJac.rows) loop
-            row_value := getElementValue(linJac.rows[j], col_index);
-            if not realEq(row_value, 0.0) then
-              // set row to processed and perform pivot step
-              linJac.eq_marks[j] := true;
-              solveRow(linJac.rows[i], linJac.rows[j], 1.0, row_value);
-              // pivot row is already normalized to pivot element = 1
-              // rhs <- rhs - piv_rhs * row_val
-              linJac.rhs[j] := Expression.MULTARY(
-                arguments     = {linJac.rhs[j]},
-                inv_arguments = {Expression.MULTARY(
-                                  arguments     = {linJac.rhs[i]},
-                                  inv_arguments = {Expression.REAL(row_value)},
-                                  operator      = Operator.makeMul(Expression.typeOf(linJac.rhs[i]))
-                                )},
-                operator      = Operator.makeAdd(Expression.typeOf(linJac.rhs[j]))
-              );
-            end if;
-          end for;
-        else
-          /* no pivot element, nothing to do */
-        end try;
-      end for;
-    end solve;
-
-    public function solveRow
-    "author: kabdelhak FHB 03-2021
-     performs one single row update : new_row = old_row * pivot_element - pivot_row * row_element"
-      input LinearJacobianRow pivot_row;
-      input LinearJacobianRow row;
-      input Real piv_value;
-      input Real row_value;
-    protected
-      Integer idx;
-      Real val, diag_val;
-    algorithm
-      for idx in UnorderedMap.keyList(pivot_row) loop
-        _ := match (UnorderedMap.get(idx, row), UnorderedMap.get(idx, pivot_row))
-
-          // row to be updated has and element at this position
-          case (SOME(val), SOME(diag_val)) algorithm
-            val := val * piv_value - diag_val * row_value;
-            if realAbs(val) < 1e-12 then
-              /* delete element if zero */
-              UnorderedMap.remove(idx, row);
-            else
-              UnorderedMap.add(idx, val, row);
-            end if;
-          then ();
-
-          // row to be updated does not have an element at this position
-          case (NONE(), SOME(diag_val)) algorithm
-            UnorderedMap.add(idx, -diag_val * row_value, row);
-          then ();
-
-          else algorithm
-            Error.assertion(false, getInstanceName() + " key does not have an element in pivot row.", sourceInfo());
-          then ();
-         end match;
-      end for;
-    end solveRow;
-
-    public function updatePivotRow
-    "author: kabdelhak FHB 03-2021
-     updates the pivot row by deviding everything by its pivot value"
-      input LinearJacobianRow pivot_row;
-      input output Expression rhs;
-      input Real piv_value;
-    protected
-      Real value;
-    algorithm
-      if not realEq(piv_value, 1.0) then
-        for idx in UnorderedMap.keyList(pivot_row) loop
-          SOME(value) := UnorderedMap.get(idx, pivot_row);
-          UnorderedMap.add(idx, value/piv_value, pivot_row);
         end for;
-      end if;
-      // also update rhs expression
-      rhs := Expression.MULTARY(
-        arguments     = {rhs},
-        inv_arguments = {Expression.REAL(piv_value)},
-        operator      = Operator.makeMul(Expression.typeOf(rhs))
-      );
-    end updatePivotRow;
+        (_, color) := Array.findFirstOnTrueWithIdx(forbidden_colors, function intNe(i2 = i));
+        coloring[i] := color;
+        // also save all row dependencies of this color
+        row_coloring[color] := listAppend(row_coloring[color], UnorderedMap.getSafe(cref_lookup[i], map));
+        color_exists[color] := true;
+      end for;
 
-    protected function getPivot
-    "author: kabdelhak FHB 03-2021
-     Returns the first element that can be chosen as pivot, fails if none can be chosen."
-      input LinearJacobianRow pivot_row;
-      output tuple<Integer, Real> pivot_elem;
-    protected
-      Integer idx;
-    algorithm
-      if Vector.isEmpty(pivot_row.keys) then
-        /* singular row */
-        fail();
-      else
-        idx := UnorderedMap.firstKey(pivot_row);
-        pivot_elem := (idx, Util.getOption(UnorderedMap.get(idx, pivot_row)));
-      end if;
-    end getPivot;
+      for i in 1:arrayLength(coloring) loop
+        col_coloring[coloring[i]] := cref_lookup[i] :: col_coloring[coloring[i]];
+      end for;
 
-    protected function getElementValue
-    "author: kabdelhak FHB 03-2021
-     Returns the value at given column and zero if it does not exist in sparse structure."
-      input LinearJacobianRow row;
-      input Integer col_index;
-      output Real value;
-    algorithm
-      value := match UnorderedMap.get(col_index, row)
-        case SOME(value) then value;
-        else 0.0;
-      end match;
-    end getElementValue;
-
-    public function resolveASSC
-    "author: kabdelhak FHB 03-2021
-     Resolves analytical singularities by replacing the equations with
-     zero rows in the jacobian with new equations. Needs preceeding
-     solving of the linear real jacobian."
-      input LinearJacobian linJac;
-      input output Adjacency.Matrix adj;
-      input output Matching matching;
-      input VariablePointers vars;
-      input EquationPointers eqns;
-    protected
-      Expression lhs;
-      Pointer<Equation> eqn;
-      list<Integer> updates = {};
-    algorithm
-      _ := match matching
-        case Matching.SCALAR_MATCHING() algorithm
-          for r in 1:arrayLength(linJac.rows) loop
-            /*
-              check if row has been changed
-              for now also only resolve singularities and not replace full loop
-              otherwise it sometimes leads to mixed determined systems
-            */
-            if linJac.eq_marks[r] and (UnorderedMap.isEmpty(linJac.rows[r]) or Flags.getConfigBool(Flags.FULL_ASSC)) then
-              /* remove assignments */
-              matching.eqn_to_var[matching.var_to_eqn[linJac.ind[r]]] := -1;
-              matching.var_to_eqn[linJac.ind[r]] := -1;
-
-              /* replace equation */
-              lhs := generateLHSfromList(
-                row_indices     = UnorderedMap.keyArray(linJac.rows[r]),
-                row_values      = UnorderedMap.valueArray(linJac.rows[r]),
-                vars            = vars
-              );
-
-              eqn := EquationPointers.getEqnAt(eqns, linJac.ind[r]);
-              /* dump replacements */
-              if Flags.isSet(Flags.DUMP_ASSC) or (Flags.isSet(Flags.BLT_DUMP) and UnorderedMap.isEmpty(linJac.rows[r])) then
-                print("[ASSC] The equation: " + Equation.toString(Pointer.access(eqn)) + "\n");
-              end if;
-
-              Equation.updateLHSandRHS(eqn, lhs, SimplifyExp.simplify(linJac.rhs[r]));
-
-              if Flags.isSet(Flags.DUMP_ASSC) or (Flags.isSet(Flags.BLT_DUMP) and UnorderedMap.isEmpty(linJac.rows[r])) then
-                print("[ASSC] Gets replaced by equation: " + Equation.toString(Pointer.access(eqn)) + "\n");
-              end if;
-
-              updates := linJac.ind[r] :: updates;
-            end if;
-          end for;
-          /*
-            update adjacency matrix and transposed adjacency matrix
-            isInitial should always be false
-          */
-          if not listEmpty(updates) then
-            (adj, _) := Adjacency.Matrix.update(adj, vars, eqns, updates, NONE());
-          end if;
-
-          if not listEmpty(updates) and not Flags.isSet(Flags.DUMP_ASSC) and Flags.isSet(Flags.BLT_DUMP) then
-            print("--- Some equations have been changed, for more information please use -d=dumpASSC.---\n\n");
-          end if;
-        then ();
-        else algorithm
-          Error.assertion(false, getInstanceName() + "ASSC not yet supported for SBGraphs.", sourceInfo());
-        then fail();
-      end match;
-    end resolveASSC;
-
-    protected function generateLHSfromList
-    "author: kabdelhak FHB 03-2021
-     Generates the LHS expression from a flattened linear real jacobian row.
-     Only used for full replacement of causalized loop."
-      input array<Integer> row_indices;
-      input array<Real> row_values;
-      input VariablePointers vars;
-      output Expression lhs;
-    protected
-      Integer length = arrayLength(row_indices);
-      list<Expression> arguments = {};
-      list<Expression> inv_arguments = {};
-      Expression var_tmp, arg_tmp;
-      Real value;
-    algorithm
-      if length == 0 then
-        lhs := Expression.REAL(0.0);
-      else
-        for i in 1:length loop
-          var_tmp := BVariable.toExpression(VariablePointers.getVarAt(vars, i));
-          arg_tmp := Expression.MULTARY(
-                        arguments     = {Expression.REAL(realAbs(row_values[i])), var_tmp},
-                        inv_arguments = {},
-                        operator      = Operator.makeMul(Expression.typeOf(var_tmp))
-                     );
-          // add element to inverse elements if value was negative (now absolute value)
-          if row_values[i] > 0 then
-            arguments := arg_tmp :: arguments;
-          else
-            inv_arguments := arg_tmp :: inv_arguments;
-          end if;
-        end for;
-        lhs := Expression.MULTARY(
-          arguments     = arguments,
-          inv_arguments = inv_arguments,
-          operator      = Operator.makeAdd(Expression.typeOf(var_tmp))
-        );
-      end if;
-    end generateLHSfromList;
-
-    public function anyChanges
-    "author: kabdelhak FHB 03-2021
-     Returns true if any row of the jacobian got changed during gaussian elimination."
-      input LinearJacobian linJac;
-      output Boolean changed = false;
-    algorithm
-      for i in 1:arrayLength(linJac.eq_marks) loop
-        if linJac.eq_marks[i] then
-          changed := true;
-          return;
+      // traverse in reverse to have correct ordering in the end)
+      for i in arrayLength(color_exists):-1:1 loop
+        if color_exists[i] then
+          cols_lst := col_coloring[i] :: cols_lst;
+          rows_lst := row_coloring[i] :: rows_lst;
         end if;
       end for;
-    end anyChanges;
-  end LinearJacobian;
+
+      sparsityColoring := SPARSITY_COLORING(listArray(cols_lst), listArray(rows_lst));
+    end PartialD2ColoringAlg;
+
+    function combine
+      "combines sparsity patterns by just appending them because they are supposed to
+      be entirely independent of each other."
+      input SparsityColoring coloring1;
+      input SparsityColoring coloring2;
+      output SparsityColoring coloring_out;
+    protected
+      SparsityColoring smaller_coloring;
+    algorithm
+      // append the smaller to the bigger
+      (coloring_out, smaller_coloring) := if arrayLength(coloring2.cols) > arrayLength(coloring1.cols) then (coloring2, coloring1) else (coloring1, coloring2);
+
+      for i in 1:arrayLength(smaller_coloring.cols) loop
+        coloring_out.cols[i] := listAppend(coloring_out.cols[i], smaller_coloring.cols[i]);
+        coloring_out.rows[i] := listAppend(coloring_out.rows[i], smaller_coloring.rows[i]);
+      end for;
+    end combine;
+  end SparsityColoring;
 
 protected
+  // ToDo: all the DAEMode stuff is probably incorrect!
+
+  function systJacobian
+    input output System.System syst;
+    input output FunctionTree funcTree;
+    input VariablePointers knowns;
+    input String name                                     "Context name for jacobian";
+    input Module.jacobianInterface func;
+  protected
+    list<Pointer<Variable>> derivative_vars, state_vars;
+    VariablePointers seedCandidates, partialCandidates;
+    Option<Jacobian> jacobian                             "Resulting jacobian";
+  algorithm
+    partialCandidates := syst.unknowns;
+    derivative_vars := list(var for var guard(BVariable.isStateDerivative(var)) in VariablePointers.toList(syst.unknowns));
+    state_vars := list(BVariable.getStateVar(var) for var in derivative_vars);
+    seedCandidates := VariablePointers.fromList(state_vars, partialCandidates.scalarized);
+    (jacobian, funcTree) := func(name, JacobianType.SIMULATION, seedCandidates, partialCandidates, syst.equations, knowns, syst.strongComponents, funcTree);
+    syst.jacobian := jacobian;
+    if Flags.isSet(Flags.JAC_DUMP) then
+      print(System.System.toString(syst, 2));
+    end if;
+  end systJacobian;
+
   function jacobianSymbolic extends Module.jacobianInterface;
   protected
-    VariablePointers seedCandidates, partialCandidates, residuals;
+    list<StrongComponent> comps, diffed_comps;
     Pointer<list<Pointer<Variable>>> seed_vars_ptr = Pointer.create({});
     Pointer<list<Pointer<Variable>>> pDer_vars_ptr = Pointer.create({});
     Pointer<UnorderedMap<ComponentRef,ComponentRef>> jacobianHT = Pointer.create(UnorderedMap.new<ComponentRef>(ComponentRef.hash, ComponentRef.isEqual));
     Option<UnorderedMap<ComponentRef,ComponentRef>> optHT;
     Differentiate.DifferentiationArguments diffArguments;
-
-    list<Pointer<Equation>> eqn_lst, diffed_eqn_lst;
-    EquationPointers diffedEquations;
-    BEquation.EqData eqDataJac;
     Pointer<Integer> idx = Pointer.create(0);
-    list<Pointer<Variable>> residual_vars;
 
     list<Pointer<Variable>> all_vars, unknown_vars, aux_vars, alias_vars, depend_vars, res_vars, tmp_vars, seed_vars;
     BVariable.VarData varDataJac;
@@ -898,9 +582,13 @@ protected
     SparsityColoring sparsityColoring;
 
   algorithm
-    // ToDo: apply tearing to split residual/inner variables and equations
-    // add inner / tmp cref tuples to HT
-    (seedCandidates, partialCandidates) := if isSome(daeUnknowns) then (Util.getOption(daeUnknowns), unknowns) else (unknowns, VariablePointers.empty());
+    if Util.isSome(strongComponents) then
+      // filter all discrete strong components and differentiate the others
+      // todo: mixed algebraic loops should be here without the discrete subsets
+      comps := list(comp for comp guard(not StrongComponent.isDiscrete(comp)) in Util.getOption(strongComponents));
+    else
+      Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because no strong components were given!"});
+    end if;
 
     // create seed and pDer vars (also filters out discrete vars)
     VariablePointers.mapPtr(seedCandidates, function makeVarTraverse(name = name, vars_ptr = seed_vars_ptr, ht = jacobianHT, makeVar = BVariable.makeSeedVar));
@@ -915,26 +603,14 @@ protected
       jacobianHT      = optHT, // seed and temporary cref hashtable
       diffType        = NBDifferentiate.DifferentiationType.JACOBIAN,
       funcTree        = funcTree,
-      diffedFunctions = AvlSetPath.new()
+      scalarized      = seedCandidates.scalarized
     );
 
-    // filter all discrete equations and differentiate the others
-    eqn_lst := list(eqn for eqn guard(not Equation.isDiscrete(eqn)) in EquationPointers.toList(equations));
-    (diffed_eqn_lst, diffArguments) := Differentiate.differentiateEquationPointerList(eqn_lst, diffArguments, idx, name, getInstanceName());
-    diffedEquations := EquationPointers.fromList(diffed_eqn_lst);
+    // differentiate all strong components
+    (diffed_comps, diffArguments) := Differentiate.differentiateStrongComponentList(comps, diffArguments, idx, name, getInstanceName());
+    funcTree := diffArguments.funcTree;
 
-    // create equation data for jacobian
-    // ToDo: split temporary and auxiliares once tearing is applied
-    eqDataJac := BEquation.EQ_DATA_JAC(
-      uniqueIndex   = idx,
-      equations     = diffedEquations,
-      results       = diffedEquations,
-      temporary     = EquationPointers.empty(),
-      auxiliaries   = EquationPointers.empty(),
-      removed       = EquationPointers.empty()
-    );
-
-    // collect var data
+    // collect var data (most of this can be removed)
     unknown_vars  := listReverse(Pointer.access(pDer_vars_ptr));
     all_vars      := unknown_vars; // add other vars later on
 
@@ -952,54 +628,53 @@ protected
       knowns        = knowns,
       auxiliaries   = VariablePointers.fromList(aux_vars),
       aliasVars     = VariablePointers.fromList(alias_vars),
-      diffVars      = unknowns,
+      diffVars      = partialCandidates,
       dependencies  = VariablePointers.fromList(depend_vars),
       resultVars    = VariablePointers.fromList(res_vars),
       tmpVars       = VariablePointers.fromList(tmp_vars),
       seedVars      = VariablePointers.fromList(seed_vars)
     );
 
-    if isSome(daeUnknowns) then
-      (sparsityPattern, sparsityColoring) := SparsityPattern.create(Util.getOption(daeUnknowns), unknowns, equations, strongComponents);
-    else
-      //EquationPointers.map(equations, function BEquation.Equation.createResidual(context = "SIM", residual_vars = residual_vars_ptr, idx = idx));
-      eqn_lst := EquationPointers.toList(equations);
-      residual_vars := list(Equation.getResidualVar(eqn) for eqn in eqn_lst);
-      residuals := VariablePointers.fromList(listReverse(residual_vars));
-      (sparsityPattern, sparsityColoring) := SparsityPattern.create(unknowns, residuals, equations, strongComponents);
-      // safe residuals somewhere?
-    end if;
+    (sparsityPattern, sparsityColoring) := SparsityPattern.create(seedCandidates, partialCandidates, strongComponents, jacType);
 
     jacobian := SOME(Jacobian.JACOBIAN(
       name              = name,
+      jacType           = jacType,
       varData           = varDataJac,
-      eqData            = eqDataJac,
+      comps             = listArray(diffed_comps),
       sparsityPattern   = sparsityPattern,
       sparsityColoring  = sparsityColoring
     ));
   end jacobianSymbolic;
 
-  function jacobianNumeric extends Module.jacobianInterface;
+  function jacobianNumeric "still creates sparsity pattern"
+    extends Module.jacobianInterface;
   protected
+    VarData varDataJac;
     SparsityPattern sparsityPattern;
     SparsityColoring sparsityColoring;
   protected
-    VariablePointers residuals;
-    Pointer<list<Pointer<Variable>>> residual_vars_ptr = Pointer.create({});
     Pointer<Integer> idx = Pointer.create(0);
   algorithm
-    if isSome(daeUnknowns) then
-      (sparsityPattern, sparsityColoring) := SparsityPattern.create(Util.getOption(daeUnknowns), unknowns, equations, strongComponents);
-    else
-      EquationPointers.map(equations, function BEquation.Equation.createResidual(context = "SIM", residual_vars = residual_vars_ptr, idx = idx));
-      residuals := VariablePointers.fromList(listReverse(Pointer.access(residual_vars_ptr)));
-      (sparsityPattern, sparsityColoring) := SparsityPattern.create(unknowns, residuals, equations, strongComponents);
-      // safe residuals somewhere?
-    end if;
+    varDataJac := BVariable.VAR_DATA_JAC(
+      variables     = VariablePointers.fromList({}),
+      unknowns      = partialCandidates,
+      knowns        = VariablePointers.fromList({}),
+      auxiliaries   = VariablePointers.fromList({}),
+      aliasVars     = VariablePointers.fromList({}),
+      diffVars      = VariablePointers.fromList({}),
+      dependencies  = VariablePointers.fromList({}),
+      resultVars    = VariablePointers.fromList({}),
+      tmpVars       = VariablePointers.fromList({}),
+      seedVars      = seedCandidates
+    );
+    (sparsityPattern, sparsityColoring) := SparsityPattern.create(seedCandidates, partialCandidates, strongComponents, jacType);
+
     jacobian := SOME(Jacobian.JACOBIAN(
       name              = name,
-      varData           = BVariable.VAR_DATA_EMPTY(),
-      eqData            = BEquation.EQ_DATA_EMPTY(),
+      jacType           = jacType,
+      varData           = varDataJac,
+      comps             = listArray({}),
       sparsityPattern   = sparsityPattern,
       sparsityColoring  = sparsityColoring
     ));

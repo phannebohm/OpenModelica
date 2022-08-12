@@ -64,13 +64,13 @@ import ErrorExt;
 import ExecStat.{execStat,execStatReset};
 import FCore;
 import FGraph;
-import FGraphStream;
 import Flags;
 import FlagsUtil;
-import GC;
+import GCExt;
 import Global;
 import GlobalScript;
 import Interactive;
+import InteractiveUtil;
 import List;
 import Parser;
 import Print;
@@ -192,7 +192,7 @@ algorithm
         ast = table.ast;
         vars = table.vars;
         prog2 = Interactive.addScope(prog, vars);
-        prog2 = Interactive.updateProgram(prog2, ast);
+        prog2 = InteractiveUtil.updateProgram(prog2, ast);
         if Flags.isSet(Flags.DUMP) then
           Debug.trace("\n--------------- Parsed program ---------------\n");
           Dump.dump(prog2);
@@ -534,7 +534,7 @@ algorithm
   // program. Otherwise, instantiate the given class name.
   cname := if stringEmpty(cls) then AbsynUtil.lastClassname(SymbolTable.getAbsyn()) else AbsynUtil.stringPath(cls);
   (cache, env, SOME(dae), flatString) := CevalScriptBackend.runFrontEnd(FCore.emptyCache(),
-    FGraph.empty(), cname, relaxedFrontEnd = true,
+    FGraph.empty(), cname, relaxedFrontEnd = false,
     dumpFlat = Config.flatModelica() and not Config.silent());
 end instantiate;
 
@@ -553,7 +553,7 @@ protected
   Option<BackendDAE.InlineData> inlineData;
   list<BackendDAE.Equation> removedInitialEquationLst;
 algorithm
-  if Config.simulationCg() then
+  if Config.simulationCg() or Config.simulation() then
     info := BackendDAE.EXTRA_INFO(DAEUtil.daeDescription(dae), AbsynUtil.pathString(inClassName));
     dlow := BackendDAECreate.lower(dae, inCache, inEnv, info);
     (dlow, initDAE, initDAE_lambda0, inlineData, removedInitialEquationLst) := BackendDAEUtil.getSolvedSystem(dlow, "");
@@ -575,7 +575,7 @@ protected
   SimCode.SimulationSettings sim_settings;
   Integer intervals;
 algorithm
-  if Config.simulationCg() then
+  if Config.simulationCg() or Config.simulation() then
     Print.clearErrorBuf();
     Print.clearBuf();
     cname := AbsynUtil.pathString(inClassName);
@@ -782,9 +782,9 @@ algorithm
   // 150M for Windows, 300M for others makes the GC try to unmap less and so it crashes less.
   // Disabling unmap is another alternative that seems to work well (but could cause the memory consumption to not be released, and requires manually calling collect and unmap
   if true then
-    GC.setForceUnmapOnGcollect(Autoconf.os == "Windows_NT");
+    GCExt.setForceUnmapOnGcollect(Autoconf.os == "Windows_NT");
   else
-    GC.expandHeap(if Autoconf.os == "Windows_NT"
+    GCExt.expandHeap(if Autoconf.os == "Windows_NT"
                       then 1024*1024*150
                       else 1024*1024*300);
   end if;
@@ -804,7 +804,7 @@ public function main
   input list<String> args;
 protected
   list<String> args_1;
-  GC.ProfStats stats;
+  GCExt.ProfStats stats;
   Integer seconds;
 algorithm
   execStatReset();
@@ -812,7 +812,7 @@ algorithm
     try
       args_1 := init(args);
       if Flags.isSet(Flags.GC_PROF) then
-        print(GC.profStatsStr(GC.getProfStats(), head="GC stats after initialization:") + "\n");
+        print(GCExt.profStatsStr(GCExt.getProfStats(), head="GC stats after initialization:") + "\n");
       end if;
       seconds := Flags.getConfigInt(Flags.ALARM);
       if seconds > 0 then
@@ -826,7 +826,7 @@ algorithm
       fail();
     end try;
     if Flags.isSet(Flags.GC_PROF) then
-      print(GC.profStatsStr(GC.getProfStats(), head="GC stats at end of program:") + "\n");
+      print(GCExt.profStatsStr(GCExt.getProfStats(), head="GC stats at end of program:") + "\n");
     end if;
   else
     print("Stack overflow detected and was not caught.\n" +
@@ -878,9 +878,7 @@ algorithm
     elseif interactiveMode == "zmq" then
       interactivemodeZMQ();
     else // No interactive flag given, try to flatten the file.
-      FGraphStream.start();
       translateFile(args);
-      FGraphStream.finish();
     end if;
   else // Something went wrong, print an appropriate error.
     // OMC called with no arguments, print usage information and quit.
@@ -898,7 +896,6 @@ algorithm
       Print.printBuf("\n\n----\n\nError buffer:\n\n");
       print(Print.getErrorString());
       print(ErrorExt.printMessagesStr(false)); print("\n");
-      FGraphStream.finish();
     else
       print("Error: OPENMODELICAHOME was not set.\n");
       print("  Read the documentation for instructions on how to set it properly.\n");

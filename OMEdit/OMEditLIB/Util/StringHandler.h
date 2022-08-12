@@ -123,6 +123,7 @@ public:
   static QString removeFirstWordAfterDot(QString value);
   static QString escapeString(QString value);
   static QString escapeStringQuotes(QString value);
+  static QString escapeTextAnnotationString(QString value);
   // Returns "" if the string is not a standard Modelica string. Else it unparses it into normal form.
   static QString unparse(QString value);
   // Returns empty list if the string is not a standard Modelica string-array. Else it unparses it into normal form.
@@ -150,9 +151,7 @@ public:
   static QStringList makeVariableParts(QString variable);
   static QStringList makeVariablePartsWithInd(QString variable);
   static bool naturalSort(const QString &s1, const QString &s2);
-  static QString cleanResultVariable(const QString &variable);
-  static bool naturalSortForResultVariables(const QString &s1, const QString &s2);
-#ifdef WIN32
+#if defined(_WIN32)
   static QProcessEnvironment simulationProcessEnvironment();
 #endif
   static StringHandler::SimulationMessageType getSimulationMessageType(QString type);
@@ -169,7 +168,9 @@ public:
   static QString removeLeadingSpaces(QString contents);
   static QString removeLine(QString text, QString lineToRemove);
   static QString insertClassAtPosition(QString parentClassText, QString childClassText, int linePosition, int nestedLevel);
-  static QString number(double value, char format = 'g', int precision = 16);
+  static QString number(double value, QString hint = "", char format = 'g', int precision = 16);
+  static QString getModelicaComment(QString element);
+  static QString convertSemVertoReadableString(const QString &semver);
 protected:
   static QString mLastOpenDir;
 };

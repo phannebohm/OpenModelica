@@ -107,7 +107,7 @@ static inline const char* findHashStringString(hash_string_string *ht, const cha
 
 static inline void addHashStringString(hash_string_string **ht, const char *key, const char *val)
 {
-  hash_string_string *v = (hash_string_string*) calloc(1, sizeof(hash_string_string));
+  hash_string_string *v = (hash_string_string*) calloc(1, sizeof(hash_string_string)); /* FIXME this isn't always freed correctly */
   v->id=strdup(key);
   v->val=strdup(val);
   HASH_ADD_KEYPTR( hh, *ht, v->id, strlen(v->id), v );
@@ -206,13 +206,13 @@ typedef hash_string_string omc_CommandLineOverrides;
 typedef hash_string_long omc_CommandLineOverridesUses;
 
 // function to handle command line settings override
-void doOverride(omc_ModelInput *mi, MODEL_DATA* modelData, const char* override, const char* overrideFile);
+modelica_boolean doOverride(omc_ModelInput *mi, MODEL_DATA *modelData, const char *override, const char *overrideFile);
 
 static const double REAL_MIN = -DBL_MAX;
 static const double REAL_MAX = DBL_MAX;
-static const double INTEGER_MIN = (((modelica_integer)-1)<<(8*sizeof(modelica_integer)-1));
+static const double INTEGER_MIN = (double)MODELICA_INT_MIN;
 /* Avoid integer overflow */
-static const double INTEGER_MAX = -((((modelica_integer)-1)<<(8*sizeof(modelica_integer)-1))+1);
+static const double INTEGER_MAX = (double)MODELICA_INT_MAX;
 
 /* reads double value from a string */
 static void read_value_real(const char *s, modelica_real* res, modelica_real default_value);
@@ -383,7 +383,8 @@ static void read_var_attribute_real(omc_ScalarVariable *v, REAL_ATTRIBUTE *attri
   read_value_real(findHashStringStringEmpty(v,"min"), &(attribute->min), REAL_MIN);
   read_value_real(findHashStringStringEmpty(v,"max"), &(attribute->max), REAL_MAX);
   read_value_string(findHashStringStringEmpty(v,"unit"), &unit);
-  attribute->unit = mmc_mk_scon_persist(unit);
+  attribute->unit = mmc_mk_scon_persist(unit); /* this function returns a copy, so unit can be freed */
+  free((char*)unit);
 
   infoStreamPrint(LOG_DEBUG, 0, "Real %s(start=%g, fixed=%s, %snominal=%g%s, min=%g, max=%g)", findHashStringString(v,"name"), attribute->start, (attribute->fixed)?"true":"false", (attribute->useNominal)?"":"{", attribute->nominal, attribute->useNominal?"":"}", attribute->min, attribute->max);
 }
@@ -410,7 +411,8 @@ static void read_var_attribute_string(omc_ScalarVariable *v, STRING_ATTRIBUTE *a
 {
   const char *start = NULL;
   read_value_string(findHashStringStringEmpty(v,"start"), &start);
-  attribute->start = mmc_mk_scon_persist(start);
+  attribute->start = mmc_mk_scon_persist(start); /* this function returns a copy, so start can be freed */
+  free((char*)start);
 
   infoStreamPrint(LOG_DEBUG, 0, "String %s(start=%s)", findHashStringString(v,"name"), MMC_STRINGDATA(attribute->start));
 }
@@ -510,7 +512,7 @@ void read_input_xml(MODEL_DATA* modelData,
      ARE WE READING THE OLD XML FILE?? */
   guid = findHashStringStringNull(mi.md,"guid");
   if (NULL==guid) {
-     warningStreamPrint(LOG_STDOUT, 0, "The Model GUID: %s is not set in file: %s",
+    warningStreamPrint(LOG_STDOUT, 0, "The Model GUID: %s is not set in file: %s",
         modelData->modelGUID,
         filename);
   } else if (strcmp(modelData->modelGUID, guid)) {
@@ -525,7 +527,7 @@ void read_input_xml(MODEL_DATA* modelData,
   // deal with override
   override = omc_flagValue[FLAG_OVERRIDE];
   overrideFile = omc_flagValue[FLAG_OVERRIDE_FILE];
-  doOverride(&mi, modelData, override, overrideFile);
+  modelica_boolean reCalcStepSize = doOverride(&mi, modelData, override, overrideFile);
 
   /* read all the DefaultExperiment values */
   infoStreamPrint(LOG_SIMULATION, 1, "read all the DefaultExperiment values:");
@@ -536,7 +538,15 @@ void read_input_xml(MODEL_DATA* modelData,
   read_value_real(findHashStringString(mi.de,"stopTime"), &(simulationInfo->stopTime), 1.0);
   infoStreamPrint(LOG_SIMULATION, 0, "stopTime = %g", simulationInfo->stopTime);
 
-  read_value_real(findHashStringString(mi.de,"stepSize"), &(simulationInfo->stepSize), (simulationInfo->stopTime - simulationInfo->startTime) / 500);
+  if (reCalcStepSize) {
+    simulationInfo->stepSize = (simulationInfo->stopTime - simulationInfo->startTime) / 500;
+    warningStreamPrint(LOG_STDOUT, 1, "Start or stop time was overwritten, but no new integrator step size was provided.");
+    infoStreamPrint(LOG_STDOUT, 0, "Re-calculating step size for 500 intervals.");
+    infoStreamPrint(LOG_STDOUT, 0, "Add `stepSize=<value>` to `-override=` or override file to silence this warning.");
+    messageClose(LOG_STDOUT);
+  } else {
+    read_value_real(findHashStringString(mi.de,"stepSize"), &(simulationInfo->stepSize), (simulationInfo->stopTime - simulationInfo->startTime) / 500);
+  }
   infoStreamPrint(LOG_SIMULATION, 0, "stepSize = %g", simulationInfo->stepSize);
 
   read_value_real(findHashStringString(mi.de,"tolerance"), &(simulationInfo->tolerance), 1e-5);
@@ -657,7 +667,7 @@ void read_input_xml(MODEL_DATA* modelData,
   infoStreamPrint(LOG_DEBUG, 1, "read xml file for real alias vars");
   for(i=0; i<modelData->nAliasReal; i++)
   {
-    const char *aliasTmp;
+    const char *aliasTmp = NULL;
     read_var_info(*findHashLongVar(mi.rAli,i), &modelData->realAlias[i].info);
 
     read_value_string(findHashStringStringNull(*findHashLongVar(mi.rAli,i),"alias"), &aliasTmp);
@@ -679,6 +689,8 @@ void read_input_xml(MODEL_DATA* modelData,
       modelData->realAlias[i].filterOutput = 1;
     }
 
+    free((char*)aliasTmp);
+    aliasTmp = NULL;
     read_value_string(findHashStringStringNull(*findHashLongVar(mi.rAli,i),"aliasVariable"), &aliasTmp);
 
     it = findHashStringLongPtr(mapAlias, aliasTmp);
@@ -699,6 +711,7 @@ void read_input_xml(MODEL_DATA* modelData,
                 modelData->realAlias[i].info.name,
                 modelData->realAlias[i].nameID,
                 modelData->realAlias[i].aliasType ? ((modelData->realAlias[i].aliasType==2) ? "time" : "real parameters") : "real variables");
+    free((char*)aliasTmp);
   }
   messageClose(LOG_DEBUG);
 
@@ -708,7 +721,7 @@ void read_input_xml(MODEL_DATA* modelData,
   infoStreamPrint(LOG_DEBUG, 1, "read xml file for integer alias vars");
   for(i=0; i<modelData->nAliasInteger; i++)
   {
-    const char *aliasTmp;
+    const char *aliasTmp = NULL;
     read_var_info(*findHashLongVar(mi.iAli,i), &modelData->integerAlias[i].info);
 
     read_value_string(findHashStringStringNull(*findHashLongVar(mi.iAli,i),"alias"), &aliasTmp);
@@ -730,6 +743,8 @@ void read_input_xml(MODEL_DATA* modelData,
       infoStreamPrint(LOG_DEBUG, 0, "filtering variable %s due to HideResult annotation", modelData->integerAlias[i].info.name);
       modelData->integerAlias[i].filterOutput = 1;
     }
+    free((char*)aliasTmp);
+    aliasTmp = NULL;
     read_value_string(findHashStringString(*findHashLongVar(mi.iAli,i),"aliasVariable"), &aliasTmp);
 
     it = findHashStringLongPtr(mapAlias, aliasTmp);
@@ -748,6 +763,7 @@ void read_input_xml(MODEL_DATA* modelData,
                 modelData->integerAlias[i].info.name,
                 modelData->integerAlias[i].nameID,
                 modelData->integerAlias[i].aliasType?"integer parameters":"integer variables");
+    free((char*)aliasTmp);
   }
   messageClose(LOG_DEBUG);
 
@@ -757,7 +773,7 @@ void read_input_xml(MODEL_DATA* modelData,
   infoStreamPrint(LOG_DEBUG, 1, "read xml file for boolean alias vars");
   for(i=0; i<modelData->nAliasBoolean; i++)
   {
-    const char *aliasTmp;
+    const char *aliasTmp = NULL;
     read_var_info(*findHashLongVar(mi.bAli,i), &modelData->booleanAlias[i].info);
 
     read_value_string(findHashStringString(*findHashLongVar(mi.bAli,i),"alias"), &aliasTmp);
@@ -779,6 +795,8 @@ void read_input_xml(MODEL_DATA* modelData,
       infoStreamPrint(LOG_DEBUG, 0, "filtering variable %s due to HideResult annotation", modelData->booleanAlias[i].info.name);
       modelData->booleanAlias[i].filterOutput = 1;
     }
+    free((char*)aliasTmp);
+    aliasTmp = NULL;
     read_value_string(findHashStringString(*findHashLongVar(mi.bAli,i),"aliasVariable"), &aliasTmp);
 
     it = findHashStringLongPtr(mapAlias, aliasTmp);
@@ -797,6 +815,7 @@ void read_input_xml(MODEL_DATA* modelData,
                 modelData->booleanAlias[i].info.name,
                 modelData->booleanAlias[i].nameID,
                 modelData->booleanAlias[i].aliasType ? "boolean parameters" : "boolean variables");
+    free((char*)aliasTmp);
   }
   messageClose(LOG_DEBUG);
 
@@ -806,7 +825,7 @@ void read_input_xml(MODEL_DATA* modelData,
   infoStreamPrint(LOG_DEBUG, 1, "read xml file for string alias vars");
   for(i=0; i<modelData->nAliasString; i++)
   {
-    const char *aliasTmp;
+    const char *aliasTmp = NULL;
     read_var_info(*findHashLongVar(mi.sAli,i), &modelData->stringAlias[i].info);
 
     read_value_string(findHashStringString(*findHashLongVar(mi.sAli,i),"alias"), &aliasTmp);
@@ -828,6 +847,8 @@ void read_input_xml(MODEL_DATA* modelData,
       modelData->stringAlias[i].filterOutput = 1;
     }
 
+    free((char*)aliasTmp);
+    aliasTmp = NULL;
     read_value_string(findHashStringString(*findHashLongVar(mi.sAli,i),"aliasVariable"), &aliasTmp);
 
     it = findHashStringLongPtr(mapAlias, aliasTmp);
@@ -846,6 +867,7 @@ void read_input_xml(MODEL_DATA* modelData,
                 modelData->stringAlias[i].info.name,
                 modelData->stringAlias[i].nameID,
                 modelData->stringAlias[i].aliasType ? "string parameters" : "string variables");
+    free((char*)aliasTmp);
   }
   messageClose(LOG_DEBUG);
 
@@ -860,7 +882,7 @@ static inline void read_value_string(const char *s, const char **str)
     warningStreamPrint(LOG_SIMULATION, 0, "error read_value, no data allocated for storing string");
     return;
   }
-  *str = strdup(s);
+  *str = strdup(s); /* memory is allocated here, must be freed by the caller */
 }
 
 /* reads double value from a string */
@@ -927,11 +949,24 @@ static const char* getOverrideValue(omc_CommandLineOverrides *mOverrides, omc_Co
   return findHashStringString(mOverrides, name);
 }
 
-void doOverride(omc_ModelInput *mi, MODEL_DATA *modelData, const char *override, const char *overrideFile)
+/**
+ * @brief Read override values from simulation flags `-override` and `-overrideFile` and update variables.
+ *
+ * Return if step sizes needs to be re-calculated because start or stop time was changed, but step size wasn't changed.
+ *
+ * @param mi                    Model input from info XML file.
+ * @param modelData             Pointer to model data containing variable values to override.
+ * @param overrideFile          Path to override file given by `-overrideFile`.
+ * @return modelica_boolean     True if integrator step size should be re-caclualted.
+ */
+modelica_boolean doOverride(omc_ModelInput *mi, MODEL_DATA *modelData, const char *override, const char *overrideFile)
 {
   omc_CommandLineOverrides *mOverrides = NULL;
   omc_CommandLineOverridesUses *mOverridesUses = NULL, *it = NULL, *ittmp = NULL;
   mmc_sint_t i;
+  modelica_boolean changedStartStop = 0 /* false */;
+  modelica_boolean changedStepSize = 0 /* false */;
+  modelica_boolean reCalcStepSize = 0 /* false */;
   char* overrideStr1 = NULL, *overrideStr2 = NULL, *overrideStr = NULL;
   if((override != NULL) && (overrideFile != NULL)) {
     infoStreamPrint(LOG_SOLVER, 0, "using -override=%s and -overrideFile=%s", override, overrideFile);
@@ -950,7 +985,7 @@ void doOverride(omc_ModelInput *mi, MODEL_DATA *modelData, const char *override,
     /* read override values from file */
     infoStreamPrint(LOG_SOLVER, 0, "read override values from file: %s", overrideFile);
 
-    infile = fopen(overrideFile, "rb");
+    infile = omc_fopen(overrideFile, "rb");
     if (0==infile) {
       throwStreamPrint(NULL, "simulation_input_xml.c: could not open the file given to -overrideFile=%s", overrideFile);
     }
@@ -1066,12 +1101,20 @@ void doOverride(omc_ModelInput *mi, MODEL_DATA *modelData, const char *override,
       free(overrideStr2);
     }
 
-    // now we have all overrides in mOverrides, override mi now
+    // Now we have all overrides in mOverrides, override mi now
+    // Also check if we need to re-calculate stepSize (start / stop time changed, but stepSize not)
     for (i=0; i<sizeof(strs)/sizeof(char*); i++) {
       if (findHashStringStringNull(mOverrides, strs[i])) {
         addHashStringString(&mi->de, strs[i], getOverrideValue(mOverrides, &mOverridesUses, strs[i]));
+        if (i==1 /* startTime */ || i ==2 /* stopTime */ ) {
+          changedStartStop = 1 /* true */;
+        }
+        if (i==3 /* stepSize */) {
+          changedStepSize = 1 /* true */;
+        }
       }
     }
+    reCalcStepSize = changedStartStop && !changedStepSize;
 
     #define CHECK_OVERRIDE(v,b) \
       if (findHashStringStringNull(mOverrides, findHashStringString(*findHashLongVar(mi->v,i),"name"))) { \
@@ -1144,6 +1187,8 @@ void doOverride(omc_ModelInput *mi, MODEL_DATA *modelData, const char *override,
   } else {
     infoStreamPrint(LOG_SOLVER, 0, "NO override given on the command line.");
   }
+
+  return reCalcStepSize;
 }
 
 void parseVariableStr(char* variableStr)

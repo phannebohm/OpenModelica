@@ -135,6 +135,33 @@ public
     end match;
   end invert;
 
+  function isLogical
+    input Operator operator;
+    output Boolean b;
+  algorithm
+    b := match operator.op
+      case Op.AND   then true;
+      case Op.OR    then true;
+      case Op.NOT   then true;
+                    else false;
+    end match;
+  end isLogical;
+
+  function isRelational
+    input Operator operator;
+    output Boolean b;
+  algorithm
+    b := match operator.op
+      case Op.LESS      then true;
+      case Op.LESSEQ    then true;
+      case Op.GREATER   then true;
+      case Op.GREATEREQ then true;
+      case Op.EQUAL     then true;
+      case Op.NEQUAL    then true;
+                        else false;
+    end match;
+  end isRelational;
+
   function fromAbsyn
     input Absyn.Operator inOperator;
     output Operator outOperator;
@@ -696,6 +723,76 @@ public
       case Op.MUL_ARRAY_SCALAR  then true;
       else false;
     end match;
+  end isCommutative;
+
+  function isSoftCommutative
+    "returns true for operators that are not commutative but have an easy rule for swapping arguments"
+    input Operator operator;
+    output Boolean b;
+  algorithm
+    b := match operator.op
+      case Op.SUB               then true;
+      case Op.DIV               then true;
+      case Op.SUB_EW            then true;
+      case Op.DIV_EW            then true;
+      // the following might need adaption since they depend on argument ordering
+      // furthermore weird regarding more than two arguments in Expression.MULTARY()
+      case Op.SUB_SCALAR_ARRAY  then true;
+      case Op.SUB_ARRAY_SCALAR  then true;
+      case Op.DIV_SCALAR_ARRAY  then true;
+      case Op.DIV_ARRAY_SCALAR  then true;
+      else false;
+    end match;
+  end isSoftCommutative;
+
+  function isCombineable
+    input Operator op1;
+    input Operator op2;
+    output Boolean b;
+  protected
+    MathClassification mcl1, mcl2;
+    SizeClassification scl1, scl2;
+  algorithm
+    (mcl1, scl1) := classify(op1);
+    (mcl2, scl2) := classify(op2);
+    b := isCombineableMath(mcl1, mcl2) and isCombineableSize(scl1, scl2);
+  end isCombineable;
+
+  function isCombineableMath
+    input MathClassification mcl1;
+    input MathClassification mcl2;
+    output Boolean b;
+  algorithm
+    b :=  (Util.intCompare(Integer(mcl1), Integer(mcl2)) == 0)
+          or (isDashClassification(mcl1) and isDashClassification(mcl2));
+  end isCombineableMath;
+
+  function isCombineableSize
+    input SizeClassification scl1;
+    input SizeClassification scl2;
+    output Boolean b;
+  algorithm
+    b := (Util.intCompare(Integer(scl1), Integer(scl2)) == 0);
+  end isCombineableSize;
+
+  function isCommutative
+    "returns true for operators that are commutative"
+    input Operator operator;
+    output Boolean b;
+  algorithm
+    b := match operator.op
+      case Op.ADD               then true;
+      case Op.MUL               then true;
+      case Op.ADD_EW            then true;
+      case Op.MUL_EW            then true;
+      // the following might need adaption since they depend on argument ordering
+      // furthermore weird regarding more than two arguments in Expression.MULTARY()
+      case Op.ADD_SCALAR_ARRAY  then true;
+      case Op.ADD_ARRAY_SCALAR  then true;
+      case Op.MUL_SCALAR_ARRAY  then true;
+      case Op.MUL_ARRAY_SCALAR  then true;
+      else false;
+    end match;
 
   end isCommutative;
 
@@ -759,5 +856,6 @@ public
       else -1;
     end match;
   end neutralElement;
+
 annotation(__OpenModelica_Interface="frontend");
 end NFOperator;

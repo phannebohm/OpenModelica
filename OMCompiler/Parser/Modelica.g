@@ -1556,7 +1556,11 @@ primary returns [void* ast]
 #endif
 
       errno = 0;
+#if defined(_WIN64) || defined(__MINGW64__)
+      l = strtoll(chars,&endptr,10);
+#else
       l = strtol(chars,&endptr,10);
+#endif
 
 #if !defined(OMJULIA)
       args[0] = chars;
@@ -1610,6 +1614,7 @@ primary returns [void* ast]
   | T_TRUE             { $ast = Absyn__BOOL(MMC_TRUE); }
   | ptr=component_reference__function_call { $ast = ptr.ast; }
   | DER el=function_call { $ast = Absyn__CALL(Absyn__CREF_5fIDENT(mmc_mk_scon("der"), mmc_mk_nil()),el,mmc_mk_nil()); }
+  | PURE el=function_call { $ast = Absyn__CALL(Absyn__CREF_5fIDENT(mmc_mk_scon("pure"), mmc_mk_nil()),el,mmc_mk_nil()); }
   | LPAR el=output_expression_list[&tupleExpressionIsTuple]
     {
       $ast = tupleExpressionIsTuple ? Absyn__TUPLE(el) : el;

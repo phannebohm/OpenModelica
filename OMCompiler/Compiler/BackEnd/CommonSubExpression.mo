@@ -56,7 +56,7 @@ import Expression;
 import ExpressionDump;
 import ExpressionSolve;
 import ExpressionSimplify;
-import GC;
+import GCExt;
 import Global;
 import HashSet;
 import HashTableExpToExp;
@@ -545,7 +545,7 @@ algorithm
 
             // Save the rhs (call) as bind expression and set fixed=true
             var := BackendVariable.setBindExp(var, SOME(call));
-            var := BackendVariable.setVarFixed(var, true);
+            var := BackendVariable.makeParam(var);
 
             // If it is a tuple or a record (or record within tuple)
             if intGt(listLength(varList), 1) or Expression.isTuple(cse) then
@@ -1436,6 +1436,12 @@ algorithm
       value = DAE.CREF(cr, DAE.T_BOOL_DEFAULT);
     then (value, inIndex + 1);
 
+    case DAE.T_ENUMERATION() equation
+      str = inPrefix + intString(inIndex);
+      cr = DAE.CREF_IDENT(str, inType, {});
+      value = DAE.CREF(cr, inType);
+    then (value, inIndex + 1);
+
     case DAE.T_CLOCK() equation
       str = inPrefix + intString(inIndex);
       cr = DAE.CREF_IDENT(str, DAE.T_CLOCK_DEFAULT, {});
@@ -1475,9 +1481,7 @@ algorithm
     then (value, inIndex + 1);
 
     else equation
-      if Flags.isSet(Flags.DUMP_CSE_VERBOSE) then
-        print("  - createReturnExp failed for " + Types.printTypeStr(inType) + "\n");
-      end if;
+      Error.addInternalError("  - createReturnExp failed for " + Types.printTypeStr(inType) + "\n", sourceInfo());
     then fail();
   end match;
 end createReturnExp;
@@ -2011,8 +2015,8 @@ algorithm
       cseLst := commonSubExpressionFind(m, mT, vars, eqs, isInitial);
           //if not listEmpty(cseLst) then print("update "+stringDelimitList(List.map(cseLst, printCSE), "\n")+"\n");end if;
       syst := commonSubExpressionUpdate(cseLst, m, mT, sysIn);
-      GC.free(m);
-      GC.free(mT);
+      GCExt.free(m);
+      GCExt.free(mT);
       syst.orderedEqs := eqs;
           //print("done this eqSystem\n");
           //BackendDump.dumpEqSystem(syst, "eqSystem");
@@ -2167,8 +2171,8 @@ algorithm
            cses := SHORTCUT_CSE(adjEqs,varIdx)::cses;
          end if;
        end for; //end the variables
-       GC.free(m);
-       GC.free(mT);
+       GCExt.free(m);
+       GCExt.free(mT);
      end for;  //end all partitions
       //print("the SHORTPATH cses : \n"+stringDelimitList(List.map(cses, printCSE), "\n")+"\n");
     end if;
@@ -2296,8 +2300,8 @@ algorithm
             varIdcs2 := listAppend(varIdcs1, varIdcs2);
             varIdcs2 := list(arrayGet(varMapArr, i) for i in varIdcs2);
             eqIdcs := list(arrayGet(eqMapArr,i) for i in loop1);
-            GC.free(eqMapArr);
-            GC.free(varMapArr);
+            GCExt.free(eqMapArr);
+            GCExt.free(varMapArr);
             cseLst := ASSIGNMENT_CSE(eqIdcs, sharedVarIdcs, varIdcs2)::cseLst;
           end if;
       end for;
@@ -2398,7 +2402,7 @@ case (SHORTCUT_CSE(eqIdcs={eqIdx1, eqIdx2}, sharedVar=sharedVar)::rest, _, _, sy
       (lhs1, _) = ExpressionSolve.solve(lhs2, rhs2, varExp);
 
       (_,lhs1,rhs1) = cancelExpressions(lhs1,rhs1);
-      n = listLength(Expression.getAllCrefs(Expression.makeDiff(lhs1,rhs1)));
+      n = listLength(Expression.getAllCrefs(Expression.expSub(lhs1,rhs1)));
         //print("n1 "+intString(n1)+"\n");
         //print("n2 "+intString(n2)+"\n");
 

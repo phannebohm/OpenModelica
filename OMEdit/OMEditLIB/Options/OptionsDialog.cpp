@@ -180,7 +180,10 @@ void OptionsDialog::readGeneralSettings()
   }
   // read the working directory
   if (mpSettings->contains("workingDirectory")) {
-    mpGeneralSettingsPage->setWorkingDirectory(mpSettings->value("workingDirectory").toString());
+    const QString workingDirectory = mpSettings->value("workingDirectory").toString();
+    if (!MainWindow::instance()->getOMCProxy()->changeDirectory(workingDirectory).isEmpty()) {
+      mpGeneralSettingsPage->setWorkingDirectory(workingDirectory);
+    }
   }
   // read toolbar icon size
   if (mpSettings->contains("toolbarIconSize")) {
@@ -270,6 +273,13 @@ void OptionsDialog::readGeneralSettings()
 //! Reads the Libraries section settings from omedit.ini
 void OptionsDialog::readLibrariesSettings()
 {
+  // read ModelicaPath
+  if (mpSettings->contains("modelicaPath-1")) {
+    const QString modelicaPath = mpSettings->value("modelicaPath-1").toString();
+    if (!modelicaPath.isEmpty() && MainWindow::instance()->getOMCProxy()->setModelicaPath(modelicaPath)) {
+      mpLibrariesPage->getModelicaPathTextBox()->setText(modelicaPath);
+    }
+  }
   // read the system libraries
   int i = 0;
   while(i < mpLibrariesPage->getSystemLibrariesTree()->topLevelItemCount()) {
@@ -286,14 +296,6 @@ void OptionsDialog::readLibrariesSettings()
     mpLibrariesPage->getSystemLibrariesTree()->addTopLevelItem(new QTreeWidgetItem(values));
   }
   mpSettings->endGroup();
-  // read the forceModelicaLoad
-  if (mpSettings->contains("forceModelicaLoad")) {
-    mpLibrariesPage->getForceModelicaLoadCheckBox()->setChecked(mpSettings->value("forceModelicaLoad").toBool());
-  }
-  // read load OpenModelica library on startup
-  if (mpSettings->contains("loadOpenModelicaOnStartup")) {
-    mpLibrariesPage->getLoadOpenModelicaLibraryCheckBox()->setChecked(mpSettings->value("loadOpenModelicaOnStartup").toBool());
-  }
   // read user libraries
   i = 0;
   while(i < mpLibrariesPage->getUserLibrariesTree()->topLevelItemCount()) {
@@ -733,13 +735,6 @@ void OptionsDialog::readNotificationsSettings()
   if (mpSettings->contains("notifications/alwaysAskForTextEditorError")) {
     mpNotificationsPage->getAlwaysAskForTextEditorErrorCheckBox()->setChecked(mpSettings->value("notifications/alwaysAskForTextEditorError").toBool());
   }
-  if (mpSettings->contains("notifications/promptOldFrontend")) {
-    bool ok;
-    int currentIndex = mpNotificationsPage->getOldFrontendComboBox()->findData(mpSettings->value("notifications/promptOldFrontend").toInt(&ok));
-    if (currentIndex > -1 && ok) {
-      mpNotificationsPage->getOldFrontendComboBox()->setCurrentIndex(currentIndex);
-    }
-  }
 }
 
 //! Reads the LineStyle section settings from omedit.ini
@@ -898,23 +893,23 @@ void OptionsDialog::readFMISettings()
     mpFMIPage->getMoveFMUTextBox()->setText(mpSettings->value("FMIExport/MoveFMU").toString());
   }
   // read platforms
-  QStringList platforms = mpSettings->value("FMIExport/Platforms").toStringList();
-  foreach (QString platform, platforms) {
-    int currentIndex = mpFMIPage->getLinkingComboBox()->findData(platform);
-    if (currentIndex > -1) {
-      mpFMIPage->getLinkingComboBox()->setCurrentIndex(currentIndex);
-    } else {
-      int i = 0;
-      while (QLayoutItem* pLayoutItem = mpFMIPage->getPlatformsGroupBox()->layout()->itemAt(i)) {
-        if (dynamic_cast<QCheckBox*>(pLayoutItem->widget())) {
-          QCheckBox *pPlatformCheckBox = dynamic_cast<QCheckBox*>(pLayoutItem->widget());
-          if (pPlatformCheckBox->property(Helper::fmuPlatformNamePropertyId).toString().compare(platform) == 0) {
-            pPlatformCheckBox->setChecked(true);
-            break;
-          }
+  if (mpSettings->contains("FMIExport/Platforms")) {
+    QStringList platforms = mpSettings->value("FMIExport/Platforms").toStringList();
+    int i = 0;
+    while (QLayoutItem* pLayoutItem = mpFMIPage->getPlatformsGroupBox()->layout()->itemAt(i)) {
+      if (dynamic_cast<QCheckBox*>(pLayoutItem->widget())) {
+        QCheckBox *pPlatformCheckBox = dynamic_cast<QCheckBox*>(pLayoutItem->widget());
+        if (platforms.contains(pPlatformCheckBox->property(Helper::fmuPlatformNamePropertyId).toString())) {
+          pPlatformCheckBox->setChecked(true);
+          platforms.removeOne(pPlatformCheckBox->property(Helper::fmuPlatformNamePropertyId).toString());
+        } else {
+          pPlatformCheckBox->setChecked(false);
         }
-        i++;
+      } else if (dynamic_cast<QLineEdit*>(pLayoutItem->widget())) { // custom platforms
+        QLineEdit *pPlatformTextBox = dynamic_cast<QLineEdit*>(pLayoutItem->widget());
+        pPlatformTextBox->setText(platforms.join(","));
       }
+      i++;
     }
   }
   // read the solver for co-simulation
@@ -930,6 +925,10 @@ void OptionsDialog::readFMISettings()
     if (currentIndex > -1) {
       mpFMIPage->getModelDescriptionFiltersComboBox()->setCurrentIndex(currentIndex);
     }
+  }
+  // read include resources
+  if (mpSettings->contains("FMIExport/IncludeResources")) {
+    mpFMIPage->getIncludeResourcesCheckBox()->setChecked(mpSettings->value("FMIExport/IncludeResources").toBool());
   }
   // read include source code
   if (mpSettings->contains("FMIExport/IncludeSourceCode")) {
@@ -1029,9 +1028,12 @@ void OptionsDialog::saveGeneralSettings()
   }
   mpSettings->setValue("language", language);
   // save working directory
-  MainWindow::instance()->getOMCProxy()->changeDirectory(mpGeneralSettingsPage->getWorkingDirectory());
-  mpGeneralSettingsPage->setWorkingDirectory(MainWindow::instance()->getOMCProxy()->changeDirectory());
-  mpSettings->setValue("workingDirectory", mpGeneralSettingsPage->getWorkingDirectory());
+  const QString workingDirectory = mpGeneralSettingsPage->getWorkingDirectory();
+  if (!MainWindow::instance()->getOMCProxy()->changeDirectory(workingDirectory).isEmpty()) {
+    mpSettings->setValue("workingDirectory", workingDirectory);
+  } else {
+    mpGeneralSettingsPage->setWorkingDirectory(MainWindow::instance()->getOMCProxy()->changeDirectory());
+  }
   // save toolbar icon size
   mpSettings->setValue("toolbarIconSize", mpGeneralSettingsPage->getToolbarIconSizeSpinBox()->value());
   // save user customizations
@@ -1112,6 +1114,15 @@ void OptionsDialog::saveNFAPISettings()
 //! Saves the Libraries section settings to omedit.ini
 void OptionsDialog::saveLibrariesSettings()
 {
+  // save ModelicaPath
+  const QString modelicaPath = mpLibrariesPage->getModelicaPathTextBox()->text();
+  if (!modelicaPath.isEmpty() && MainWindow::instance()->getOMCProxy()->setModelicaPath(modelicaPath)) {
+    mpSettings->setValue("modelicaPath-1", modelicaPath);
+  } else {
+    MainWindow::instance()->getOMCProxy()->setModelicaPath(Helper::ModelicaPath);
+    mpLibrariesPage->getModelicaPathTextBox()->setPlaceholderText(Helper::ModelicaPath);
+    mpSettings->setValue("modelicaPath-1", "");
+  }
   // read the settings and add system libraries
   mpSettings->beginGroup("libraries");
   foreach (QString lib, mpSettings->childKeys()) {
@@ -1124,8 +1135,6 @@ void OptionsDialog::saveLibrariesSettings()
     ++systemLibrariesIterator;
   }
   mpSettings->endGroup();
-  mpSettings->setValue("forceModelicaLoad", mpLibrariesPage->getForceModelicaLoadCheckBox()->isChecked());
-  mpSettings->setValue("loadOpenModelicaOnStartup", mpLibrariesPage->getLoadOpenModelicaLibraryCheckBox()->isChecked());
   // read the settings and add user libraries
   mpSettings->beginGroup("userlibraries");
   foreach (QString lib, mpSettings->childKeys()) {
@@ -1450,7 +1459,6 @@ void OptionsDialog::saveNotificationsSettings()
   mpSettings->setValue("notifications/saveModelForBitmapInsertion", mpNotificationsPage->getSaveModelForBitmapInsertionCheckBox()->isChecked());
   mpSettings->setValue("notifications/alwaysAskForDraggedComponentName", mpNotificationsPage->getAlwaysAskForDraggedComponentName()->isChecked());
   mpSettings->setValue("notifications/alwaysAskForTextEditorError", mpNotificationsPage->getAlwaysAskForTextEditorErrorCheckBox()->isChecked());
-  mpSettings->setValue("notifications/promptOldFrontend", mpNotificationsPage->getOldFrontendComboBox()->itemData(mpNotificationsPage->getOldFrontendComboBox()->currentIndex()).toInt());
 }
 
 //! Saves the LineStyle section settings to omedit.ini
@@ -1551,8 +1559,6 @@ void OptionsDialog::saveFMISettings()
   mpSettings->setValue("FMIExport/MoveFMU", mpFMIPage->getMoveFMUTextBox()->text());
   // save platforms
   QStringList platforms;
-  QString linking = mpFMIPage->getLinkingComboBox()->itemData(mpFMIPage->getLinkingComboBox()->currentIndex()).toString();
-  platforms.append(linking);
   int i = 0;
   while (QLayoutItem* pLayoutItem = mpFMIPage->getPlatformsGroupBox()->layout()->itemAt(i)) {
     if (dynamic_cast<QCheckBox*>(pLayoutItem->widget())) {
@@ -1560,12 +1566,18 @@ void OptionsDialog::saveFMISettings()
       if (pPlatformCheckBox->isChecked()) {
         platforms.append(pPlatformCheckBox->property(Helper::fmuPlatformNamePropertyId).toString());
       }
+    } else if (dynamic_cast<QLineEdit*>(pLayoutItem->widget())) { // custom platforms
+      QLineEdit *pPlatformTextBox = dynamic_cast<QLineEdit*>(pLayoutItem->widget());
+      if (!pPlatformTextBox->text().isEmpty()) {
+        platforms.append(pPlatformTextBox->text().split(","));
+      }
     }
     i++;
   }
   mpSettings->setValue("FMIExport/Platforms", platforms);
   mpSettings->setValue("FMIExport/solver", mpFMIPage->getSolverForCoSimulationComboBox()->itemData(mpFMIPage->getSolverForCoSimulationComboBox()->currentIndex()).toString());
   mpSettings->setValue("FMIExport/ModelDescriptionFilter", mpFMIPage->getModelDescriptionFiltersComboBox()->currentText());
+  mpSettings->setValue("FMIExport/IncludeResources", mpFMIPage->getIncludeResourcesCheckBox()->isChecked());
   mpSettings->setValue("FMIExport/IncludeSourceCode", mpFMIPage->getIncludeSourceCodeCheckBox()->isChecked());
   mpSettings->setValue("FMIExport/GenerateDebugSymbols", mpFMIPage->getGenerateDebugSymbolsCheckBox()->isChecked());
   mpSettings->setValue("FMIImport/DeleteFMUDirectoyAndModel", mpFMIPage->getDeleteFMUDirectoryAndModelCheckBox()->isChecked());
@@ -1991,16 +2003,15 @@ GeneralSettingsPage::GeneralSettingsPage(OptionsDialog *pOptionsDialog)
   // activate access annotation
   mpActivateAccessAnnotationsLabel = new Label(tr("Activate Access Annotations *"));
   mpActivateAccessAnnotationsComboBox = new QComboBox;
+  QStringList activateAccessAnnotationsDescriptions;
+  activateAccessAnnotationsDescriptions << tr("Activates the access annotations even for the non-encrypted libraries.")
+                      << tr("Activates the access annotations even if the .mol contains a non-encrypted library.")
+                      << tr("Deactivates access annotations except for encrypted libraries.");
   mpActivateAccessAnnotationsComboBox->addItem(tr("Always"), GeneralSettingsPage::Always);
   mpActivateAccessAnnotationsComboBox->addItem(tr("When loading .mol file(s)"), GeneralSettingsPage::Loading);
   mpActivateAccessAnnotationsComboBox->addItem(tr("Never"), GeneralSettingsPage::Never);
   mpActivateAccessAnnotationsComboBox->setCurrentIndex(1);
-  mpActivateAccessAnnotationsComboBox->setToolTip(tr("<html><head/><body>"
-                                                     "<p>Options for handling of access annotations:</p>"
-                                                     "<ul><li><i>Always:</i> Activates the access annotations even for the non-encrypted libraries.</li>"
-                                                     "<li><i>When loading .mol file(s):</i> Activates the access annotations even if the .mol contains a non-encrypted library.</li>"
-                                                     "<li><i>Never:</i> Deactivates access annotations except for encrypted libraries.</li></ul>"
-                                                     "</body></html>"));
+  Utilities::setToolTip(mpActivateAccessAnnotationsComboBox, tr("Options for handling of access annotations"), activateAccessAnnotationsDescriptions);
   // create backup file
   mpCreateBackupFileCheckbox = new QCheckBox(tr("Create a model.bak-mo backup file when deleting a model."));
   mpCreateBackupFileCheckbox->setChecked(true);
@@ -2210,14 +2221,24 @@ LibrariesPage::LibrariesPage(OptionsDialog *pOptionsDialog)
   : QWidget(pOptionsDialog)
 {
   mpOptionsDialog = pOptionsDialog;
+  // MODELICAPATH
+  QGroupBox *pModelicaPathGroupBox = new QGroupBox(Helper::general);
+  mpModelicaPathLabel = new Label("MODELICAPATH");
+  mpModelicaPathTextBox = new QLineEdit;
+  QString modelicaPathToolTip = tr("List of paths searched while loading a library. Paths are separated by native path separator.");
+  mpModelicaPathTextBox->setPlaceholderText(Helper::ModelicaPath);
+  mpModelicaPathTextBox->setToolTip(modelicaPathToolTip);
+  // general groupbox layout
+  QGridLayout *pGeneralGroupBoxGridLayout = new QGridLayout;
+  pGeneralGroupBoxGridLayout->setAlignment(Qt::AlignTop | Qt::AlignLeft);
+  pGeneralGroupBoxGridLayout->addWidget(mpModelicaPathLabel, 0, 0);
+  pGeneralGroupBoxGridLayout->addWidget(mpModelicaPathTextBox, 0, 1);
+  pModelicaPathGroupBox->setLayout(pGeneralGroupBoxGridLayout);
   // system libraries groupbox
-  mpSystemLibrariesGroupBox = new QGroupBox(tr("System Libraries *"));
+  mpSystemLibrariesGroupBox = new QGroupBox(tr("System libraries loaded automatically on startup *"));
   // system libraries note
   mpSystemLibrariesNoteLabel = new Label(tr("The system libraries are read from the MODELICAPATH and are always read-only."));
   mpSystemLibrariesNoteLabel->setElideMode(Qt::ElideMiddle);
-  // MODELICAPATH
-  mpModelicaPathLabel = new Label(QString("MODELICAPATH = ").append(Helper::OpenModelicaLibrary));
-  mpModelicaPathLabel->setElideMode(Qt::ElideMiddle);
   // system libraries tree
   mpSystemLibrariesTree = new QTreeWidget;
   mpSystemLibrariesTree->setItemDelegate(new ItemDelegate(mpSystemLibrariesTree));
@@ -2247,19 +2268,11 @@ LibrariesPage::LibrariesPage(OptionsDialog *pOptionsDialog)
   QGridLayout *pSystemLibrariesLayout = new QGridLayout;
   pSystemLibrariesLayout->setAlignment(Qt::AlignTop | Qt::AlignLeft);
   pSystemLibrariesLayout->addWidget(mpSystemLibrariesNoteLabel, 0, 0, 1, 2);
-  pSystemLibrariesLayout->addWidget(mpModelicaPathLabel, 1, 0);
-  pSystemLibrariesLayout->addWidget(mpSystemLibrariesTree, 2, 0);
-  pSystemLibrariesLayout->addWidget(mpSystemLibrariesButtonBox, 2, 1);
+  pSystemLibrariesLayout->addWidget(mpSystemLibrariesTree, 1, 0);
+  pSystemLibrariesLayout->addWidget(mpSystemLibrariesButtonBox, 1, 1);
   mpSystemLibrariesGroupBox->setLayout(pSystemLibrariesLayout);
-  // force Modelica load checkbox
-  mpForceModelicaLoadCheckBox = new QCheckBox(tr("Force loading of Modelica Standard Library"));
-  mpForceModelicaLoadCheckBox->setToolTip(tr("This will make sure that Modelica and ModelicaReference will always load even if user has removed them from the list of system libraries."));
-  mpForceModelicaLoadCheckBox->setChecked(true);
-  // force Modelica load checkbox
-  mpLoadOpenModelicaOnStartupCheckBox = new QCheckBox(tr("Load OpenModelica library on startup"));
-  mpLoadOpenModelicaOnStartupCheckBox->setChecked(true);
   // user libraries groupbox
-  mpUserLibrariesGroupBox = new QGroupBox(tr("User Libraries *"));
+  mpUserLibrariesGroupBox = new QGroupBox(tr("User libraries loaded automatically on startup *"));
   // user libraries tree
   mpUserLibrariesTree = new QTreeWidget;
   mpUserLibrariesTree->setItemDelegate(new ItemDelegate(mpUserLibrariesTree));
@@ -2292,13 +2305,12 @@ LibrariesPage::LibrariesPage(OptionsDialog *pOptionsDialog)
   pUserLibrariesLayout->addWidget(mpUserLibrariesButtonBox, 0, 1);
   mpUserLibrariesGroupBox->setLayout(pUserLibrariesLayout);
   // main layout
-  QVBoxLayout *layout = new QVBoxLayout;
-  layout->setContentsMargins(0, 0, 0, 0);
-  layout->addWidget(mpSystemLibrariesGroupBox);
-  layout->addWidget(mpForceModelicaLoadCheckBox);
-  layout->addWidget(mpLoadOpenModelicaOnStartupCheckBox);
-  layout->addWidget(mpUserLibrariesGroupBox);
-  setLayout(layout);
+  QVBoxLayout *pMainLayout = new QVBoxLayout;
+  pMainLayout->setContentsMargins(0, 0, 0, 0);
+  pMainLayout->addWidget(pModelicaPathGroupBox);
+  pMainLayout->addWidget(mpSystemLibrariesGroupBox);
+  pMainLayout->addWidget(mpUserLibrariesGroupBox);
+  setLayout(pMainLayout);
 }
 
 //! Slot activated when mpAddSystemLibraryButton clicked signal is raised.
@@ -2313,8 +2325,7 @@ void LibrariesPage::openAddSystemLibrary()
 //! Removes the selected tree item
 void LibrariesPage::removeSystemLibrary()
 {
-  if (mpSystemLibrariesTree->selectedItems().size() > 0)
-  {
+  if (mpSystemLibrariesTree->selectedItems().size() > 0) {
     mpSystemLibrariesTree->removeItemWidget(mpSystemLibrariesTree->selectedItems().at(0), 0);
     delete mpSystemLibrariesTree->selectedItems().at(0);
   }
@@ -2325,12 +2336,12 @@ void LibrariesPage::removeSystemLibrary()
 void LibrariesPage::openEditSystemLibrary()
 {
   if (mpSystemLibrariesTree->selectedItems().size() > 0) {
-    AddSystemLibraryDialog *pAddSystemLibraryWidget = new AddSystemLibraryDialog(this);
-    pAddSystemLibraryWidget->setWindowTitle(QString("%1 - %2").arg(Helper::applicationName, tr("Edit System Library")));
-    pAddSystemLibraryWidget->mEditFlag = true;
-    int currentIndex = pAddSystemLibraryWidget->mpNameComboBox->findText(mpSystemLibrariesTree->selectedItems().at(0)->text(0), Qt::MatchExactly);
-    pAddSystemLibraryWidget->mpNameComboBox->setCurrentIndex(currentIndex);
-    pAddSystemLibraryWidget->mpVersionTextBox->setText(mpSystemLibrariesTree->selectedItems().at(0)->text(1));
+    AddSystemLibraryDialog *pAddSystemLibraryWidget = new AddSystemLibraryDialog(this, true);
+    int currentIndex = pAddSystemLibraryWidget->getNameComboBox()->findText(mpSystemLibrariesTree->selectedItems().at(0)->text(0), Qt::MatchExactly);
+    if (currentIndex > -1) {
+      pAddSystemLibraryWidget->getNameComboBox()->setCurrentIndex(currentIndex);
+      pAddSystemLibraryWidget->getVersionsComboBox()->lineEdit()->setText(mpSystemLibrariesTree->selectedItems().at(0)->text(1));
+    }
     pAddSystemLibraryWidget->exec();
   }
 }
@@ -2347,8 +2358,7 @@ void LibrariesPage::openAddUserLibrary()
 //! Removes the selected tree item
 void LibrariesPage::removeUserLibrary()
 {
-  if (mpUserLibrariesTree->selectedItems().size() > 0)
-  {
+  if (mpUserLibrariesTree->selectedItems().size() > 0) {
     mpUserLibrariesTree->removeItemWidget(mpUserLibrariesTree->selectedItems().at(0), 0);
     delete mpUserLibrariesTree->selectedItems().at(0);
   }
@@ -2358,15 +2368,15 @@ void LibrariesPage::removeUserLibrary()
 //! Opens the AddLibraryWidget in edit mode and pass it the selected tree item.
 void LibrariesPage::openEditUserLibrary()
 {
-  if (mpUserLibrariesTree->selectedItems().size() > 0)
-  {
+  if (mpUserLibrariesTree->selectedItems().size() > 0) {
     AddUserLibraryDialog *pAddUserLibraryWidget = new AddUserLibraryDialog(this);
     pAddUserLibraryWidget->setWindowTitle(QString("%1 - %2").arg(Helper::applicationName, tr("Edit User Library")));
     pAddUserLibraryWidget->mEditFlag = true;
     pAddUserLibraryWidget->mpPathTextBox->setText(mpUserLibrariesTree->selectedItems().at(0)->text(0));
     int currentIndex = pAddUserLibraryWidget->mpEncodingComboBox->findData(mpUserLibrariesTree->selectedItems().at(0)->text(1));
-    if (currentIndex > -1)
+    if (currentIndex > -1) {
       pAddUserLibraryWidget->mpEncodingComboBox->setCurrentIndex(currentIndex);
+    }
     pAddUserLibraryWidget->exec();
   }
 }
@@ -2380,38 +2390,48 @@ void LibrariesPage::openEditUserLibrary()
  * \brief AddSystemLibraryDialog::AddSystemLibraryDialog
  * \param pLibrariesPage is the pointer to LibrariesPage
  */
-AddSystemLibraryDialog::AddSystemLibraryDialog(LibrariesPage *pLibrariesPage)
-  : QDialog(pLibrariesPage), mEditFlag(false)
+AddSystemLibraryDialog::AddSystemLibraryDialog(LibrariesPage *pLibrariesPage, bool editFlag)
+  : QDialog(pLibrariesPage), mpLibrariesPage(pLibrariesPage), mEditFlag(editFlag)
 {
-  setWindowTitle(QString("%1 - %2").arg(Helper::applicationName, tr("Add System Library")));
+  if (mEditFlag) {
+    setWindowTitle(QString("%1 - %2").arg(Helper::applicationName, tr("Edit System Library")));
+  } else {
+    setWindowTitle(QString("%1 - %2").arg(Helper::applicationName, tr("Add System Library")));
+  }
   setAttribute(Qt::WA_DeleteOnClose);
-  mpLibrariesPage = pLibrariesPage;
+  setMinimumWidth(300);
   mpNameLabel = new Label(Helper::name);
   mpNameComboBox = new QComboBox;
-  foreach (const QString &key, MainWindow::instance()->getOMCProxy()->getAvailableLibraries()) {
-    mpNameComboBox->addItem(key, key);
-  }
-
+  connect(mpNameComboBox, SIGNAL(currentIndexChanged(QString)), SLOT(getLibraryVersions(QString)));
   mpValueLabel = new Label(Helper::version + ":");
-  mpVersionTextBox = new QLineEdit("default");
+  mpVersionsComboBox = new QComboBox;
+  mpVersionsComboBox->setEditable(true);
   mpOkButton = new QPushButton(Helper::ok);
   mpOkButton->setAutoDefault(true);
   connect(mpOkButton, SIGNAL(clicked()), SLOT(addSystemLibrary()));
   mpCancelButton = new QPushButton(Helper::cancel);
   mpCancelButton->setAutoDefault(false);
   connect(mpCancelButton, SIGNAL(clicked()), SLOT(reject()));
+  // install library button
+  mpInstallLibraryButton = new QPushButton(Helper::installLibrary);
+  mpInstallLibraryButton->setAutoDefault(false);
+  connect(mpInstallLibraryButton, SIGNAL(clicked()), SLOT(openInstallLibraryDialog()));
   // add buttons
   mpButtonBox = new QDialogButtonBox(Qt::Horizontal);
   mpButtonBox->addButton(mpOkButton, QDialogButtonBox::ActionRole);
   mpButtonBox->addButton(mpCancelButton, QDialogButtonBox::ActionRole);
+  // layout
   QGridLayout *mainLayout = new QGridLayout;
-  mainLayout->setAlignment(Qt::AlignTop | Qt::AlignLeft);
+  mainLayout->setAlignment(Qt::AlignTop);
   mainLayout->addWidget(mpNameLabel, 0, 0);
   mainLayout->addWidget(mpNameComboBox, 0, 1);
   mainLayout->addWidget(mpValueLabel, 1, 0);
-  mainLayout->addWidget(mpVersionTextBox, 1, 1);
-  mainLayout->addWidget(mpButtonBox, 2, 0, 1, 2, Qt::AlignRight);
+  mainLayout->addWidget(mpVersionsComboBox, 1, 1);
+  mainLayout->addWidget(mpInstallLibraryButton, 2, 0, Qt::AlignLeft);
+  mainLayout->addWidget(mpButtonBox, 2, 1, Qt::AlignRight);
   setLayout(mainLayout);
+
+  getSystemLibraries();
 }
 
 /*!
@@ -2443,6 +2463,30 @@ bool AddSystemLibraryDialog::nameExists(QTreeWidgetItem *pItem)
 }
 
 /*!
+ * \brief AddSystemLibraryDialog::getSystemLibraries
+ * Gets the system libraries and add them to the combobox.
+ */
+void AddSystemLibraryDialog::getSystemLibraries()
+{
+  mpNameComboBox->clear();
+  mpNameComboBox->addItems(MainWindow::instance()->getOMCProxy()->getAvailableLibraries());
+  getLibraryVersions(mpNameComboBox->currentText());
+}
+
+/*!
+ * \brief AddSystemLibraryDialog::getLibraryVersions
+ * Gets the library versions and add them to the combobox.
+ * \param library
+ */
+void AddSystemLibraryDialog::getLibraryVersions(const QString &library)
+{
+  mpVersionsComboBox->clear();
+  if (!library.isEmpty()) {
+    mpVersionsComboBox->addItems(MainWindow::instance()->getOMCProxy()->getAvailableLibraryVersions(library));
+  }
+}
+
+/*!
  * \brief AddSystemLibraryDialog::addSystemLibrary
  * Slot activated when mpOkButton clicked signal is raised.
  *  Add/Edit the system library in the tree.
@@ -2455,7 +2499,7 @@ void AddSystemLibraryDialog::addSystemLibrary()
     return;
   }
   // if value text box is empty show error and return
-  if (mpVersionTextBox->text().isEmpty()) {
+  if (mpVersionsComboBox->lineEdit()->text().isEmpty()) {
     QMessageBox::critical(this, QString("%1 - %2").arg(Helper::applicationName, Helper::error), GUIMessages::getMessage(GUIMessages::ENTER_NAME).arg("the value for a"), Helper::ok);
     return;
   }
@@ -2466,7 +2510,7 @@ void AddSystemLibraryDialog::addSystemLibrary()
       return;
     }
     QStringList values;
-    values << mpNameComboBox->currentText() << mpVersionTextBox->text();
+    values << mpNameComboBox->currentText() << mpVersionsComboBox->lineEdit()->text();
     mpLibrariesPage->getSystemLibrariesTree()->addTopLevelItem(new QTreeWidgetItem(values));
   } else if (mEditFlag) { // if user is editing old library
     QTreeWidgetItem *pItem = mpLibrariesPage->getSystemLibrariesTree()->selectedItems().at(0);
@@ -2475,9 +2519,21 @@ void AddSystemLibraryDialog::addSystemLibrary()
       return;
     }
     pItem->setText(0, mpNameComboBox->currentText());
-    pItem->setText(1, mpVersionTextBox->text());
+    pItem->setText(1, mpVersionsComboBox->lineEdit()->text());
   }
   accept();
+}
+
+/*!
+ * \brief AddSystemLibraryDialog::openInstallLibraryDialog
+ * Opens the InstallLibraryDialog and allows the user to install a library.
+ * If the library is installed then reload the system libraries.
+ */
+void AddSystemLibraryDialog::openInstallLibraryDialog()
+{
+  if (MainWindow::instance()->openInstallLibraryDialog()) {
+    getSystemLibraries();
+  }
 }
 
 /*!
@@ -2620,16 +2676,15 @@ TextEditorPage::TextEditorPage(OptionsDialog *pOptionsDialog)
   // Byte Order Mark BOM
   mpBOMLabel = new Label(tr("Byte Order Mark (BOM):"));
   mpBOMComboBox = new QComboBox;
-  mpBOMComboBox->setToolTip(tr("<html><head/><body>"
-                               "<p>Note that BOMs are uncommon and treated incorrectly by some editors, so it usually makes little sense to add any.</p>"
-                               "<ul><li><i>Always Add:</i> always add a BOM when saving a file.</li>"
-                               "<li><i>Keep If Already Present:</i> save the file with a BOM if it already had one when it was loaded.</li>"
-                               "<li><i>Always Delete:</i> never write a BOM, possibly deleting a pre-existing one.</li></ul>"
-                               "</body></html>"));
+  QStringList bomDescriptions;
+  bomDescriptions << tr("Always add a BOM when saving a file.")
+                  << tr("Save the file with a BOM if it already had one when it was loaded.")
+                  << tr("Never write a BOM, possibly deleting a pre-existing one.");
   mpBOMComboBox->addItem(tr("Always Add"), Utilities::AlwaysAddBom);
   mpBOMComboBox->addItem(tr("Keep If Already Present"), Utilities::KeepBom);
   mpBOMComboBox->addItem(tr("Always Delete"), Utilities::AlwaysDeleteBom);
   mpBOMComboBox->setCurrentIndex(1);
+  Utilities::setToolTip(mpBOMComboBox, tr("Note that BOMs are uncommon and treated incorrectly by some editors, so it usually makes little sense to add any"), bomDescriptions);
   // set format groupbox layout
   QGridLayout *pFormatGroupBoxLayout = new QGridLayout;
   pFormatGroupBoxLayout->addWidget(mpLineEndingLabel, 0, 0);
@@ -3842,13 +3897,8 @@ SimulationPage::SimulationPage(OptionsDialog *pOptionsDialog)
   OMCInterface::getConfigFlagValidOptions_res simCodeTarget = MainWindow::instance()->getOMCProxy()->getConfigFlagValidOptions("simCodeTarget");
   mpTargetLanguageComboBox = new QComboBox;
   mpTargetLanguageComboBox->addItems(simCodeTarget.validOptions);
-  mpTargetLanguageComboBox->setToolTip(simCodeTarget.mainDescription);
-  int i = 0;
-  foreach (QString description, simCodeTarget.descriptions) {
-    mpTargetLanguageComboBox->setItemData(i, description, Qt::ToolTipRole);
-    i++;
-  }
   mpTargetLanguageComboBox->setCurrentIndex(mpTargetLanguageComboBox->findText("C"));
+  Utilities::setToolTip(mpTargetLanguageComboBox, simCodeTarget.mainDescription, simCodeTarget.descriptions);
   // Target Build
   mpTargetBuildLabel = new Label(tr("Target Build:"));
   mpTargetBuildComboBox = new QComboBox;
@@ -4197,18 +4247,11 @@ NotificationsPage::NotificationsPage(OptionsDialog *pOptionsDialog)
   mpSaveModelForBitmapInsertionCheckBox = new QCheckBox(tr("Show save model for bitmap insertion message"));
   mpSaveModelForBitmapInsertionCheckBox->setChecked(true);
   // create the save model for bitmap insertion checkbox
-  mpAlwaysAskForDraggedComponentName = new QCheckBox(tr("Always ask for the dragged component name"));
+  mpAlwaysAskForDraggedComponentName = new QCheckBox(tr("Always ask for the dragged/duplicated component name"));
   mpAlwaysAskForDraggedComponentName->setChecked(true);
   // create the always ask for text editor error
   mpAlwaysAskForTextEditorErrorCheckBox = new QCheckBox(tr("Always ask for what to do with the text editor error"));
   mpAlwaysAskForTextEditorErrorCheckBox->setChecked(true);
-  // prompt for old frontend
-  mpOldFrontendLabel = new Label(tr("If new frontend for code generation fails?"));
-  mpOldFrontendComboBox = new QComboBox;
-  mpOldFrontendComboBox->addItem(tr("Always ask for old frontend"), NotificationsPage::AlwaysAskForOF);
-  mpOldFrontendComboBox->addItem(tr("Try with old frontend once"), NotificationsPage::TryOnceWithOF);
-  mpOldFrontendComboBox->addItem(tr("Switch to old frontend permanently"), NotificationsPage::SwitchPermanentlyToOF);
-  mpOldFrontendComboBox->addItem(tr("Keep using new frontend"), NotificationsPage::KeepUsingNF);
   // set the layout of notifications group
   QGridLayout *pNotificationsLayout = new QGridLayout;
   pNotificationsLayout->setAlignment(Qt::AlignTop);
@@ -4219,8 +4262,6 @@ NotificationsPage::NotificationsPage(OptionsDialog *pOptionsDialog)
   pNotificationsLayout->addWidget(mpSaveModelForBitmapInsertionCheckBox, 4, 0, 1, 2);
   pNotificationsLayout->addWidget(mpAlwaysAskForDraggedComponentName, 5, 0, 1, 2);
   pNotificationsLayout->addWidget(mpAlwaysAskForTextEditorErrorCheckBox, 6, 0, 1, 2);
-  pNotificationsLayout->addWidget(mpOldFrontendLabel, 7, 0);
-  pNotificationsLayout->addWidget(mpOldFrontendComboBox, 7, 1);
   mpNotificationsGroupBox->setLayout(pNotificationsLayout);
   // set the layout
   QVBoxLayout *pLayout = new QVBoxLayout;
@@ -4497,6 +4538,7 @@ PlottingPage::PlottingPage(OptionsDialog *pOptionsDialog)
   mpAutoScaleCheckBox->setToolTip(tr("Auto scale the plot to fit in view when variable is plotted."));
   // prefix units
   mpPrefixUnitsCheckbox = new QCheckBox(tr("Prefix Units"));
+  mpPrefixUnitsCheckbox->setChecked(true);
   mpPrefixUnitsCheckbox->setToolTip(tr("Automatically pick the right prefix for units."));
   // set general groupbox layout
   QGridLayout *pGeneralGroupBoxLayout = new QGridLayout;
@@ -4790,7 +4832,7 @@ DebuggerPage::DebuggerPage(OptionsDialog *pOptionsDialog)
   // GDB Path
   mpGDBPathLabel = new Label(tr("GDB Path:"));
   mpGDBPathTextBox = new QLineEdit;
-#ifdef WIN32
+#if defined(_WIN32)
   mpGDBPathTextBox->setPlaceholderText(Utilities::getGDBPath());
 #else
   mpGDBPathTextBox->setPlaceholderText("gdb");
@@ -4892,8 +4934,7 @@ QString DebuggerPage::getGDBPath()
  */
 void DebuggerPage::browseGDBPath()
 {
-  QString GDBPath = StringHandler::getOpenFileName(this, QString(Helper::applicationName).append(" - ").append(Helper::chooseFile),
-                                                   NULL, "", NULL);
+  QString GDBPath = StringHandler::getOpenFileName(this, QString(Helper::applicationName).append(" - ").append(Helper::chooseFile), NULL, "", NULL);
   if (GDBPath.isEmpty()) {
     return;
   }
@@ -4953,7 +4994,33 @@ FMIPage::FMIPage(OptionsDialog *pOptionsDialog)
                                FMIPage::FMU_FULL_CLASS_NAME_DOTS_PLACEHOLDER + tr(" i.e.,") + " Modelica.Electrical.Analog.Examples.ChuaCircuit\n" +
                                FMIPage::FMU_FULL_CLASS_NAME_UNDERSCORES_PLACEHOLDER + tr(" i.e.,") + " Modelica_Electrical_Analog_Examples_ChuaCircuit\n" +
                                FMIPage::FMU_SHORT_CLASS_NAME_PLACEHOLDER + tr(" i.e.,") + " ChuaCircuit");
-#ifdef WIN32
+  // platforms
+  mpPlatformsGroupBox = new QGroupBox(tr("Platforms"));
+  Label *pPlatformNoteLabel = new Label(tr("Note: The list of platforms is created by searching for programs in the PATH matching pattern \"*-*-*-*cc\".\n"
+                                           "In order to run docker platforms add docker to PATH.\n"
+                                           "A source-code only FMU is generated if no platform is selected."));
+  // set the type groupbox layout
+  QVBoxLayout *pPlatformsLayout = new QVBoxLayout;
+  pPlatformsLayout->setAlignment(Qt::AlignTop | Qt::AlignLeft);
+  pPlatformsLayout->addWidget(pPlatformNoteLabel);
+  QCheckBox *pNativePlatformCheckBox = new QCheckBox("Native");
+  pNativePlatformCheckBox->setChecked(true);
+  pNativePlatformCheckBox->setProperty(Helper::fmuPlatformNamePropertyId, "static");
+  pPlatformsLayout->addWidget(pNativePlatformCheckBox);
+  // docker platforms
+  QStringList dockerPlarforms;
+  dockerPlarforms << "x86_64-linux-gnu docker run --pull=never multiarch/crossbuild"
+                  << "i686-linux-gnu docker run --pull=never multiarch/crossbuild"
+                  << "x86_64-w64-mingw32 docker run --pull=never multiarch/crossbuild"
+                  << "i686-w64-mingw32 docker run --pull=never multiarch/crossbuild"
+                  << "arm-linux-gnueabihf docker run --pull=never multiarch/crossbuild"
+                  << "aarch64-linux-gnu docker run --pull=never multiarch/crossbuild";
+  foreach (QString dockerPlarform, dockerPlarforms) {
+    QCheckBox *pCheckBox = new QCheckBox(dockerPlarform);
+    pCheckBox->setProperty(Helper::fmuPlatformNamePropertyId, dockerPlarform);
+    pPlatformsLayout->addWidget(pCheckBox);
+  }
+#if defined(_WIN32)
   QStringList paths = QString(getenv("PATH")).split(";");
 #else
   QStringList paths = QString(getenv("PATH")).split(":");
@@ -4965,25 +5032,18 @@ FMIPage::FMIPage(OptionsDialog *pOptionsDialog)
     QDir dir(path);
     compilers << dir.entryList(nameFilters, QDir::Files | QDir::NoDotAndDotDot, QDir::Name);
   }
-  mpPlatformsGroupBox = new QGroupBox(tr("Platforms"));
-  Label *pPlatformNoteLabel = new Label(tr("Note: The list of platforms is created by searching for programs in the PATH matching pattern \"*-*-*-*cc\"."));
-  mpLinkingComboBox = new QComboBox;
-  mpLinkingComboBox->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Preferred);
-  mpLinkingComboBox->addItem(tr("None"), "none");
-  mpLinkingComboBox->addItem(tr("Dynamic"), "dynamic");
-  mpLinkingComboBox->addItem(tr("Static"), "static");
-  mpLinkingComboBox->setCurrentIndex(2);
-  // set the type groupbox layout
-  QVBoxLayout *pPlatformsLayout = new QVBoxLayout;
-  pPlatformsLayout->setAlignment(Qt::AlignTop | Qt::AlignLeft);
-  pPlatformsLayout->addWidget(pPlatformNoteLabel);
-  pPlatformsLayout->addWidget(mpLinkingComboBox);
   foreach (QString compiler, compilers) {
     QString platformName = compiler.left(compiler.lastIndexOf('-'));
-    QCheckBox *pCheckBox = new QCheckBox(platformName);
+    QCheckBox *pCheckBox = new QCheckBox(QString("%1 (auto-detected)").arg(platformName));
     pCheckBox->setProperty(Helper::fmuPlatformNamePropertyId, platformName);
     pPlatformsLayout->addWidget(pCheckBox);
   }
+  // custom platforms
+  QLineEdit *pCustomPlatformsTextBox = new QLineEdit;
+  QString customPlatformTip = tr("Comma separated list of additional platforms");
+  pCustomPlatformsTextBox->setPlaceholderText(customPlatformTip);
+  pCustomPlatformsTextBox->setToolTip(customPlatformTip);
+  pPlatformsLayout->addWidget(pCustomPlatformsTextBox);
   mpPlatformsGroupBox->setLayout(pPlatformsLayout);
   // Solver for co-simulation
   mpSolverForCoSimulationComboBox = new QComboBox;
@@ -4993,14 +5053,11 @@ FMIPage::FMIPage(OptionsDialog *pOptionsDialog)
   OMCInterface::getConfigFlagValidOptions_res fmiFilters = MainWindow::instance()->getOMCProxy()->getConfigFlagValidOptions("fmiFilter");
   mpModelDescriptionFiltersComboBox = new QComboBox;
   mpModelDescriptionFiltersComboBox->addItems(fmiFilters.validOptions);
-  mpModelDescriptionFiltersComboBox->setToolTip(fmiFilters.mainDescription);
-  int i = 0;
-  foreach (QString description, fmiFilters.descriptions) {
-    mpModelDescriptionFiltersComboBox->setItemData(i, description, Qt::ToolTipRole);
-    i++;
-  }
-  mpModelDescriptionFiltersComboBox->setCurrentIndex(mpModelDescriptionFiltersComboBox->findText("internal"));
+  mpModelDescriptionFiltersComboBox->setCurrentIndex(mpModelDescriptionFiltersComboBox->findText("protected"));
+  Utilities::setToolTip(mpModelDescriptionFiltersComboBox, fmiFilters.mainDescription, fmiFilters.descriptions);
   connect(mpModelDescriptionFiltersComboBox, SIGNAL(currentIndexChanged(QString)), SLOT(enableIncludeSourcesCheckBox(QString)));
+  // include resources checkbox
+  mpIncludeResourcesCheckBox = new QCheckBox(tr("Include Modelica based resources via loadResource"));
   // include source code checkbox
   mpIncludeSourceCodeCheckBox = new QCheckBox(tr("Include Source Code (model description filter \"blackBox\" will override this, because black box FMUs do never contain their source code.)"));
   mpIncludeSourceCodeCheckBox->setChecked(true);
@@ -5022,8 +5079,9 @@ FMIPage::FMIPage(OptionsDialog *pOptionsDialog)
   pExportLayout->addWidget(mpSolverForCoSimulationComboBox, 5, 1, 1, 2);
   pExportLayout->addWidget(new Label(tr("Model Description Filters:")), 6, 0);
   pExportLayout->addWidget(mpModelDescriptionFiltersComboBox, 6, 1, 1, 2);
-  pExportLayout->addWidget(mpIncludeSourceCodeCheckBox, 7, 0, 1, 3);
-  pExportLayout->addWidget(mpGenerateDebugSymbolsCheckBox, 8, 0, 1, 3);
+  pExportLayout->addWidget(mpIncludeResourcesCheckBox, 7, 0, 1, 3);
+  pExportLayout->addWidget(mpIncludeSourceCodeCheckBox, 8, 0, 1, 3);
+  pExportLayout->addWidget(mpGenerateDebugSymbolsCheckBox, 9, 0, 1, 3);
   mpExportGroupBox->setLayout(pExportLayout);
   // import groupbox
   mpImportGroupBox = new QGroupBox(tr("Import"));
@@ -5248,14 +5306,14 @@ void TLMPage::browseTLMPluginPath()
   path = path.replace('\\', '/');
   mpTLMPluginPathTextBox->setText(path);
   if (mpTLMManagerProcessTextBox->text().isEmpty()) {
-#ifdef WIN32
+#if defined(_WIN32)
     mpTLMManagerProcessTextBox->setText(mpTLMPluginPathTextBox->text() + "/tlmmanager.exe");
 #else
     mpTLMManagerProcessTextBox->setText(mpTLMPluginPathTextBox->text() + "/tlmmanager");
 #endif
   }
   if (mpTLMMonitorProcessTextBox->text().isEmpty()) {
-#ifdef WIN32
+#if defined(_WIN32)
     mpTLMMonitorProcessTextBox->setText(mpTLMPluginPathTextBox->text() + "/tlmmonitor.exe");
 #else
     mpTLMMonitorProcessTextBox->setText(mpTLMPluginPathTextBox->text() + "/tlmmonitor");
@@ -5449,7 +5507,6 @@ void DiscardLocalTranslationFlagsDialog::listLocalTranslationFlagsClasses(Librar
     if (pChildLibraryTreeItem && pChildLibraryTreeItem->getLibraryType() == LibraryTreeItem::Modelica && !pChildLibraryTreeItem->isSystemLibrary()) {
       if (pChildLibraryTreeItem->mSimulationOptions.isValid()) {
         QListWidgetItem *pListItem = new QListWidgetItem(mpClassesWithLocalTranslationFlagsListWidget);
-        pListItem->setFlags(pListItem->flags() | Qt::ItemIsUserCheckable);
         pListItem->setCheckState(Qt::Checked);
         pListItem->setText(pChildLibraryTreeItem->getNameStructure());
       }
@@ -5489,6 +5546,7 @@ void DiscardLocalTranslationFlagsDialog::discardLocalTranslationFlags()
       LibraryTreeItem *pLibraryTreeItem = MainWindow::instance()->getLibraryWidget()->getLibraryTreeModel()->findLibraryTreeItem(pClassWithLocalTranslationFlags->text());
       if (pLibraryTreeItem) {
         pLibraryTreeItem->mSimulationOptions.setIsValid(false);
+        pLibraryTreeItem->mSimulationOptions.setDataReconciliationInitialized(false);
       }
     }
   }

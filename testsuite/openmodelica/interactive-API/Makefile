@@ -41,6 +41,7 @@ getIconAnnotation.mos \
 IfStatementIllegal.mos \
 IfStatement.mos\
 IllegalGraphics.mos\
+instantiateFunction.mos \
 interactive_api_annotations.mos \
 interactive_api_attributes.mos \
 interactive_api_calls.mos \
@@ -57,6 +58,8 @@ matrices.mos \
 Modelica.Media.Examples.getComponents.mos \
 MoveClass.mos \
 MoveClass2.mos \
+Obfuscation1.mos \
+Obfuscation2.mos \
 ProtectedHandlingBug2917.mos \
 refactorGraphAnn1.mos \
 refactorGraphAnn2.mos \
@@ -95,7 +98,9 @@ ReadOnlyPkg.mos \
 getComponentsTestNF.mos \
 getComponentsTestOF.mos \
 Issue7544.mos \
-Issue7706.mos
+Issue7706.mos \
+TestChoices.mos \
+
 
 # test that currently fail. Move up when fixed.
 # Run make testfailing

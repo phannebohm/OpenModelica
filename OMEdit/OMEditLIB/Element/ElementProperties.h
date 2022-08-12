@@ -52,7 +52,9 @@ public:
     ReplaceableClass
   };
   Parameter(Element *pComponent, bool showStartAttribute, QString tab, QString groupBox);
+  Parameter(ModelInstance::Element *pElement, bool showStartAttribute, QString tab, QString groupBox);
   Element* getComponent() {return mpComponent;}
+  ModelInstance::Element* getElement() {return mpElement;}
   void setTab(QString tab) {mTab = tab;}
   QString getTab() {return mTab;}
   void setGroupBox(QString groupBox) {mGroupBox = groupBox;}
@@ -88,6 +90,7 @@ public:
   void setEnabled(bool enable);
 private:
   Element *mpComponent;
+  ModelInstance::Element *mpElement;
   QString mTab;
   QString mGroupBox;
   bool mShowStartAttribute;
@@ -162,13 +165,15 @@ public:
   ElementParameters(Element *pComponent, QWidget *pParent = 0);
   ~ElementParameters();
 private:
-  Element *mpComponent;
+  Element *mpElement;
   Label *mpParametersHeading;
   QFrame *mHorizontalLine;
   QTabWidget *mpParametersTabWidget;
   QGroupBox *mpComponentGroupBox;
   Label *mpComponentNameLabel;
   Label *mpComponentNameTextBox;
+  Label *mpComponentCommentLabel;
+  Label *mpComponentCommentTextBox;
   QGroupBox *mpComponentClassGroupBox;
   Label *mpComponentClassNameLabel;
   Label *mpComponentClassNameTextBox;
@@ -186,24 +191,26 @@ private:
   void setUpDialog();
   void createTabsGroupBoxesAndParameters(LibraryTreeItem *pLibraryTreeItem);
   void createTabsGroupBoxesAndParametersHelper(LibraryTreeItem *pLibraryTreeItem, bool useInsert = false);
+  void createTabsGroupBoxesAndParameters(ModelInstance::Model *pModelInstance);
+  void createTabsGroupBoxesAndParametersHelper(ModelInstance::Model *pModelInstance, bool useInsert = false);
   void fetchComponentModifiers();
   void fetchExtendsModifiers();
   Parameter* findParameter(LibraryTreeItem *pLibraryTreeItem, const QString &parameter, Qt::CaseSensitivity caseSensitivity = Qt::CaseSensitive) const;
   Parameter* findParameter(const QString &parameter, Qt::CaseSensitivity caseSensitivity = Qt::CaseSensitive) const;
 public slots:
   void commentLinkClicked(QString link);
-  void updateComponentParameters();
+  void updateElementParameters();
 };
 
 class ElementAttributes : public QDialog
 {
   Q_OBJECT
 public:
-  ElementAttributes(Element *pComponent, QWidget *pParent = 0);
+  ElementAttributes(Element *pElement, QWidget *pParent = 0);
   void setUpDialog();
   void initializeDialog();
 private:
-  Element *mpComponent;
+  Element *mpElement;
   Label *mpAttributesHeading;
   QFrame *mHorizontalLine;
   QGroupBox *mpTypeGroupBox;
@@ -238,7 +245,7 @@ private:
   QPushButton *mpCancelButton;
   QDialogButtonBox *mpButtonBox;
 public slots:
-  void updateComponentAttributes();
+  void updateElementAttributes();
 };
 
 class CompositeModelSubModelAttributes : public QDialog

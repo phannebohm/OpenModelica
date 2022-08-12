@@ -42,6 +42,7 @@ protected
   import Ceval = NFCeval;
   import MetaModelica.Dangerous.listReverseInPlace;
   import Util;
+  import JSON;
 
 public
   import Expression = NFExpression;
@@ -155,6 +156,10 @@ public
     input InstNode node;
     input Integer dimIndex;
     output Subscript subscript = SPLIT_INDEX(node, dimIndex);
+  algorithm
+    if dimIndex < 1 then
+      Error.assertion(false, getInstanceName() + " got invalid index " + String(dimIndex), sourceInfo());
+    end if;
   end makeSplitIndex;
 
   function isIndex
@@ -176,6 +181,17 @@ public
       else false;
     end match;
   end isWhole;
+
+  function isSliced
+    input Subscript sub;
+    output Boolean sliced;
+  algorithm
+    sliced := match sub
+      case SLICE() then true;
+      case WHOLE() then true;
+      else false;
+    end match;
+  end isSliced;
 
   function isScalar
     input Subscript sub;
@@ -653,7 +669,7 @@ public
       case WHOLE() then DAE.WHOLEDIM();
       else
         algorithm
-          Error.assertion(false, getInstanceName() + " failed on unknown subscript", sourceInfo());
+          Error.assertion(false, getInstanceName() + " failed on unknown subscript " + toString(subscript), sourceInfo());
         then
           fail();
     end match;
@@ -724,6 +740,27 @@ public
   algorithm
     string := List.toString(subscripts, toFlatString, "", "[", ",", "]", false);
   end toFlatStringList;
+
+  function toJSON
+    input Subscript subscript;
+    output JSON json;
+  algorithm
+    json := match subscript
+      case UNTYPED() then Expression.toJSON(subscript.exp);
+      case INDEX() then Expression.toJSON(subscript.index);
+      case SLICE() then Expression.toJSON(subscript.slice);
+      else JSON.makeString(toString(subscript));
+    end match;
+  end toJSON;
+
+  function toJSONList
+    input list<Subscript> subscripts;
+    output JSON json = JSON.makeNull();
+  algorithm
+    for s in subscripts loop
+      json := JSON.addElement(toJSON(s), json);
+    end for;
+  end toJSONList;
 
   function eval
     input Subscript subscript;
@@ -1016,6 +1053,7 @@ public
     input list<Subscript> newSubs "Subscripts to add";
     input list<Subscript> oldSubs "Existing subscripts";
     input Integer dimensions "The number of dimensions to subscript";
+    input Boolean backend "if true discards a subscript for scalar if it is exacty 1";
     output list<Subscript> outSubs "The merged subscripts, at most 'dimensions' many";
     output list<Subscript> remainingSubs "The subscripts that didn't fit";
   protected
@@ -1024,6 +1062,17 @@ public
     list<Subscript> rest_old_subs;
     Boolean merged = true;
   algorithm
+    // discard an index for backend if it is exactly one for scalars
+    if backend and dimensions == 0 and not listEmpty(newSubs) then
+      outSubs := {};
+      new_sub :: remainingSubs := newSubs;
+      remainingSubs := match new_sub
+        case INDEX(index = Expression.INTEGER(1)) then remainingSubs;
+        else newSubs;
+      end match;
+      return;
+    end if;
+
     // If there aren't any existing subscripts we just add as many subscripts
     // from the list of new subscripts as possible.
     if listEmpty(oldSubs) then
@@ -1118,14 +1167,38 @@ public
 
   function expandSplitIndices
     input list<Subscript> subs;
+    input list<InstNode> indicesToKeep = {};
     output list<Subscript> outSubs = {};
+  protected
+    Boolean changed = false;
   algorithm
     for s in subs loop
-      outSubs := (if isSplitIndex(s) then WHOLE() else s) :: outSubs;
+      () := match s
+        case SPLIT_INDEX()
+          algorithm
+            if List.isMemberOnTrue(s.node, indicesToKeep, InstNode.refEqual) then
+              outSubs := s :: outSubs;
+            else
+              outSubs := WHOLE() :: outSubs;
+              changed := true;
+            end if;
+          then
+            ();
+
+        else
+          algorithm
+            outSubs := s :: outSubs;
+          then
+            ();
+      end match;
     end for;
 
-    outSubs := List.trim(outSubs, isWhole);
-    outSubs := listReverseInPlace(outSubs);
+    if changed then
+      outSubs := List.trim(outSubs, isWhole);
+      outSubs := listReverseInPlace(outSubs);
+    else
+      outSubs := subs;
+    end if;
   end expandSplitIndices;
 
   function hash

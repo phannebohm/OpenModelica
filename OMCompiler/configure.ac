@@ -18,9 +18,6 @@ AC_SUBST(EXTRA_CFLAGS_GENERATED_CODE)
 AC_SUBST(HAVE_GETTEXT)
 AC_SUBST(LIBSOCKET)
 AC_SUBST(LIBNSL)
-AC_SUBST(LIBLPSOLVE55)
-AC_SUBST(NO_LPLIB)
-AC_SUBST(LPSOLVEINC)
 AC_SUBST(OPENCL)
 AC_SUBST(USE_GRAPH)
 AC_SUBST(USE_METIS)
@@ -56,6 +53,7 @@ AC_SUBST(MAKE)
 AC_SUBST(HAVE_LAPACK)
 AC_SUBST(HAVE_LAPACK_DEPRECATED)
 AC_SUBST(LD_LAPACK)
+AC_SUBST(OMC_HAVE_IPOPT)
 AC_SUBST(WITH_SUITESPARSE)
 AC_SUBST(SUITESPARSE_TARGET)
 AC_SUBST(SUITESPARSE_LDFLAGS)
@@ -70,7 +68,6 @@ AC_SUBST(LIBFMIRUNTIME)
 AC_SUBST(LIBFMILIB)
 AC_SUBST(WITH_FMIL)
 AC_SUBST(NO_FMIL)
-AC_SUBST(FMILIB_SHARED)
 AC_SUBST(LIBCMINPACKLIB)
 AC_SUBST(LIBZMQLIB)
 AC_SUBST(CMINPACKLIB_SHARED)
@@ -81,7 +78,6 @@ AC_SUBST(RPATH_QMAKE)
 AC_SUBST(MSL_EXTRA_ARGS)
 AC_SUBST(WITH_HWLOC)
 AC_SUBST(WITH_UUID)
-AC_SUBST(OS_TARGET)
 AC_SUBST(LIS_LDFLAGS)
 AC_SUBST(LAPACK_TARGET)
 AC_SUBST(CONFIG_WITH_OPENMP)
@@ -99,8 +95,6 @@ AC_SUBST(CPP_RUNTIME_ARGS)
 AC_SUBST(OMENCRYPTION)
 AC_SUBST(MINGW_EXTRA_LIBS)
 AC_SUBST(BSTATIC)
-AC_SUBST(OMC_TBB_ROOT)
-AC_SUBST(ENABLE_PARMODAUTO)
 AC_SUBST(EXTRA_MACOS_FLAGS_SUNDIALS)
 AC_SUBST(CMAKE)
 
@@ -114,6 +108,16 @@ m4_include([m4/lapack.m4])
 AC_CANONICAL_BUILD
 AC_CANONICAL_HOST
 AC_CANONICAL_TARGET
+
+# Check for platform arch (32 vs 64 bit)
+# sets OMC_TARGET_ARCH_IS_64 to true if 64 bit.
+AC_SUBST(OMC_TARGET_ARCH_IS_64)
+AC_CHECK_SIZEOF([void *])
+if test "x$ac_cv_sizeof_void_p" = "x8" ; then
+   OMC_TARGET_ARCH_IS_64="true"
+else
+   OMC_TARGET_ARCH_IS_64="false"
+fi
 
 build_short=$build_cpu-$build_os
 host_short=$host_cpu-$host_os
@@ -299,14 +303,8 @@ AC_LANG_POP([C++])
 
 fi
 
-m4_include([common/m4/ax_cxx_compile_stdcxx_11.m4])
-HAVE_CXX_STD=0
-for flag in $CXXFLAGS; do
-  (echo $flag | grep -q "^-std=") && HAVE_CXX_STD=1
-done
-if test "$HAVE_CXX_STD" = 0; then
-  AX_CXX_COMPILE_STDCXX_11([noext],[optional])
-fi
+m4_include([common/m4/ax_cxx_compile_stdcxx.m4])
+AX_CXX_COMPILE_STDCXX(14,[noext],[optional])
 
 if test "`getconf LONG_BIT`" = "32"; then
 dnl Simulations spin forever unless -msse2 -mfpmath=sse is set
@@ -510,58 +508,6 @@ AC_SEARCH_LIBS(dlopen,dl)
 LIBDL="$LIBS"
 LIBS=""
 
-dnl check for lpsolve55
-
-AC_ARG_WITH(lpsolve,  [  --with-lpsolve        (default searching for lpsolve; disable if only using omc to cross-compile)],[if test "$withval" = "no"; then NO_LPLIB="#define NO_LPLIB"; fi],[])
-
-if test -z "$NO_LPLIB"; then
-
-echo "NO_LPLIB: '$NO_LPLIB'"
-
-AC_ARG_WITH(static-lpsolve,  [  --with-static-lpsolve=DIR        (default to dynamic linking; searches /usr if no other directory is provided)],[WANT_STATIC_LPSOLVE="$withval"],[WANT_STATIC_LPSOLVE="no"])
-
-if test "$WANT_STATIC_LPSOLVE" = "no"; then
-  LIBS=""
-  AC_SEARCH_LIBS(dlopen,dl)
-  LIBDL="$LIBS"
-  AC_SEARCH_LIBS(sqrt,m)
-  AC_SEARCH_LIBS(SuiteSparse_calloc,suitesparseconfig)
-  AC_SEARCH_LIBS(colamd,colamd)
-  AC_SEARCH_LIBS(make_lp,[lpsolve55_pic lpsolve55],[LIBLPSOLVE55=$LIBS],[COMPILE_LPSOLVE=1])
-  LIBS=""
-else
-  if test "$WANT_STATIC_LPSOLVE" = "yes"; then
-    LPLIB=/usr/lib;
-  else
-    LPLIB=$WANT_STATIC_LPSOLVE/lib
-  fi
-  LIBS=""
-  AC_SEARCH_LIBS(dlopen,dl)
-  AC_SEARCH_LIBS(sqrt,m)
-  LIBS="$LPLIB/liblpsolve55_pic.a $LPLIB/libcolamd.a $LIBS"
-  AC_MSG_CHECKING([for static lpsolve55])
-  AC_LINK_IFELSE([AC_LANG_CALL([], [make_lp])], [LIBLPSOLVE55=$LIBS], [COMPILE_LPSOLVE="1"])
-  AC_MSG_RESULT([$LIBLPSOLVE55])
-  LIBS=""
-fi
-AC_CHECK_HEADER([lp_lib.h],[LPSOLVEINC=lp_lib.h],[
-  AC_CHECK_HEADER([lpsolve/lp_lib.h],[LPSOLVEINC=lpsolve/lp_lib.h],[
-    COMPILE_LPSOLVE=1
-  ])
-])
-
-if test "$COMPILE_LPSOLVE" = 1; then
-  MINGW_EXTRA_LIBS="$MINGW_EXTRA_LIBS lpsolve";
-  AC_MSG_RESULT([failed to find lpsolve55 headers or library; will compile them ourselves])
-  LPSOLVEINC="$ac_pwd/3rdParty/lpsolve/build/include/lpsolve/lp_lib.h"
-  if test "$WANT_STATIC_LPSOLVE" = "yes"; then
-    LIBLPSOLVE55="-Wl,-Bstatic -llpsolve55 -Wl,-Bdynamic"
-  else
-    LIBLPSOLVE55="-llpsolve55"
-  fi
-fi
-
-fi # NO_LPLIB
 
 if ! (echo "$host" | grep -q "mingw"); then
   AC_CHECK_FUNC(socket,[LIBSOCKET=""],
@@ -725,8 +671,10 @@ AC_ARG_WITH(ipopt, [  --without-ipopt              Disable compilation with IPOP
 AS_IF([test "x$with_ipopt" = xyes],
 [
   IPOPT_TARGET="ipopt";
+  OMC_HAVE_IPOPT="#define OMC_HAVE_IPOPT"
 ],[
   IPOPT_TARGET=""
+  OMC_HAVE_IPOPT="/* #define OMC_HAVE_IPOPT */ /* Without Ipopt*/"
 ])
 
 m4_include([common/m4/corba.m4])
@@ -751,7 +699,6 @@ if test "$DARWIN" = "1"; then
   LIBRUNTIME=libOpenModelicaRuntimeC.dylib
   LIBFMIRUNTIME=libOpenModelicaFMIRuntimeC.dylib
   LIBFMILIB=libfmilib_shared.dylib
-  FMILIB_SHARED=ON
   LIBCMINPACKLIB=libcminpack.dylib
   LIBZMQLIB=libzmq.dylib
   CMINPACKLIB_SHARED=ON
@@ -765,29 +712,27 @@ if test "$DARWIN" = "1"; then
   RT_LDFLAGS_GENERATED_CODE_SOURCE_FMU="$LDFLAGS $LD_LAPACK -lm$LD_NOUNDEFINED"
   RT_LDFLAGS_GENERATED_CODE_SOURCE_FMU_STATIC=" -lSimulationRuntimeFMI $RT_LDFLAGS_GENERATED_CODE_SOURCE_FMU"
   RT_LDFLAGS_SHARED=
-  OMCRUNTIME_SHARED_LDFLAGS="$RT_LDFLAGS -Wl,-undefined -Wl,dynamic_lookup $LIBLPSOLVE55 -lzmq $LIBUUID $RT_LDFLAGS_OPTIONAL"
+  OMCRUNTIME_SHARED_LDFLAGS="$RT_LDFLAGS -Wl,-undefined -Wl,dynamic_lookup -lzmq $LIBUUID $RT_LDFLAGS_OPTIONAL"
   LINK="cp -fr"
   RPATH="-Wl,-rpath,'@loader_path/../lib/$host_short/omc/'"
   RPATH_QMAKE="-Wl,-rpath,'@loader_path/../../../../lib/$host_short/omc',-rpath,'@loader_path/../../../../lib/',-rpath,'$PREFIX/lib/$host_short/omc',-rpath,'$PREFIX/lib/'"
-  OS_TARGET="osx"
   LIS_LDFLAGS="-Wl,-install_name,@rpath/liblis.dylib"
   AR_SH="sh -x ar.sh"
   OMC_LIBS="$OMC_LIBS -Wl,-undefined -Wl,dynamic_lookup"
   BOOTSTRAP_STATIC=""
   CMAKE_LDFLAGS_UNDEFINED_LOOKUP="-Wl,-undefined -Wl,dynamic_lookup"
   SUITESPARSE_SHARED=ON
-  CONFIG_OS=OSX
+  CONFIG_OS=darwin
 elif echo "$host" | grep -iq "mingw"; then
   EXE=".exe"
   # Yes, we build static libs on Windows, so the "shared" extension is .a
   SHREXT=".a"
   DLLEXT=".dll"
   LIBGC="$OMBUILDDIR/lib/$host_short/omc/libomcgc.a"
-  LIBSIMULATION=libSimulationRuntimeC.a
-  LIBRUNTIME=libOpenModelicaRuntimeC.a
+  LIBSIMULATION=libSimulationRuntimeC.dll
+  LIBRUNTIME=libOpenModelicaRuntimeC.dll
   LIBFMIRUNTIME=libOpenModelicaFMIRuntimeC.a
   LIBFMILIB=libfmilib.a
-  FMILIB_SHARED=OFF
   LIBCMINPACKLIB=libcminpack.a
   LIBZMQLIB=libzmq.a
   CMINPACKLIB_SHARED=OFF
@@ -803,7 +748,6 @@ elif echo "$host" | grep -iq "mingw"; then
   # No RPATH in Windows :(
   RPATH=""
   RPATH_QMAKE=""
-  OS_TARGET="windows"
   AR_SH="$AR -ru"
   LDFLAGS_SOCKET=" -lwsock32"
   BOOTSTRAP_STATIC=""
@@ -820,9 +764,8 @@ else
   LIBGC="$OMBUILDDIR/lib/$host_short/omc/libomcgc.so"
   LIBSIMULATION=libSimulationRuntimeC.so
   LIBRUNTIME=libOpenModelicaRuntimeC.so
-  LIBFMIRUNTIME=libOpenModelicaFMIRuntimeC.so
+  LIBFMIRUNTIME=libOpenModelicaFMIRuntimeC.a
   LIBFMILIB=libfmilib_shared.so
-  FMILIB_SHARED=ON
   LIBCMINPACKLIB=libcminpack.so
   LIBZMQLIB=libzmq.so
   CMINPACKLIB_SHARED=ON
@@ -840,10 +783,9 @@ else
   LINK="cp -frl"
   LDFLAGS="$LDFLAGS -Wl,-rpath-link,$OMBUILDDIR/lib/$host_short/omc"
   RT_LDFLAGS_SHARED="-Wl,-rpath-link,$OMBUILDDIR/lib/$host_short/omc"
-  OMCRUNTIME_SHARED_LDFLAGS="$RT_LDFLAGS $LIBLPSOLVE55 -lzmq $LIBUUID"
+  OMCRUNTIME_SHARED_LDFLAGS="$RT_LDFLAGS -lzmq $LIBUUID"
   RPATH="-Wl,-z,origin -Wl,-rpath,'\$\$ORIGIN/../lib/$host_short/omc' -Wl,-rpath,'\$\$ORIGIN'"
   RPATH_QMAKE="-Wl,-z,origin -Wl,-rpath,\\'\\\$\$ORIGIN/../lib/$host_short/omc\\' -Wl,-rpath,\\'\\\$\$ORIGIN\\'"
-  OS_TARGET="linux"
   AR_SH="$AR -ru"
   BOOTSTRAP_STATIC=""
   SUITESPARSE_SHARED=ON
@@ -913,31 +855,6 @@ AC_ARG_WITH(ENCRYPTION, [  --with-ENCRYPTION                 Compile SEMLA and l
   fi
 ], [
     OMENCRYPTION=no
-])
-
-
-AC_ARG_ENABLE([parmodauto],
-    AS_HELP_STRING([--enable-parmodauto], [Enable support for automatic parallelization of simulations with parmodauto]))
-
-AS_IF([test "x$enable_parmodauto" = "xyes"], [
-  AC_MSG_NOTICE("parmodauto support is requested")
-  AC_MSG_NOTICE("Checking if omc version of tbb exists")
-
-  OMC_TBB_ROOT="$ac_pwd/3rdParty/tbb_omc"
-  AC_CHECK_FILE($OMC_TBB_ROOT,
-      [],
-      [AC_MSG_ERROR("parmodauto support (--enable-parmodauto) was requested but TBB library not found in $OMC_TBB_ROOT directory.")])
-
-  AC_MSG_NOTICE("Configuring omc_tbb")
-  # This would have been the best way but the flags are not consistent.
-  # cmake -S $OMC_TBB_ROOT -B $OMC_TBB_ROOT/build_cmake CFLAGS=$CFLAGS CXXFLAGS=$CXXFLAGS
-  cmake -S $OMC_TBB_ROOT -B $OMC_TBB_ROOT/build_cmake -DOM_HOST_SHORT=$host_short -DOM_BUILD_DIR=$OMBUILDDIR
-  AC_MSG_NOTICE("omc_tbb has been configured")
-
-  ENABLE_PARMODAUTO="yes"
-  AC_MSG_NOTICE("parmodauto enabled ... $ENABLE_PARMODAUTO")
-], [
-  AC_MSG_NOTICE("parmodauto ... not enabled")
 ])
 
 m4_include([common/m4/semver.m4])

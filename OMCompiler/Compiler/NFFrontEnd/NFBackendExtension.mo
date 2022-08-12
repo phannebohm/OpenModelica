@@ -44,11 +44,13 @@ protected
   import SCodeUtil;
 
   //NF imports
+  import Attributes = NFAttributes;
   import NFBinding.Binding;
   import ComplexType = NFComplexType;
   import NFComponent.Component;
   import ComponentRef = NFComponentRef;
   import Expression = NFExpression;
+  import ExpressionIterator = NFExpressionIterator;
   import NFPrefixes.Direction;
   import NFInstNode.InstNode;
   import NFPrefixes.Variability;
@@ -86,6 +88,27 @@ public
       binfo.varKind := varKind;
     end setVarKind;
 
+    function setAttributes
+      input output BackendInfo binfo;
+      input VariableAttributes attributes;
+    algorithm
+      binfo.attributes := attributes;
+    end setAttributes;
+
+    function scalarize
+      input BackendInfo binfo;
+      input Integer length;
+      output list<BackendInfo> binfo_list;
+    algorithm
+      binfo_list := match binfo.varKind
+        local
+          list<VariableAttributes> scalar_attributes;
+        case VariableKind.FRONTEND_DUMMY() then List.fill(binfo, length);
+        else algorithm
+          scalar_attributes := VariableAttributes.scalarize(binfo.attributes, length);
+        then list(BACKEND_INFO(binfo.varKind, attr) for attr in scalar_attributes);
+      end match;
+    end scalarize;
   end BackendInfo;
 
   constant BackendInfo DUMMY_BACKEND_INFO = BACKEND_INFO(FRONTEND_DUMMY(), EMPTY_VAR_ATTR_REAL);
@@ -114,10 +137,11 @@ public
       Boolean fixed                         "is fixed at first clock tick";
     end DISCRETE_STATE;
     record PREVIOUS
-      Pointer<Variable> disc                "Pointer to the corresponding discrete variable.";
+      Pointer<Variable> state               "Pointer to the corresponding discrete state.";
     end PREVIOUS;
     record PARAMETER end PARAMETER;
     record CONSTANT end CONSTANT;
+    record ITERATOR end ITERATOR;
     record START
       Pointer<Variable> original            "Pointer to the corresponding original variable.";
     end START;
@@ -154,35 +178,36 @@ public
       output String str;
     algorithm
       str := match varKind
-        case TIME() then                "[TIME]";
-        case ALGEBRAIC() then           "[ALGB]";
-        case STATE() then               "[STAT]";
-        case STATE_DER() then           "[DER-]";
-        case DUMMY_DER() then           "[DDER]";
-        case DUMMY_STATE() then         "[DSTA]";
-        case DISCRETE() then            "[DISC]";
-        case DISCRETE_STATE() then      "[DISS]";
-        case PREVIOUS() then            "[PRE-]";
-        case PARAMETER() then           "[PRMT]";
-        case CONSTANT() then            "[CNST]";
-        case START() then               "[STRT]";
-        case EXTOBJ() then              "[EXTO]";
-        case JAC_VAR() then             "[JACV]";
-        case JAC_DIFF_VAR() then        "[JACD]";
-        case SEED_VAR() then            "[SEED]";
-        case OPT_CONSTR() then          "[OPT][CONS]";
-        case OPT_FCONSTR() then         "[OPT][FCON]";
-        case OPT_INPUT_WITH_DER() then  "[OPT][INWD]";
-        case OPT_INPUT_DER() then       "[OPT][INPD]";
-        case OPT_TGRID() then           "[OPT][TGRD]";
-        case OPT_LOOP_INPUT() then      "[OPT][LOOP]";
-        case ALG_STATE() then           "[ASTA]";
-        case DAE_RESIDUAL_VAR() then    "[RES-]";
-        case DAE_AUX_VAR() then         "[AUX-]";
-        case LOOP_ITERATION() then      "[LOOP]";
-        case LOOP_SOLVED() then         "[INNR]";
-        case FRONTEND_DUMMY() then      "[DMMY] Dummy Variable.";
-        else "[FAIL] " + getInstanceName() + " failed.";
+        case TIME()               then "[TIME]";
+        case ALGEBRAIC()          then "[ALGB]";
+        case STATE()              then "[STAT]";
+        case STATE_DER()          then "[DER-]";
+        case DUMMY_DER()          then "[DDER]";
+        case DUMMY_STATE()        then "[DSTA]";
+        case DISCRETE()           then "[DISC]";
+        case DISCRETE_STATE()     then "[DISS]";
+        case PREVIOUS()           then "[PRE-]";
+        case PARAMETER()          then "[PRMT]";
+        case CONSTANT()           then "[CNST]";
+        case ITERATOR()           then "[ITER]";
+        case START()              then "[STRT]";
+        case EXTOBJ()             then "[EXTO]";
+        case JAC_VAR()            then "[JACV]";
+        case JAC_DIFF_VAR()       then "[JACD]";
+        case SEED_VAR()           then "[SEED]";
+        case OPT_CONSTR()         then "[OPT][CONS]";
+        case OPT_FCONSTR()        then "[OPT][FCON]";
+        case OPT_INPUT_WITH_DER() then "[OPT][INWD]";
+        case OPT_INPUT_DER()      then "[OPT][INPD]";
+        case OPT_TGRID()          then "[OPT][TGRD]";
+        case OPT_LOOP_INPUT()     then "[OPT][LOOP]";
+        case ALG_STATE()          then "[ASTA]";
+        case DAE_RESIDUAL_VAR()   then "[RES-]";
+        case DAE_AUX_VAR()        then "[AUX-]";
+        case LOOP_ITERATION()     then "[LOOP]";
+        case LOOP_SOLVED()        then "[INNR]";
+        case FRONTEND_DUMMY()     then "[DMMY] Dummy Variable.";
+                                  else "[FAIL] " + getInstanceName() + " failed.";
       end match;
     end toString;
 
@@ -194,6 +219,7 @@ public
       b := match varKind
         case PARAMETER()  then false;
         case CONSTANT()   then false;
+        case ITERATOR()   then false;
         case START()      then false;
         else true;
       end match;
@@ -282,7 +308,7 @@ public
 
     function toString
       input VariableAttributes attr;
-      output String str;
+      output String str = "";
     algorithm
       str := match attr
         case VAR_ATTR_REAL()
@@ -304,7 +330,7 @@ public
         then attributesToString({("fixed", attr.fixed), ("start", attr.start), ("min", attr.min), ("max", attr.max)}, NONE(), NONE());
 
         case VAR_ATTR_RECORD()
-        then "Attribute string for RECORD not supported yet";
+        then List.toString(UnorderedMap.toList(attr.indexMap), function recordString(childrenAttr = attr.childrenAttr), "", "" ,", " , "");
 
         else getInstanceName() + " failed. Attribute string could not be created.";
       end match;
@@ -312,10 +338,22 @@ public
       str := if "" == str then "" else "(" + str + ")";
     end toString;
 
+    function recordString
+      input tuple<String, Integer> attr_tpl;
+      input array<VariableAttributes> childrenAttr;
+      output String str;
+    protected
+      String name;
+      Integer index;
+    algorithm
+      (name, index) := attr_tpl;
+      str := name + toString(childrenAttr[index]);
+    end recordString;
+
     function create
       input list<tuple<String, Binding>> attrs;
       input Type ty;
-      input Component.Attributes compAttrs;
+      input Attributes compAttrs;
       input list<Variable> children;
       input Option<SCode.Comment> comment;
       output VariableAttributes attributes;
@@ -401,6 +439,20 @@ public
       end match;
     end setFixedIfNone;
 
+    function isFixed
+      input VariableAttributes attributes;
+      output Boolean fixed;
+    algorithm
+      fixed := match attributes
+        case VAR_ATTR_REAL(fixed = SOME(Expression.BOOLEAN(value = true)))        then true;
+        case VAR_ATTR_INT(fixed = SOME(Expression.BOOLEAN(value = true)))         then true;
+        case VAR_ATTR_BOOL(fixed = SOME(Expression.BOOLEAN(value = true)))        then true;
+        case VAR_ATTR_STRING(fixed = SOME(Expression.BOOLEAN(value = true)))      then true;
+        case VAR_ATTR_ENUMERATION(fixed = SOME(Expression.BOOLEAN(value = true))) then true;
+                                                                                  else false;
+      end match;
+    end isFixed;
+
     function setStartAttribute
       input output VariableAttributes attributes;
       input Expression start;
@@ -440,9 +492,341 @@ public
       end match;
     end getStateSelect;
 
+    function scalarizeReal
+      input list<Option<Expression>>      quantity_list "quantity";
+      input list<Option<Expression>>      unit_list "SI Unit for actual computation value";
+      input list<Option<Expression>>      displayUnit_list "SI Unit only for displaying";
+      input list<Option<Expression>>      min_list "Lower boundry";
+      input list<Option<Expression>>      max_list "Upper boundry";
+      input list<Option<Expression>>      start_list "start value";
+      input list<Option<Expression>>      fixed_list "fixed - true: default for parameter/constant, false - default for other variables";
+      input list<Option<Expression>>      nominal_list "nominal";
+      input list<Option<StateSelect>>     stateSelect_list "Priority to be selected as a state during index reduction";
+      input list<Option<TearingSelect>>   tearingSelect_list "Priority to be selected as an iteration variable during tearing";
+      input list<Option<Uncertainty>>     uncertainty_list "Attributes from data reconcilliation";
+      input list<Option<Distribution>>    distribution_list "ToDo: ???";
+      input list<Option<Expression>>      binding_list "A binding expression for certain types. E.G. parameters";
+      input list<Option<Boolean>>         isProtected_list "Defined in protected scope";
+      input list<Option<Boolean>>         finalPrefix_list "Defined as final";
+      input list<Option<Expression>>      startOrigin_list "where did start=X came from? NONE()|SOME(Expression.STRING binding|type|undefined)";
+      output list<VariableAttributes>     scalar_attributes = {};
+    protected
+      Option<Expression> quantity,unit,displayUnit,min,max,start,fixed,nominal,binding,startOrigin;
+      Option<StateSelect> stateSelect;
+      Option<TearingSelect> tearingSelect;
+      Option<Uncertainty> uncertainty;
+      Option<Distribution> distribution;
+      Option<Boolean> isProtected, finalPrefix;
+      list<Option<Expression>> quantity_rest=quantity_list,unit_rest=unit_list,displayUnit_rest=displayUnit_list,min_rest=min_list,max_rest=max_list,start_rest=start_list,fixed_rest=fixed_list,nominal_rest=nominal_list,binding_rest=binding_list,startOrigin_rest=startOrigin_list;
+      list<Option<StateSelect>> stateSelect_rest=stateSelect_list;
+      list<Option<TearingSelect>> tearingSelect_rest=tearingSelect_list;
+      list<Option<Uncertainty>> uncertainty_rest=uncertainty_list;
+      list<Option<Distribution>> distribution_rest=distribution_list;
+      list<Option<Boolean>> isProtected_rest=isProtected_list, finalPrefix_rest=finalPrefix_list;
+    algorithm
+      for i in 1:listLength(quantity_list) loop
+        quantity :: quantity_rest           := quantity_rest;
+        unit :: unit_rest                   := unit_rest;
+        displayUnit :: displayUnit_rest     := displayUnit_rest;
+        min :: min_rest                     := min_rest;
+        max :: max_rest                     := max_rest;
+        start :: start_rest                 := start_rest;
+        fixed :: fixed_rest                 := fixed_rest;
+        nominal :: nominal_rest             := nominal_rest;
+        stateSelect :: stateSelect_rest     := stateSelect_rest;
+        tearingSelect :: tearingSelect_rest := tearingSelect_rest;
+        uncertainty :: uncertainty_rest     := uncertainty_rest;
+        distribution :: distribution_rest   := distribution_rest;
+        binding :: binding_rest             := binding_rest;
+        isProtected :: isProtected_rest     := isProtected_rest;
+        finalPrefix :: finalPrefix_rest     := finalPrefix_rest;
+        startOrigin :: startOrigin_rest     := startOrigin_rest;
+        scalar_attributes := VAR_ATTR_REAL(quantity,unit,displayUnit,min,max,start,fixed,nominal,stateSelect,tearingSelect,uncertainty,distribution,binding,isProtected,finalPrefix,startOrigin) :: scalar_attributes;
+      end for;
+      scalar_attributes := listReverse(scalar_attributes);
+    end scalarizeReal;
+
+    function scalarizeInt
+      input list<Option<Expression>>      quantity_list "quantity";
+      input list<Option<Expression>>      min_list "Lower boundry";
+      input list<Option<Expression>>      max_list "Upper boundry";
+      input list<Option<Expression>>      start_list "start value";
+      input list<Option<Expression>>      fixed_list "fixed - true: default for parameter/constant, false - default for other variables";
+      input list<Option<Uncertainty>>     uncertainty_list "Attributes from data reconcilliation";
+      input list<Option<Distribution>>    distribution_list "ToDo: ???";
+      input list<Option<Expression>>      binding_list "A binding expression for certain types. E.G. parameters";
+      input list<Option<Boolean>>         isProtected_list "Defined in protected scope";
+      input list<Option<Boolean>>         finalPrefix_list "Defined as final";
+      input list<Option<Expression>>      startOrigin_list "where did start=X came from? NONE()|SOME(Expression.STRING binding|type|undefined)";
+      output list<VariableAttributes>     scalar_attributes = {};
+    protected
+      Option<Expression> quantity,min,max,start,fixed,binding,startOrigin;
+      Option<Uncertainty> uncertainty;
+      Option<Distribution> distribution;
+      Option<Boolean> isProtected, finalPrefix;
+      list<Option<Expression>> quantity_rest=quantity_list,min_rest=min_list,max_rest=max_list,start_rest=start_list,fixed_rest=fixed_list,binding_rest=binding_list,startOrigin_rest=startOrigin_list;
+      list<Option<Uncertainty>> uncertainty_rest=uncertainty_list;
+      list<Option<Distribution>> distribution_rest=distribution_list;
+      list<Option<Boolean>> isProtected_rest=isProtected_list, finalPrefix_rest=finalPrefix_list;
+    algorithm
+      for i in 1:listLength(quantity_list) loop
+        quantity :: quantity_rest           := quantity_rest;
+        min :: min_rest                     := min_rest;
+        max :: max_rest                     := max_rest;
+        start :: start_rest                 := start_rest;
+        fixed :: fixed_rest                 := fixed_rest;
+        uncertainty :: uncertainty_rest     := uncertainty_rest;
+        distribution :: distribution_rest   := distribution_rest;
+        binding :: binding_rest             := binding_rest;
+        isProtected :: isProtected_rest     := isProtected_rest;
+        finalPrefix :: finalPrefix_rest     := finalPrefix_rest;
+        startOrigin :: startOrigin_rest     := startOrigin_rest;
+        scalar_attributes := VAR_ATTR_INT(quantity,min,max,start,fixed,uncertainty,distribution,binding,isProtected,finalPrefix,startOrigin) :: scalar_attributes;
+      end for;
+      scalar_attributes := listReverse(scalar_attributes);
+    end scalarizeInt;
+
+    function scalarizeBool
+      input list<Option<Expression>>      quantity_list "quantity";
+      input list<Option<Expression>>      start_list "start value";
+      input list<Option<Expression>>      fixed_list "fixed - true: default for parameter/constant, false - default for other variables";
+      input list<Option<Expression>>      binding_list "A binding expression for certain types. E.G. parameters";
+      input list<Option<Boolean>>         isProtected_list "Defined in protected scope";
+      input list<Option<Boolean>>         finalPrefix_list "Defined as final";
+      input list<Option<Expression>>      startOrigin_list "where did start=X came from? NONE()|SOME(Expression.STRING binding|type|undefined)";
+      output list<VariableAttributes>     scalar_attributes = {};
+    protected
+      Option<Expression> quantity,start,fixed,binding,startOrigin;
+      Option<Boolean> isProtected, finalPrefix;
+      list<Option<Expression>> quantity_rest=quantity_list,start_rest=start_list,fixed_rest=fixed_list,binding_rest=binding_list,startOrigin_rest=startOrigin_list;
+      list<Option<Boolean>> isProtected_rest=isProtected_list, finalPrefix_rest=finalPrefix_list;
+    algorithm
+      for i in 1:listLength(quantity_list) loop
+        quantity :: quantity_rest           := quantity_rest;
+        start :: start_rest                 := start_rest;
+        fixed :: fixed_rest                 := fixed_rest;
+        binding :: binding_rest             := binding_rest;
+        isProtected :: isProtected_rest     := isProtected_rest;
+        finalPrefix :: finalPrefix_rest     := finalPrefix_rest;
+        startOrigin :: startOrigin_rest     := startOrigin_rest;
+        scalar_attributes := VAR_ATTR_BOOL(quantity,start,fixed,binding,isProtected,finalPrefix,startOrigin) :: scalar_attributes;
+      end for;
+      scalar_attributes := listReverse(scalar_attributes);
+    end scalarizeBool;
+
+    function scalarizeClock
+      input list<Option<Boolean>>         isProtected_list "Defined in protected scope";
+      input list<Option<Boolean>>         finalPrefix_list "Defined as final";
+      output list<VariableAttributes>     scalar_attributes = {};
+    protected
+      Option<Boolean> isProtected, finalPrefix;
+      list<Option<Boolean>> isProtected_rest=isProtected_list, finalPrefix_rest=finalPrefix_list;
+    algorithm
+      for i in 1:listLength(isProtected_list) loop
+        isProtected :: isProtected_rest     := isProtected_rest;
+        finalPrefix :: finalPrefix_rest     := finalPrefix_rest;
+        scalar_attributes := VAR_ATTR_CLOCK(isProtected,finalPrefix) :: scalar_attributes;
+      end for;
+      scalar_attributes := listReverse(scalar_attributes);
+    end scalarizeClock;
+
+    function scalarizeString
+      input list<Option<Expression>>      quantity_list "quantity";
+      input list<Option<Expression>>      start_list "start value";
+      input list<Option<Expression>>      fixed_list "fixed - true: default for parameter/constant, false - default for other variables";
+      input list<Option<Expression>>      binding_list "A binding expression for certain types. E.G. parameters";
+      input list<Option<Boolean>>         isProtected_list "Defined in protected scope";
+      input list<Option<Boolean>>         finalPrefix_list "Defined as final";
+      input list<Option<Expression>>      startOrigin_list "where did start=X came from? NONE()|SOME(Expression.STRING binding|type|undefined)";
+      output list<VariableAttributes>     scalar_attributes = {};
+    protected
+      Option<Expression> quantity,start,fixed,binding,startOrigin;
+      Option<Boolean> isProtected, finalPrefix;
+      list<Option<Expression>> quantity_rest=quantity_list,start_rest=start_list,fixed_rest=fixed_list,binding_rest=binding_list,startOrigin_rest=startOrigin_list;
+      list<Option<Boolean>> isProtected_rest=isProtected_list, finalPrefix_rest=finalPrefix_list;
+    algorithm
+      for i in 1:listLength(quantity_list) loop
+        quantity :: quantity_rest           := quantity_rest;
+        start :: start_rest                 := start_rest;
+        fixed :: fixed_rest                 := fixed_rest;
+        binding :: binding_rest             := binding_rest;
+        isProtected :: isProtected_rest     := isProtected_rest;
+        finalPrefix :: finalPrefix_rest     := finalPrefix_rest;
+        startOrigin :: startOrigin_rest     := startOrigin_rest;
+        scalar_attributes := VAR_ATTR_STRING(quantity,start,fixed,binding,isProtected,finalPrefix,startOrigin) :: scalar_attributes;
+      end for;
+      scalar_attributes := listReverse(scalar_attributes);
+    end scalarizeString;
+
+    function scalarizeEnumeration
+      input list<Option<Expression>>      quantity_list "quantity";
+      input list<Option<Expression>>      min_list "Lower boundry";
+      input list<Option<Expression>>      max_list "Upper boundry";
+      input list<Option<Expression>>      start_list "start value";
+      input list<Option<Expression>>      fixed_list "fixed - true: default for parameter/constant, false - default for other variables";
+      input list<Option<Expression>>      binding_list "A binding expression for certain types. E.G. parameters";
+      input list<Option<Boolean>>         isProtected_list "Defined in protected scope";
+      input list<Option<Boolean>>         finalPrefix_list "Defined as final";
+      input list<Option<Expression>>      startOrigin_list "where did start=X came from? NONE()|SOME(Expression.STRING binding|type|undefined)";
+      output list<VariableAttributes>     scalar_attributes = {};
+    protected
+      Option<Expression> quantity,min,max,start,fixed,binding,startOrigin;
+      Option<Boolean> isProtected, finalPrefix;
+      list<Option<Expression>> quantity_rest=quantity_list,min_rest=min_list,max_rest=max_list,start_rest=start_list,fixed_rest=fixed_list,binding_rest=binding_list,startOrigin_rest=startOrigin_list;
+      list<Option<Boolean>> isProtected_rest=isProtected_list, finalPrefix_rest=finalPrefix_list;
+    algorithm
+      for i in 1:listLength(quantity_list) loop
+        quantity :: quantity_rest           := quantity_rest;
+        min :: min_rest                     := min_rest;
+        max :: max_rest                     := max_rest;
+        start :: start_rest                 := start_rest;
+        fixed :: fixed_rest                 := fixed_rest;
+        binding :: binding_rest             := binding_rest;
+        isProtected :: isProtected_rest     := isProtected_rest;
+        finalPrefix :: finalPrefix_rest     := finalPrefix_rest;
+        startOrigin :: startOrigin_rest     := startOrigin_rest;
+        scalar_attributes :=  VAR_ATTR_ENUMERATION(quantity,min,max,start,fixed,binding,isProtected,finalPrefix,startOrigin) :: scalar_attributes;
+      end for;
+      scalar_attributes := listReverse(scalar_attributes);
+    end scalarizeEnumeration;
+
+    function scalarizeOptAttr
+      input Option<Expression> exp_opt;
+      input Integer length;
+      output list<Option<Expression>> exp_opt_list;
+    algorithm
+      exp_opt_list := match exp_opt
+        local
+          Expression exp;
+          list<Expression> lst;
+          Integer lst_length, div;
+
+        case SOME(exp) algorithm
+          lst := ExpressionIterator.toList(ExpressionIterator.fromExp(exp));
+          lst_length := listLength(lst);
+          div := realInt(length/lst_length);
+          if intMod(length,lst_length) <> 0 then
+            Error.assertion(false, getInstanceName() + " failed. Cannot repeat the list of length: " + intString(lst_length)
+              + " to get to desired full length: " + intString(length)
+              + "\n{" + stringDelimitList(list(Expression.toString(e) for e in lst), ", ") + "}", sourceInfo());
+            fail();
+          else
+            exp_opt_list := list(SOME(e) for e in lst);
+            if div > 1 then
+              exp_opt_list := List.repeat(exp_opt_list, div);
+            end if;
+          end if;
+          then exp_opt_list;
+
+          else List.fill(exp_opt, length);
+      end match;
+    end scalarizeOptAttr;
+
+    function scalarize
+      input VariableAttributes attributes;
+      input Integer length;
+      output list<VariableAttributes> scalar_attributes = {};
+    algorithm
+      scalar_attributes := match attributes
+        case VAR_ATTR_REAL() then scalarizeReal(
+          quantity_list       = scalarizeOptAttr(attributes.quantity, length),
+          unit_list           = scalarizeOptAttr(attributes.unit, length),
+          displayUnit_list    = scalarizeOptAttr(attributes.displayUnit, length),
+          min_list            = scalarizeOptAttr(attributes.min, length),
+          max_list            = scalarizeOptAttr(attributes.max, length),
+          start_list          = scalarizeOptAttr(attributes.start, length),
+          fixed_list          = scalarizeOptAttr(attributes.fixed, length),
+          nominal_list        = scalarizeOptAttr(attributes.nominal, length),
+          stateSelect_list    = List.fill(attributes.stateSelect, length),
+          tearingSelect_list  = List.fill(attributes.tearingSelect, length),
+          uncertainty_list    = List.fill(attributes.uncertainty, length),
+          distribution_list   = List.fill(attributes.distribution, length),
+          binding_list        = scalarizeOptAttr(attributes.binding, length),
+          isProtected_list    = List.fill(attributes.isProtected, length),
+          finalPrefix_list    = List.fill(attributes.finalPrefix, length),
+          startOrigin_list    = scalarizeOptAttr(attributes.startOrigin, length)
+        );
+
+        case VAR_ATTR_INT() then scalarizeInt(
+          quantity_list       = scalarizeOptAttr(attributes.quantity, length),
+          min_list            = scalarizeOptAttr(attributes.min, length),
+          max_list            = scalarizeOptAttr(attributes.max, length),
+          start_list          = scalarizeOptAttr(attributes.start, length),
+          fixed_list          = scalarizeOptAttr(attributes.fixed, length),
+          uncertainty_list    = List.fill(attributes.uncertainty, length),
+          distribution_list   = List.fill(attributes.distribution, length),
+          binding_list        = scalarizeOptAttr(attributes.binding, length),
+          isProtected_list    = List.fill(attributes.isProtected, length),
+          finalPrefix_list    = List.fill(attributes.finalPrefix, length),
+          startOrigin_list    = scalarizeOptAttr(attributes.startOrigin, length)
+        );
+
+        case VAR_ATTR_BOOL() then scalarizeBool(
+          quantity_list       = scalarizeOptAttr(attributes.quantity, length),
+          start_list          = scalarizeOptAttr(attributes.start, length),
+          fixed_list          = scalarizeOptAttr(attributes.fixed, length),
+          binding_list        = scalarizeOptAttr(attributes.binding, length),
+          isProtected_list    = List.fill(attributes.isProtected, length),
+          finalPrefix_list    = List.fill(attributes.finalPrefix, length),
+          startOrigin_list    = scalarizeOptAttr(attributes.startOrigin, length)
+        );
+
+        case VAR_ATTR_CLOCK() then scalarizeClock(
+          isProtected_list    = List.fill(attributes.isProtected, length),
+          finalPrefix_list    = List.fill(attributes.finalPrefix, length)
+        );
+
+        case VAR_ATTR_STRING() then scalarizeString(
+          quantity_list       = scalarizeOptAttr(attributes.quantity, length),
+          start_list          = scalarizeOptAttr(attributes.start, length),
+          fixed_list          = scalarizeOptAttr(attributes.fixed, length),
+          binding_list        = scalarizeOptAttr(attributes.binding, length),
+          isProtected_list    = List.fill(attributes.isProtected, length),
+          finalPrefix_list    = List.fill(attributes.finalPrefix, length),
+          startOrigin_list    = scalarizeOptAttr(attributes.startOrigin, length)
+        );
+
+        case VAR_ATTR_ENUMERATION() then scalarizeEnumeration(
+          quantity_list       = scalarizeOptAttr(attributes.quantity, length),
+          min_list            = scalarizeOptAttr(attributes.min, length),
+          max_list            = scalarizeOptAttr(attributes.max, length),
+          start_list          = scalarizeOptAttr(attributes.start, length),
+          fixed_list          = scalarizeOptAttr(attributes.fixed, length),
+          binding_list        = scalarizeOptAttr(attributes.binding, length),
+          isProtected_list    = List.fill(attributes.isProtected, length),
+          finalPrefix_list    = List.fill(attributes.finalPrefix, length),
+          startOrigin_list    = scalarizeOptAttr(attributes.startOrigin, length)
+        );
+
+        // kabdelhak: ToDo: need to discuss this case
+        case VAR_ATTR_RECORD() then {attributes};
+
+        else algorithm
+          Error.assertion(false, getInstanceName() + "failed. Not yet handled: " + toString(attributes), sourceInfo());
+        then fail();
+      end match;
+    end scalarize;
+
+    function elemType
+      input VariableAttributes attr;
+      output Type ty;
+    algorithm
+      ty := match attr
+        case VAR_ATTR_REAL()    then Type.REAL();
+        case VAR_ATTR_INT()     then Type.INTEGER();
+        case VAR_ATTR_BOOL()    then Type.BOOLEAN();
+        case VAR_ATTR_CLOCK()   then Type.CLOCK();
+        case VAR_ATTR_STRING()  then Type.STRING();
+        // should probably add enumeration but currently the needed info is not stored here
+        else algorithm
+          Error.assertion(false, getInstanceName() + " cannot create type from attributes: " + toString(attr), sourceInfo());
+        then fail();
+      end match;
+    end elemType;
+
   protected
     function attributesToString
-      input list<tuple<String, Option<Expression>>> tpl_lst;
+      input list<tuple<String, Option<Expression>>> tpl_list;
       input Option<StateSelect> stateSelect;
       input Option<TearingSelect> tearingSelect;
       output String str = "";
@@ -450,7 +834,7 @@ public
       list<String> buffer = {};
       String name;
     algorithm
-      for tpl in tpl_lst loop
+      for tpl in tpl_list loop
         buffer := attributeToString(tpl, buffer);
       end for;
 
@@ -493,11 +877,11 @@ public
       if isSome(optStateSelect) then
         SOME(stateSelect) := optStateSelect;
         buffer := match stateSelect
-          case StateSelect.NEVER then "StateSelect = never" :: buffer;
-          case StateSelect.AVOID then "StateSelect = avoid" :: buffer;
-          case StateSelect.DEFAULT then "StateSelect = default" :: buffer;
-          case StateSelect.PREFER then "StateSelect = prefer" :: buffer;
-          case StateSelect.ALWAYS then "StateSelect = always" :: buffer;
+          case StateSelect.NEVER    then "StateSelect = never" :: buffer;
+          case StateSelect.AVOID    then "StateSelect = avoid" :: buffer;
+          case StateSelect.DEFAULT  then "StateSelect = default" :: buffer;
+          case StateSelect.PREFER   then "StateSelect = prefer" :: buffer;
+          case StateSelect.ALWAYS   then "StateSelect = always" :: buffer;
         end match;
       end if;
     end stateSelectString;
@@ -511,11 +895,11 @@ public
       if isSome(optTearingSelect) then
         SOME(tearingSelect) := optTearingSelect;
         buffer := match tearingSelect
-          case TearingSelect.NEVER then "TearingSelect = never" :: buffer;
-          case TearingSelect.AVOID then "TearingSelect = avoid" :: buffer;
-          case TearingSelect.DEFAULT then "TearingSelect = default" :: buffer;
-          case TearingSelect.PREFER then "TearingSelect = prefer" :: buffer;
-          case TearingSelect.ALWAYS then "TearingSelect = always" :: buffer;
+          case TearingSelect.NEVER    then "TearingSelect = never" :: buffer;
+          case TearingSelect.AVOID    then "TearingSelect = avoid" :: buffer;
+          case TearingSelect.DEFAULT  then "TearingSelect = default" :: buffer;
+          case TearingSelect.PREFER   then "TearingSelect = prefer" :: buffer;
+          case TearingSelect.ALWAYS   then "TearingSelect = always" :: buffer;
         end match;
       end if;
     end tearingSelectString;
@@ -818,7 +1202,6 @@ public
             fail();
       end match;
     end lookupTearingSelectMember;
-
   end VariableAttributes;
 
   constant VariableAttributes EMPTY_VAR_ATTR_REAL         = VAR_ATTR_REAL(NONE(),NONE(),NONE(), NONE(), NONE(),NONE(),NONE(),NONE(),NONE(),NONE(),NONE(),NONE(),NONE(),NONE(),NONE(),NONE());

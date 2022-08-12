@@ -305,7 +305,7 @@ public
       2. creates a sample time event from a sample operator
       3. fails for anything else
       NOTE: create sample from sin and cos functions?"
-      input output Expression exp         "has to be BINARY() with comparing operator or a sample CALL()";
+      input output Expression exp         "has to be LBINARY() with comparing operator or a sample CALL()";
       input output Bucket bucket          "bucket containing the events";
       output Boolean failed               "true if it did not work to create a compact time event";
     protected
@@ -324,7 +324,7 @@ public
           algorithm
             // create auxiliary equation and solve for TIME
             tmpEqn := Pointer.access(Equation.fromLHSandRHS(exp.exp1, exp.exp2, Pointer.create(0), "TMP"));
-            (tmpEqn, _, status, invert) := Solve.solve(tmpEqn, NFBuiltin.TIME_CREF, FunctionTreeImpl.EMPTY());
+            (tmpEqn, _, status, invert) := Solve.solveEquation(tmpEqn, NFBuiltin.TIME_CREF, FunctionTreeImpl.EMPTY());
             if status == NBSolve.Status.EXPLICIT then
               // save simplified binary
               exp.exp1 := Equation.getLHS(tmpEqn);
@@ -399,8 +399,8 @@ public
     end createSample;
 
     function createSampleTraverse
-      "used only for StateEvent traversel to encapsulate sample operators"
-      input output Expression exp         "has to be BINARY() with comparing operator or a sample CALL()";
+      "used only for StateEvent traversal to encapsulate sample operators"
+      input output Expression exp         "has to be LBINARY() with comparing operator or a sample CALL()";
       input output Bucket bucket          "bucket containing the events";
     algorithm
       exp := match exp
@@ -413,6 +413,111 @@ public
         else exp;
       end match;
     end createSampleTraverse;
+
+    function createComposite
+      "Find special events of the form:  sample(t0, dt) and (f(x) > 0)
+      These events can only occur at the sample times. At that time the additional condition
+      is checked only once, no state event necessary!
+      NOTE: This does not work for SIMPLE_TIME, e.g. (time > 0.2) and (f(x) > 0)"
+      input output Expression condition;
+      input output Bucket bucket;
+      output Boolean failed = false "returns true if composite event list could not be created";
+    protected
+      Pointer<Variable> aux_var;
+      ComponentRef aux_cref;
+    algorithm
+      (condition, bucket, failed) := match condition
+        local
+          Expression exp, exp2;
+          Call call;
+
+        // base case: sample is the left operand to AND
+        case Expression.LBINARY(exp1 = exp as Expression.CALL(call = call), operator = Operator.OPERATOR(op = NFOperator.Op.AND))
+          guard BackendUtil.isOnlyTimeDependent(exp)
+          algorithm
+            (call, exp2, bucket, failed) := checkDirectComposite(call, condition.exp2, bucket);
+            if not failed then
+              exp.call := call;
+              condition.exp1 := exp;
+              if not referenceEq(exp2, condition.exp2) then
+                condition.exp2 := exp2;
+              end if;
+            end if;
+        then (condition, bucket, failed);
+
+        // base case: sample is the right operand to AND
+        case Expression.LBINARY(exp2 = exp as Expression.CALL(call = call), operator = Operator.OPERATOR(op = NFOperator.Op.AND))
+          guard BackendUtil.isOnlyTimeDependent(exp)
+          algorithm
+            (call, exp2, bucket, failed) := checkDirectComposite(call, condition.exp1, bucket);
+            if not failed then
+              exp.call := call;
+              condition.exp2 := exp;
+              if not referenceEq(exp2, condition.exp1) then
+                condition.exp1 := exp2;
+              end if;
+            end if;
+        then (condition, bucket, failed);
+
+        // recursion: sample might be nested (all parent operators have to be AND)
+        // e.g. (sample(t0, dt) and f1(x)) and f2(x)
+        case Expression.LBINARY(operator = Operator.OPERATOR(op = NFOperator.Op.AND))
+          algorithm
+            (exp, bucket, failed) := createComposite(condition.exp1, bucket);
+            if not failed then
+              condition.exp1 := exp;
+              (exp, bucket, failed) := createComposite(condition.exp2, bucket);
+              if not failed then
+                // TODO what if there is more than one sample()?
+                condition.exp2 := exp;
+              end if;
+              failed := false; // we know we have a composite time event in the first half
+            else
+              (exp, bucket, failed) := createComposite(condition.exp2, bucket);
+              if not failed then
+                condition.exp2 := exp;
+              end if;
+            end if;
+        then (condition, bucket, failed);
+
+        else (condition, bucket, true);
+      end match;
+
+      if not failed then
+        if TimeEventTree.hasKey(bucket.timeEventTree, condition) then
+          // time event already exists, just get the identifier
+          aux_var := TimeEventTree.get(bucket.timeEventTree, condition);
+          aux_cref := BVariable.getVarName(aux_var);
+        else
+          // make a new auxiliary variable representing the state
+          (aux_var, aux_cref) := BVariable.makeEventVar(NBVariable.TIME_EVENT_STR, bucket.auxiliaryTimeEventIndex);
+          bucket.auxiliaryTimeEventIndex := bucket.auxiliaryTimeEventIndex + 1;
+          // add the new event to the tree
+          bucket.timeEventTree := TimeEventTree.add(bucket.timeEventTree, condition, aux_var);
+          // also return the expression which replaces the zero crossing
+        end if;
+        condition := Expression.fromCref(aux_cref);
+      end if;
+    end createComposite;
+
+    function checkDirectComposite
+      "Checks if call is a sample call and if it is creates the appropriate events.
+      Also checks the rest exp for composite events, not sure if this is necessary."
+      input output Call call "sample call";
+      input output Expression exp;
+      input output Bucket bucket;
+      output Boolean failed;
+    protected
+      Boolean failed2;
+    algorithm
+      (call, bucket, failed) := createSample(call, bucket);
+      if not failed then
+        (exp, bucket, failed2) := createComposite(exp, bucket);
+        if not failed2 then
+          // TODO what if there is more than one sample()? Can we simplify this?
+        end if;
+      end if;
+    end checkDirectComposite;
 
     function getIndex
       input TimeEvent timeEvent;
@@ -670,26 +775,30 @@ protected
   function eventsDefault extends Module.eventsInterface;
   protected
     Bucket bucket = BUCKET(TimeEventSet.new(), TimeEventTree.new(), StateEventTree.new(), 0, 0, 0);
+    Pointer<Bucket> bucket_ptr;
     list<Pointer<Variable>> auxiliary_vars;
     list<Pointer<Equation>> auxiliary_eqns;
   algorithm
     eventInfo := match (varData, eqData)
       case (BVariable.VAR_DATA_SIM(), BEquation.EQ_DATA_SIM()) algorithm
         // collect event info and replace all conditions with auxiliary variables
-        bucket := EquationPointers.foldPtr(eqData.equations, collectEvents, bucket);
+        bucket_ptr := Pointer.create(bucket);
+        EquationPointers.mapPtr(eqData.equations, function collectEvents(bucket_ptr = bucket_ptr));
+        bucket := Pointer.access(bucket_ptr);
+
         (eventInfo, auxiliary_vars, auxiliary_eqns) := EventInfo.create(bucket, eqData.uniqueIndex);
 
         // add auxiliary variables
         varData.variables := VariablePointers.addList(auxiliary_vars, varData.variables);
-        varData.unknowns := VariablePointers.addList(auxiliary_vars, varData.unknowns);
-        varData.initials := VariablePointers.addList(auxiliary_vars, varData.initials);
+        varData.unknowns  := VariablePointers.addList(auxiliary_vars, varData.unknowns);
+        varData.initials  := VariablePointers.addList(auxiliary_vars, varData.initials);
         varData.discretes := VariablePointers.addList(auxiliary_vars, varData.discretes);
 
         // add auxiliary equations
-        eqData.equations := EquationPointers.addList(auxiliary_eqns, eqData.equations);
+        eqData.equations  := EquationPointers.addList(auxiliary_eqns, eqData.equations);
         eqData.simulation := EquationPointers.addList(auxiliary_eqns, eqData.simulation);
-        eqData.initials := EquationPointers.addList(auxiliary_eqns, eqData.initials);
-        eqData.discretes := EquationPointers.addList(auxiliary_eqns, eqData.discretes);
+        eqData.initials   := EquationPointers.addList(auxiliary_eqns, eqData.initials);
+        eqData.discretes  := EquationPointers.addList(auxiliary_eqns, eqData.discretes);
       then eventInfo;
 
       else algorithm
@@ -699,86 +808,71 @@ protected
   end eventsDefault;
 
   function collectEvents
+    "collects all events from an equation pointer."
     input Pointer<Equation> eqn_ptr;
-    input output Bucket bucket;
+    input Pointer<Bucket> bucket_ptr;
   protected
     Equation eqn = Pointer.access(eqn_ptr);
   algorithm
-    bucket := match eqn
-      local
-        WhenEquationBody whenBody;
-        IfEquationBody ifBody;
-
-      case Equation.WHEN_EQUATION() algorithm
-        (whenBody, bucket) := collectEventsWhenBody(eqn.body, bucket , eqn_ptr);
-        eqn.body := whenBody;
-      then bucket;
-
-      case Equation.IF_EQUATION() algorithm
-        (ifBody, bucket) := collectEventsIfBody(eqn.body, bucket , eqn_ptr);
-        eqn.body := ifBody;
-      then bucket;
-
-      else bucket;
-    end match;
+    eqn := Equation.map(eqn, function collectEventsTraverse(bucket_ptr = bucket_ptr, eqn_ptr = eqn_ptr), NONE(), Expression.mapReverse);
 
     if not referenceEq(eqn, Pointer.access(eqn_ptr)) then
       Pointer.update(eqn_ptr, eqn);
     end if;
   end collectEvents;
 
-  function collectEventsWhenBody
-    input output WhenEquationBody body;
-    input output Bucket bucket;
+  function collectEventsTraverse
+    "checks expressions if they are a zero crossing.
+    can be used on any expression with Exression.mapReverse
+    (reverse is necessary so the subexpressions are not traversed first)"
+    input output Expression exp;
+    input Pointer<Bucket> bucket_ptr;
     input Pointer<Equation> eqn_ptr;
-  protected
-    Expression new_condition;
-    WhenEquationBody else_when;
   algorithm
-    // condition is replaced by auxiliary variable
-    (new_condition, bucket) := collectEventsCondition(body.condition, bucket, eqn_ptr);
-    body.condition := new_condition;
+    exp := match exp
+      local
+        Bucket bucket;
 
-    // ToDo: traverse statements?
+      // logical binarys: e.g. (a and b)
+      // Todo: this might not always be correct -> check with something like "contains relation?"
+      case Expression.LBINARY() algorithm
+        (exp, bucket) := collectEventsCondition(exp, Pointer.access(bucket_ptr), eqn_ptr);
+        Pointer.update(bucket_ptr, bucket);
+      then exp;
 
-    // go deeper and collect in else when
-    if Util.isSome(body.else_when) then
-      (else_when, bucket) := collectEventsWhenBody(Util.getOption(body.else_when), bucket, eqn_ptr);
-      body.else_when := SOME(else_when);
-    end if;
-  end collectEventsWhenBody;
+      // relations: e.g. (a > b)
+      case Expression.RELATION() algorithm
+        (exp, bucket) := collectEventsCondition(exp, Pointer.access(bucket_ptr), eqn_ptr);
+        Pointer.update(bucket_ptr, bucket);
+      then exp;
 
-  function collectEventsIfBody
-    input output IfEquationBody body;
-    input output Bucket bucket;
-    input Pointer<Equation> eqn_ptr;
-  protected
-    Expression new_condition;
-    IfEquationBody else_if;
-  algorithm
-    // condition is replaced by auxiliary variable
-    (new_condition, bucket) := collectEventsCondition(body.condition, bucket, eqn_ptr);
-    body.condition := new_condition;
+      // sample functions
+      case Expression.CALL() guard(Call.isNamed(exp.call, "sample")) algorithm
+        (exp, bucket) := collectEventsCondition(exp, Pointer.access(bucket_ptr), eqn_ptr);
+        Pointer.update(bucket_ptr, bucket);
+      then exp;
 
-    // ToDo: traverse statements?
+      // ToDo: math events (check the call name in a function and merge with sample case?)
 
-    // go deeper and collect in else if
-    if Util.isSome(body.else_if) then
-      (else_if, bucket) := collectEventsIfBody(Util.getOption(body.else_if), bucket, eqn_ptr);
-      body.else_if := SOME(else_if);
-    end if;
-  end collectEventsIfBody;
+      else exp;
+    end match;
+  end collectEventsTraverse;
 
   function collectEventsCondition
+    "collects an expression as a zero crossing.
+    has to be used with collectEventsTraverse to make sure that only
+    suitable expressions are checked."
     input output Expression condition;
     input output Bucket bucket;
     input Pointer<Equation> eqn_ptr;
   protected
     Boolean failed = true;
   algorithm
-    // try to create time event
+    // try to create time event or composite time event
     if BackendUtil.isOnlyTimeDependent(condition) then
       (condition, bucket, failed) := TimeEvent.create(condition, bucket);
+    else
+      (condition, bucket, failed) := TimeEvent.createComposite(condition, bucket);
     end if;
 
     // if it failed create state event

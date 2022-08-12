@@ -67,7 +67,7 @@ def numLogicalCPU() {
   return env.JENKINS_NUM_LOGICAL_CPU
 }
 
-void partest(cache=true, extraArgs='') {
+void partest(partition=1,partitionmodulo=1,cache=true, extraArgs='') {
   if (isWindows()) {
 
   bat ("""
@@ -105,7 +105,7 @@ void partest(cache=true, extraArgs='') {
   ulimit -v 6291456 # Max 6GB per process
 
   cd testsuite/partest
-  ./runtests.pl -j${numPhysicalCPU()} -nocolour -with-xml ${extraArgs}
+  ./runtests.pl -j${numPhysicalCPU()} -partition=${partition}/${partitionmodulo} -nocolour -with-xml ${extraArgs}
   CODE=\$?
   test \$CODE = 0 -o \$CODE = 7 || exit 1
   """
@@ -318,11 +318,11 @@ void buildOMC_CMake(cmake_args, cmake_exe='cmake') {
      echo export MSYS_WORKSPACE="`cygpath '${WORKSPACE}'`"
      echo echo MSYS_WORKSPACE: \${MSYS_WORKSPACE}
      echo cd \${MSYS_WORKSPACE}
-     echo export MAKETHREADS=16
      echo set -ex
-     echo mkdir OMCompiler/build_cmake
-     echo cmake -S OMCompiler -B OMCompiler/build_cmake ${cmake_args}
-     echo time cmake --build OMCompiler/build_cmake --parallel \${MAKETHREADS} --target install
+     echo mkdir build_cmake
+     echo ${cmake_exe} --version
+     echo ${cmake_exe} -S ./ -B ./build_cmake ${cmake_args}
+     echo time ${cmake_exe} --build ./build_cmake --parallel ${numPhysicalCPU()} --target install
      ) > buildOMCWindows.sh
 
      set MSYSTEM=MINGW64
@@ -331,9 +331,11 @@ void buildOMC_CMake(cmake_args, cmake_exe='cmake') {
   """)
   }
   else {
-    sh "mkdir OMCompiler/build_cmake"
-    sh "${cmake_exe} -S OMCompiler -B OMCompiler/build_cmake ${cmake_args}"
-    sh "${cmake_exe} --build OMCompiler/build_cmake --parallel ${numPhysicalCPU()} --target install"
+    sh "mkdir ./build_cmake"
+    sh "${cmake_exe} --version"
+    sh "${cmake_exe} -S ./ -B ./build_cmake ${cmake_args}"
+    sh "${cmake_exe} --build ./build_cmake --parallel ${numPhysicalCPU()} --target install"
+    sh "${cmake_exe} --build ./build_cmake --parallel ${numPhysicalCPU()} --target testsuite-depends"
   }
 }
 
@@ -372,9 +374,9 @@ void buildGUI(stash, isQt5) {
   sh 'echo ./configure `./config.status --config` > config.status.2 && bash ./config.status.2'
   // compile OMSens_Qt for Qt5
   if (isQt5) {
-    sh "touch omc.skip omc-diff.skip ReferenceFiles.skip omsimulator.skip && ${makeCommand()} -q -j${numPhysicalCPU()} omc omc-diff ReferenceFiles omsimulator" // Pretend we already built omc since we already did so
+    sh "touch omc.skip omc-diff.skip ReferenceFiles.skip omsimulator.skip && ${makeCommand()} -j${numPhysicalCPU()} omc omc-diff ReferenceFiles omsimulator omparser omsens_qt" // Pretend we already built omc since we already did so
   } else {
-    sh "touch omc.skip omc-diff.skip ReferenceFiles.skip omsimulator.skip omsens_qt.skip && ${makeCommand()} -j${numPhysicalCPU()} -q omc omc-diff ReferenceFiles omsimulator omsens_qt" // Pretend we already built omc since we already did so
+    sh "touch omc.skip omc-diff.skip ReferenceFiles.skip omsimulator.skip omsens_qt.skip && ${makeCommand()} -j${numPhysicalCPU()} omc omc-diff ReferenceFiles omsimulator omparser omsens_qt" // Pretend we already built omc since we already did so
   }
   sh "${makeCommand()} -j${numPhysicalCPU()} ${outputSync()}" // Builds the GUI files
 
@@ -415,7 +417,7 @@ void buildAndRunOMEditTestsuite(stash) {
     patchConfigStatus()
   }
   sh 'echo ./configure `./config.status --config` > config.status.2 && bash ./config.status.2'
-  sh "touch omc.skip omc-diff.skip ReferenceFiles.skip omsimulator.skip omedit.skip omplot.skip omparser.skip && ${makeCommand()} -q omc omc-diff ReferenceFiles omsimulator omedit omplot omparser" // Pretend we already built omc since we already did so
+  sh "touch omc.skip omc-diff.skip ReferenceFiles.skip omsimulator.skip omedit.skip omplot.skip && ${makeCommand()} -j${numPhysicalCPU()} omc omc-diff ReferenceFiles omsimulator omedit omplot omparser" // Pretend we already built omc since we already did so
   sh "${makeCommand()} -j${numPhysicalCPU()} --output-sync=recurse omedit-testsuite" // Builds the OMEdit testsuite
   sh label: 'RunOMEditTestsuite', script: '''
   HOME="\$PWD/testsuite/libraries-for-testing"

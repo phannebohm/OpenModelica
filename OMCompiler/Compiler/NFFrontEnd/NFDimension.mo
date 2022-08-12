@@ -36,6 +36,7 @@ protected
   import Prefixes = NFPrefixes;
   import List;
   import SimplifyExp = NFSimplifyExp;
+  import Ceval = NFCeval;
 
 public
   import Absyn.{Exp, Path, Subscript};
@@ -46,6 +47,7 @@ public
   import ComponentRef = NFComponentRef;
   import NFPrefixes.Variability;
   import Inst = NFInst;
+  import NFCeval.EvalTarget;
 
   record RAW_DIM
     Absyn.Subscript dim;
@@ -134,7 +136,7 @@ public
       then fail();
     end match;
 
-    dim := INTEGER(realInt((stop-start+1)/step), NFPrefixes.Variability.CONSTANT);
+    dim := INTEGER(realInt((stop-start)/step + 1), NFPrefixes.Variability.CONSTANT);
   end fromRange;
 
   function fromInteger
@@ -142,6 +144,11 @@ public
     input Variability var = Variability.CONSTANT;
     output Dimension dim = INTEGER(n, var);
   end fromInteger;
+
+  function fromExpArray
+    input array<Expression> expl;
+    output Dimension dim = INTEGER(arrayLength(expl), Variability.CONSTANT);
+  end fromExpArray;
 
   function fromExpList
     input list<Expression> expl;
@@ -193,6 +200,16 @@ public
       case ENUM(enumType = ty as Type.ENUMERATION()) then listLength(ty.literals);
     end match;
   end size;
+
+  function sizesProduct
+    "Returns the product of the given dimension sizes."
+    input list<Dimension> dims;
+    output Integer outSize = 1;
+  algorithm
+    for dim in dims loop
+      outSize := outSize * Dimension.size(dim);
+    end for;
+  end sizesProduct;
 
   function isEqual
     input Dimension dim1;
@@ -349,7 +366,7 @@ public
         then Expression.makeEnumLiteral(ty, listLength(ty.literals));
       case EXP() then dim.exp;
       case UNKNOWN()
-        then Expression.SIZE(Expression.CREF(Type.UNKNOWN(), ComponentRef.stripSubscripts(cref)),
+        then Expression.SIZE(Expression.fromCref(ComponentRef.stripSubscripts(cref)),
                              SOME(Expression.INTEGER(index)));
     end match;
   end endExp;
@@ -503,6 +520,17 @@ public
       arg := foldExp(dim, func, arg);
     end for;
   end foldExpList;
+
+  function eval
+    input Dimension dim;
+    input EvalTarget target = EvalTarget.IGNORE_ERRORS();
+    output Dimension outDim;
+  algorithm
+    outDim := match dim
+      case EXP() then fromExp(Ceval.evalExp(dim.exp, target), dim.var);
+      else dim;
+    end match;
+  end eval;
 
   function simplify
     input output Dimension dim;

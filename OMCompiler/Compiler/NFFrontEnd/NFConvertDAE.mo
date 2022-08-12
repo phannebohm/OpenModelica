@@ -43,6 +43,7 @@ import Restriction = NFRestriction;
 protected
 
 import Algorithm = NFAlgorithm;
+import Attributes = NFAttributes;
 import ComponentReference;
 import ComponentRef = NFComponentRef;
 import Dimension = NFDimension;
@@ -91,6 +92,13 @@ algorithm
   execStat(getInstanceName());
 end convert;
 
+function convertStatements
+  input list<Statement> statements;
+  output list<DAE.Statement> elements;
+algorithm
+  elements := list(convertStatement(s) for s in statements);
+end convertStatements;
+
 protected
 uniontype VariableConversionSettings
   record VARIABLE_CONVERSION_SETTINGS
@@ -138,7 +146,7 @@ function makeDAEVar
   input ComponentRef cref;
   input Type ty;
   input Option<DAE.Exp> binding;
-  input Component.Attributes attr;
+  input Attributes attr;
   input Visibility vis;
   input Option<DAE.VariableAttributes> vattr;
   input Option<SCode.Comment> comment;
@@ -160,7 +168,7 @@ algorithm
   end if;
 
   var := match attr
-    case Component.Attributes.ATTRIBUTES()
+    case Attributes.ATTRIBUTES()
       algorithm
         // Strip input/output from non top-level components unless
         // --useLocalDirection=true has been set.
@@ -231,7 +239,7 @@ end getComponentDirection;
 function convertVarAttributes
   input list<tuple<String, Binding>> attrs;
   input Type ty;
-  input Component.Attributes compAttrs;
+  input Attributes compAttrs;
   output Option<DAE.VariableAttributes> attributes;
 protected
   Boolean is_final;
@@ -546,10 +554,19 @@ function convertEquation
 algorithm
   elements := match eq
     local
+      Expression lhs, rhs;
       DAE.Exp e1, e2, e3;
       DAE.ComponentRef cr1, cr2;
       list<DAE.Dimension> dims;
       list<DAE.Element> body;
+
+    case Equation.EQUALITY(lhs = lhs as Expression.CREF(), rhs = rhs as Expression.CREF())
+      guard Type.isScalarBuiltin(eq.ty)
+      algorithm
+        cr1 := ComponentRef.toDAE(lhs.cref);
+        cr2 := ComponentRef.toDAE(rhs.cref);
+      then
+        DAE.Element.EQUEQUATION(cr1, cr2, eq.source) :: elements;
 
     case Equation.EQUALITY()
       algorithm
@@ -563,13 +580,6 @@ algorithm
          else
            DAE.Element.EQUATION(e1, e2, eq.source)) :: elements;
 
-    case Equation.CREF_EQUALITY()
-      algorithm
-        cr1 := ComponentRef.toDAE(eq.lhs);
-        cr2 := ComponentRef.toDAE(eq.rhs);
-      then
-        DAE.Element.EQUEQUATION(cr1, cr2, eq.source) :: elements;
-
     case Equation.ARRAY_EQUALITY()
       algorithm
         e1 := Expression.toDAE(eq.lhs);
@@ -579,7 +589,7 @@ algorithm
         DAE.Element.ARRAY_EQUATION(dims, e1, e2, eq.source) :: elements;
 
     case Equation.FOR()
-      then convertForEquation(eq) :: elements;
+      then convertForEquation(eq, isInitial = false) :: elements;
 
     case Equation.IF()
       then convertIfEquation(eq.branches, eq.source, isInitial = false) :: elements;
@@ -614,6 +624,7 @@ end convertEquation;
 
 function convertForEquation
   input Equation forEquation;
+  input Boolean isInitial;
   output DAE.Element forDAE;
 protected
   InstNode iterator;
@@ -624,11 +635,22 @@ protected
   DAE.ElementSource source;
 algorithm
   Equation.FOR(iterator = iterator, range = SOME(range), body = body, source = source) := forEquation;
-  dbody := convertEquations(body);
+
+  if isInitial then
+    dbody := convertInitialEquations(body);
+  else
+    dbody := convertEquations(body);
+  end if;
+
   Component.ITERATOR(ty = ty) := InstNode.component(iterator);
 
-  forDAE := DAE.Element.FOR_EQUATION(Type.toDAE(ty), Type.isArray(ty),
-    InstNode.name(iterator), 0, Expression.toDAE(range), dbody, source);
+  if isInitial then
+    forDAE := DAE.Element.INITIAL_FOR_EQUATION(Type.toDAE(ty), Type.isArray(ty),
+      InstNode.name(iterator), 0, Expression.toDAE(range), dbody, source);
+  else
+    forDAE := DAE.Element.FOR_EQUATION(Type.toDAE(ty), Type.isArray(ty),
+      InstNode.name(iterator), 0, Expression.toDAE(range), dbody, source);
+  end if;
 end convertForEquation;
 
 function convertIfEquation
@@ -737,7 +759,7 @@ algorithm
         DAE.Element.INITIAL_ARRAY_EQUATION(dims, e1, e2, eq.source) :: elements;
 
     case Equation.FOR()
-      then convertForEquation(eq) :: elements;
+      then convertForEquation(eq, isInitial = true) :: elements;
 
     case Equation.IF()
       then convertIfEquation(eq.branches, eq.source, isInitial = true) :: elements;
@@ -781,13 +803,6 @@ algorithm
   dalg := DAE.ALGORITHM_STMTS(stmts);
   elements := DAE.ALGORITHM(dalg, alg.source) :: elements;
 end convertAlgorithm;
-
-function convertStatements
-  input list<Statement> statements;
-  output list<DAE.Statement> elements;
-algorithm
-  elements := list(convertStatement(s) for s in statements);
-end convertStatements;
 
 function convertStatement
   input Statement stmt;
@@ -909,14 +924,39 @@ protected
   list<Statement> body;
   list<DAE.Statement> dbody;
   DAE.ElementSource source;
+  Statement.ForType for_type;
+  list<tuple<DAE.ComponentRef, SourceInfo>> loop_vars;
 algorithm
-  Statement.FOR(iterator = iterator, range = SOME(range), body = body, source = source) := forStmt;
+  Statement.FOR(iterator = iterator, range = SOME(range), body = body, forType = for_type, source = source) := forStmt;
   dbody := convertStatements(body);
   Component.ITERATOR(ty = ty) := InstNode.component(iterator);
 
-  forDAE := DAE.Statement.STMT_FOR(Type.toDAE(ty), Type.isArray(ty),
-    InstNode.name(iterator), 0, Expression.toDAE(range), dbody, source);
+  forDAE := match for_type
+    case Statement.ForType.NORMAL()
+      then DAE.Statement.STMT_FOR(Type.toDAE(ty), Type.isArray(ty),
+        InstNode.name(iterator), Expression.toDAE(range), dbody, source);
+
+    case Statement.ForType.PARALLEL()
+      algorithm
+        loop_vars := list(convertForStatementParallelVar(v) for v in for_type.vars);
+      then
+        DAE.Statement.STMT_PARFOR(Type.toDAE(ty), Type.isArray(ty),
+          InstNode.name(iterator), Expression.toDAE(range), dbody, loop_vars, source);
+  end match;
 end convertForStatement;
+
+function convertForStatementParallelVar
+  input tuple<ComponentRef, SourceInfo> var;
+  output tuple<DAE.ComponentRef, SourceInfo> outVar;
+protected
+  ComponentRef cref;
+  DAE.ComponentRef dcref;
+  SourceInfo info;
+algorithm
+  (cref, info) := var;
+  dcref := ComponentRef.toDAE(cref);
+  outVar := (dcref, info);
+end convertForStatementParallelVar;
 
 function convertIfStatement
   input list<tuple<Expression, list<Statement>>> ifBranches;
@@ -1085,7 +1125,7 @@ protected
   SourceInfo info;
   Option<DAE.VariableAttributes> var_attr;
   ComponentRef cref;
-  Component.Attributes attr;
+  Attributes attr;
   Type ty;
   Option<DAE.Exp> binding;
   list<tuple<String, Binding>> ty_attr;
@@ -1204,14 +1244,14 @@ function makeTypeVar
   output DAE.Var typeVar;
 protected
   Component comp;
-  Component.Attributes attr;
+  Attributes attr;
 algorithm
   comp := InstNode.component(InstNode.resolveOuter(component));
   attr := Component.getAttributes(comp);
 
   typeVar := DAE.TYPES_VAR(
     InstNode.name(component),
-    Component.Attributes.toDAE(attr, InstNode.visibility(component)),
+    Attributes.toDAE(attr, InstNode.visibility(component)),
     Type.toDAE(Component.getType(comp)),
     Binding.toDAE(Component.getBinding(comp)),
     false,
@@ -1224,7 +1264,7 @@ function makeTypeRecordVar
   output DAE.Var typeVar;
 protected
   Component comp;
-  Component.Attributes attr;
+  Attributes attr;
   Visibility vis;
   Binding binding;
   Boolean bind_from_outside;
@@ -1233,10 +1273,10 @@ algorithm
   comp := InstNode.component(component);
   attr := Component.getAttributes(comp);
 
-  if Component.isModifiable(comp) then
-    vis := InstNode.visibility(component);
-  else
+  if Component.isFinal(comp) then
     vis := Visibility.PROTECTED;
+  else
+    vis := InstNode.visibility(component);
   end if;
 
   binding := Component.getBinding(comp);
@@ -1249,7 +1289,7 @@ algorithm
 
   typeVar := DAE.TYPES_VAR(
     InstNode.name(component),
-    Component.Attributes.toDAE(attr, vis),
+    Attributes.toDAE(attr, vis),
     Type.toDAE(ty),
     Binding.toDAE(binding),
     bind_from_outside,

@@ -290,7 +290,7 @@ public:
   QModelIndex libraryTreeItemIndex(const LibraryTreeItem *pLibraryTreeItem) const;
   void addModelicaLibraries();
   LibraryTreeItem* createLibraryTreeItem(QString name, LibraryTreeItem *pParentLibraryTreeItem, bool isSaved = true,
-                                         bool isSystemLibrary = false, bool load = false, int row = -1, bool activateAccessAnnotations = false);
+                                         bool isSystemLibrary = false, bool load = false, int row = -1, bool loadingMOL = false);
   LibraryTreeItem* createNonExistingLibraryTreeItem(QString nameStructure);
   void createLibraryTreeItems(QFileInfo fileInfo, LibraryTreeItem *pParentLibraryTreeItem);
   LibraryTreeItem* createLibraryTreeItem(LibraryTreeItem::LibraryType type, QString name, QString nameStructure, QString path, bool isSaved,
@@ -313,7 +313,7 @@ public:
   LibraryTreeItem* getLibraryTreeItemFromFile(QString fileName, int lineNumber);
   void showModelWidget(LibraryTreeItem *pLibraryTreeItem, bool show = true);
   void showHideProtectedClasses();
-  bool unloadClass(LibraryTreeItem *pLibraryTreeItem, bool askQuestion = true);
+  bool unloadClass(LibraryTreeItem *pLibraryTreeItem, bool askQuestion = true, bool doDeleteClass = true);
   bool unloadCompositeModelOrTextFile(LibraryTreeItem *pLibraryTreeItem, bool askQuestion = true);
   bool unloadOMSModel(LibraryTreeItem *pLibraryTreeItem, bool doDelete = true, bool askQuestion = true);
   void getExpandedLibraryTreeItemsList(LibraryTreeItem *pLibraryTreeItem, QStringList *pExpandedLibraryTreeItemsList);
@@ -406,6 +406,7 @@ private:
   QAction *mpNewFolderEmptyAction;
   QAction *mpRenameAction;
   QAction *mpDeleteAction;
+  QAction *mpConvertClassUsesLibrariesAction;
   QAction *mpExportFMUAction;
   QAction *mpExportReadonlyPackageAction;
   QAction *mpExportEncryptedPackageAction;
@@ -454,6 +455,7 @@ public slots:
   void createNewFolderEmpty();
   void renameLibraryTreeItem();
   void deleteTextFile();
+  void convertClassUsesLibraries();
   void exportModelFMU();
   void exportEncryptedPackage();
   void exportReadonlyPackage();
@@ -491,29 +493,40 @@ public:
   bool saveFile(QString fileName, QString contents);
   bool saveLibraryTreeItem(LibraryTreeItem *pLibraryTreeItem);
   void saveAsLibraryTreeItem(LibraryTreeItem *pLibraryTreeItem);
-  bool saveTotalLibraryTreeItem(LibraryTreeItem *pLibraryTreeItem);
+  void saveTotalLibraryTreeItem(LibraryTreeItem *pLibraryTreeItem);
   void openLibraryTreeItem(QString nameStructure);
+  void loadAutoLoadedLibrary(const QString &modelName);
+  bool isLoadingLibraries() const {return mLoadingLibraries;}
+  void setLoadingLibraries(bool loadingLibraries) {mLoadingLibraries = loadingLibraries;}
 private:
+  bool mLoadingLibraries;
+  QTimer mAutoLoadedLibrariesTimer;
+  QStringList mAutoLoadedLibrariesList;
   TreeSearchFilters *mpTreeSearchFilters;
   LibraryTreeModel *mpLibraryTreeModel;
   LibraryTreeProxyModel *mpLibraryTreeProxyModel;
   LibraryTreeView *mpLibraryTreeView;
   bool multipleTopLevelClasses(const QStringList &classesList, const QString &fileName);
-  bool saveModelicaLibraryTreeItem(LibraryTreeItem *pLibraryTreeItem);
-  bool saveModelicaLibraryTreeItemHelper(LibraryTreeItem *pLibraryTreeItem);
-  bool saveModelicaLibraryTreeItemOneFile(LibraryTreeItem *pLibraryTreeItem);
+  bool saveModelicaLibraryTreeItem(LibraryTreeItem *pLibraryTreeItem, bool saveAs);
+  bool saveModelicaLibraryTreeItemHelper(LibraryTreeItem *pLibraryTreeItem, bool saveAs);
+  bool saveModelicaLibraryTreeItemOneFile(LibraryTreeItem *pLibraryTreeItem, bool saveAs);
   void saveChildLibraryTreeItemsOneFile(LibraryTreeItem *pLibraryTreeItem);
   void saveChildLibraryTreeItemsOneFileHelper(LibraryTreeItem *pLibraryTreeItem);
   bool saveModelicaLibraryTreeItemFolder(LibraryTreeItem *pLibraryTreeItem);
-  bool saveTextLibraryTreeItem(LibraryTreeItem *pLibraryTreeItem);
+  bool saveTextLibraryTreeItem(LibraryTreeItem *pLibraryTreeItem, bool saveAs);
   bool saveOMSLibraryTreeItem(LibraryTreeItem *pLibraryTreeItem);
   void saveOMSLibraryTreeItemHelper(LibraryTreeItem *pLibraryTreeItem, QString fileName);
   bool saveCompositeModelLibraryTreeItem(LibraryTreeItem *pLibraryTreeItem);
   bool saveAsCompositeModelLibraryTreeItem(LibraryTreeItem *pLibraryTreeItem);
   bool saveAsOMSLibraryTreeItem(LibraryTreeItem *pLibraryTreeItem);
   bool saveCompositeModelLibraryTreeItem(LibraryTreeItem *pLibraryTreeItem, QString fileName);
-  bool saveTotalLibraryTreeItemHelper(LibraryTreeItem *pLibraryTreeItem);
+  void saveTotalLibraryTreeItemHelper(LibraryTreeItem *pLibraryTreeItem);
+  bool resolveConflictWithLoadedLibraries(const QString &library, const QStringList classes);
+private slots:
+  void handleAutoLoadedLibrary();
 public slots:
+  void loadSystemLibrary();
+  void loadSystemLibrary(const QString &library, QString version = QString("default"));
   void scrollToActiveLibraryTreeItem();
   void searchClasses();
 };

@@ -81,14 +81,14 @@ public
 
       case (System.SystemType.ODE, BackendDAE.MAIN(varData = BVariable.VAR_DATA_SIM(unknowns = variables), eqData = BEquation.EQ_DATA_SIM(simulation = equations)))
         algorithm
-          bdae.ode := func(systemType, variables, equations);
+          bdae.ode := list(sys for sys guard(not System.System.isEmpty(sys)) in func(systemType, variables, equations));
         then bdae;
 
-      case (System.SystemType.INI, BackendDAE.MAIN(varData = BVariable.VAR_DATA_SIM(initials = variables), eqData = BEquation.EQ_DATA_SIM(equations = equations)))
+      case (System.SystemType.INI, BackendDAE.MAIN(varData = BVariable.VAR_DATA_SIM(initials = variables), eqData = BEquation.EQ_DATA_SIM(initials = equations)))
         algorithm
-          // remove the when equations for initial systems
+          // ToDo: check if when equation is active during initialization
           equations := EquationPointers.mapRemovePtr(equations, Equation.isWhenEquation);
-          bdae.init := func(systemType, variables, equations);
+          bdae.init := list(sys for sys guard(not System.System.isEmpty(sys)) in func(systemType, variables, equations));
         then bdae;
 
       else algorithm
@@ -111,7 +111,7 @@ public
     end match;
   end getModule;
 
-  function splitSystems
+  function categorize
     "creates ODE, ALG, ODE_EVT, ALG_EVT systems from ODE by checking
     if it contains discrete equations or state equations.
     Should be evoked just before jacobian at the very end."
@@ -138,7 +138,7 @@ public
         Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed!"});
       then fail();
     end match;
-  end splitSystems;
+  end categorize;
 
 protected
   uniontype Cluster
@@ -285,6 +285,7 @@ protected
       input EquationPointers equations;
       input System.SystemType systemType;
       input Pointer<array<Boolean>> marked_vars_ptr;
+      input Pointer<Integer> index;
       output System.System system;
     protected
       array<Boolean> marked_vars = Pointer.access(marked_vars_ptr);
@@ -310,17 +311,18 @@ protected
 
       system := System.SYSTEM(
         systemType        = systemType,
-        unknowns          = if isInit then Initialization.sortInitVars(systVariables) else systVariables,
+        unknowns          = systVariables,
         daeUnknowns       = NONE(),
-        equations         = if isInit then Initialization.sortInitEqns(systEquations) else systEquations,
+        equations         = systEquations,
         adjacencyMatrix   = NONE(),
         matching          = NONE(),
         strongComponents  = NONE(),
         partitionKind     = System.PartitionKind.CONTINUOUS,
-        subPartitionIndex = NONE(),
+        partitionIndex    = Pointer.access(index),
         jacobian          = NONE()
       );
       Pointer.update(marked_vars_ptr, marked_vars);
+      Pointer.update(index, Pointer.access(index) + 1);
     end toSystem;
   end Cluster;
 
@@ -337,14 +339,14 @@ protected
     clone_eqns := EquationPointers.clone(equations);
     systems := {System.SYSTEM(
       systemType        = systemType,
-      unknowns          = if isInit then Initialization.sortInitVars(clone_vars) else clone_vars,
+      unknowns          = clone_vars,
       daeUnknowns       = NONE(),
-      equations         = if isInit then Initialization.sortInitEqns(clone_eqns) else clone_eqns,
+      equations         = clone_eqns,
       adjacencyMatrix   = NONE(),
       matching          = NONE(),
       strongComponents  = NONE(),
       partitionKind     = System.PartitionKind.CONTINUOUS,
-      subPartitionIndex = NONE(),
+      partitionIndex    = 1,
       jacobian          = NONE()
     )};
   end partitioningNone;
@@ -355,16 +357,16 @@ protected
     Integer size = VariablePointers.size(variables) + EquationPointers.size(equations);
     list<Cluster> clusters;
     Pointer<array<Boolean>> marked_vars_ptr = Pointer.create(arrayCreate(VariablePointers.size(variables), true));
-    list<Pointer<Variable>> single_vars, non_state_single_vars;
+    list<Pointer<Variable>> single_vars, unfixable_vars;
+    Pointer<Integer> index = Pointer.create(1);
   algorithm
-    // get equation and var size
-    map := UnorderedMap.new<ClusterPointer>(ComponentRef.hash, ComponentRef.isEqual);
     // collect partitions in clusters
+    map := UnorderedMap.new<ClusterPointer>(ComponentRef.hash, ComponentRef.isEqual);
     collectPartitions(equations, systemType, map);
     // extract unique clusters from the unordered map
     clusters := Cluster.getClusters(map, size);
     // create systems from clusters by filtering the variables for relevant ones
-    systems := list(Cluster.toSystem(cluster, variables, equations, systemType, marked_vars_ptr) for cluster in clusters);
+    systems := list(Cluster.toSystem(cluster, variables, equations, systemType, marked_vars_ptr, index) for cluster in clusters);
 
     single_vars := VariablePointers.getMarkedVars(variables, Pointer.access(marked_vars_ptr));
     if systemType <> System.SystemType.INI then
@@ -375,11 +377,11 @@ protected
         fail();
       end if;
     else
-      (single_vars, non_state_single_vars) := List.extractOnTrue(single_vars, BVariable.isState);
-      if not listEmpty(non_state_single_vars) then
+      (single_vars, unfixable_vars) := List.extractOnTrue(single_vars, BVariable.isFixable);
+      if not listEmpty(unfixable_vars) then
         Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " (" + System.System.systemTypeString(systemType)
-          + ") failed because the following non state variables could not be assigned to a partition:\n  {"
-          + stringDelimitList(list(BVariable.toString(Pointer.access(var)) for var in non_state_single_vars), ", ") + "}"});
+          + ") failed because the following unfixable variables could not be assigned to a partition:\n  {"
+          + stringDelimitList(list(BVariable.toString(Pointer.access(var)) for var in unfixable_vars), ", ") + "}"});
         fail();
       end if;
       systems := System.SYSTEM(
@@ -391,7 +393,7 @@ protected
         matching          = NONE(),
         strongComponents  = NONE(),
         partitionKind     = System.PartitionKind.CONTINUOUS,
-        subPartitionIndex = NONE(),
+        partitionIndex    = Pointer.access(index),
         jacobian          = NONE()
       ) :: systems;
     end if;
@@ -439,17 +441,20 @@ protected
     input System.SystemType systemType;
     input UnorderedMap<ComponentRef, ClusterPointer> map;
   protected
+    ComponentRef stripped;
     Boolean b;
   algorithm
+    stripped := ComponentRef.stripSubscriptsAll(varCref);
+
     b := match systemType
-      case System.SystemType.ODE then BVariable.checkCref(varCref, BVariable.isParamOrConst);
-      case System.SystemType.INI then BVariable.checkCref(varCref, BVariable.isConst);
+      case System.SystemType.ODE then BVariable.checkCref(stripped, BVariable.isParamOrConst);
+      case System.SystemType.INI then BVariable.checkCref(stripped, BVariable.isConst);
       else algorithm
         Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because the SystemType " + System.System.systemTypeString(systemType) + " is not yet supported."});
       then fail();
     end match;
     if not b then
-      _ := match (UnorderedMap.get(eqCref, map), UnorderedMap.get(varCref, map))
+      _ := match (UnorderedMap.get(eqCref, map), UnorderedMap.get(stripped, map))
         local
           ClusterPointer cluster1, cluster2;
           Cluster c;
@@ -457,7 +462,7 @@ protected
         // neither equation nor variable already have a cluster
         case (NONE(), NONE()) algorithm
           cluster1 := Pointer.create(CLUSTER({}, {}));
-          addCrefToMap(varCref, cluster1, map);
+          addCrefToMap(stripped, cluster1, map);
           addCrefToMap(eqCref, cluster1, map);
         then ();
 
@@ -468,7 +473,7 @@ protected
 
         // variable does not have a cluster, but equation has one
         case (SOME(cluster1), NONE()) algorithm
-          addCrefToMap(varCref, cluster1, map);
+          addCrefToMap(stripped, cluster1, map);
         then ();
 
         // both already have a different cluster
@@ -493,6 +498,9 @@ protected
     ComponentRef cref2;
     Boolean addSecond = false;
   algorithm
+    // add residuals to eqn identificators
+    // states and there derivatives belong to one partition
+    // discrete states and there previous value also
     if BVariable.isDAEResidual(var_ptr) then
       cluster.eqn_idnts := cref :: cluster.eqn_idnts;
     elseif BVariable.isState(var_ptr) then
@@ -501,6 +509,16 @@ protected
       cluster.variables := cref2 :: cluster.variables;
       addSecond := true;
     elseif BVariable.isStateDerivative(var_ptr) then
+      cluster.variables := cref :: cluster.variables;
+      cref2 := BVariable.getStateCref(cref);
+      cluster.variables := cref2 :: cluster.variables;
+      addSecond := true;
+    elseif BVariable.isDiscreteState(var_ptr) then
+      cluster.variables := cref :: cluster.variables;
+      cref2 := BVariable.getPreCref(cref);
+      cluster.variables := cref2 :: cluster.variables;
+      addSecond := true;
+    elseif BVariable.isPrevious(var_ptr) then
       cluster.variables := cref :: cluster.variables;
       cref2 := BVariable.getStateCref(cref);
       cluster.variables := cref2 :: cluster.variables;

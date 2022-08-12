@@ -60,7 +60,7 @@
 #include <QScrollBar>
 #include <QGenericMatrix>
 
-#ifdef WIN32
+#if defined(_WIN32)
 #include <windows.h>
 #include <tlhelp32.h>
 #endif
@@ -479,7 +479,7 @@ namespace Utilities {
     CRLFLineEnding = 0,
     LFLineEnding = 1,
     NativeLineEnding =
-#ifdef WIN32
+#if defined(_WIN32)
     CRLFLineEnding,
 #else
     LFLineEnding
@@ -508,13 +508,13 @@ namespace Utilities {
   void highlightParentheses(QPlainTextEdit *pPlainTextEdit, QTextCharFormat parenthesesMatchFormat, QTextCharFormat parenthesesMisMatchFormat);
   qint64 getProcessId(QProcess *pProcess);
   QString formatExitCode(int code);
-#ifdef WIN32
+#if defined(_WIN32)
   void killProcessTreeWindows(DWORD myprocID);
 #endif
   bool isCFile(QString extension);
   bool isModelicaFile(QString extension);
   QGenericMatrix<3,3, double> getRotationMatrix(QGenericMatrix<3,1,double> rotation);
-#ifdef WIN32
+#if defined(_WIN32)
   QString getGDBPath();
 #endif
 
@@ -542,9 +542,11 @@ namespace Utilities {
   void removeDirectoryRecursivly(QString path);
   qreal mapToCoOrdinateSystem(qreal value, qreal startA, qreal endA, qreal startB, qreal endB);
   QStringList variantListToStringList(const QVariantList lst);
+  void addDefaultDisplayUnit(const QString &unit, QStringList &displayUnit);
   QString convertUnitToSymbol(const QString displayUnit);
   QString convertSymbolToUnit(const QString symbol);
   QRectF adjustSceneRectangle(const QRectF sceneRectangle, const qreal factor);
+  void setToolTip(QComboBox *pComboBox, const QString &description, const QStringList &optionsDescriptions);
 } // namespace Utilities
 
 #endif // UTILITIES_H

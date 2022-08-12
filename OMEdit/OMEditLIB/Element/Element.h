@@ -195,6 +195,11 @@ public:
     Extend,  /* Inherited Element. */
     Port  /* Port Element. */
   };
+
+  Element(ModelInstance::Element *pModelElement, bool inherited, GraphicsView *pGraphicsView);
+  Element(ModelInstance::Model *pModel, Element *pParentElement);
+  Element(ModelInstance::Element *pModelElement, Element *pParentElement, Element *pRootParentElement);
+
   Element(QString name, LibraryTreeItem *pLibraryTreeItem, QString annotation, QPointF position, ElementInfo *pElementInfo, GraphicsView *pGraphicsView);
   Element(LibraryTreeItem *pLibraryTreeItem, Element *pParentElement);
   Element(Element *pElement, Element *pParentElement, Element *pRootParentElement);
@@ -208,8 +213,12 @@ public:
   QRectF boundingRect() const override;
   QRectF itemsBoundingRect();
   void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget = 0) override;
+  ModelInstance::Model *getModel() const {return mpModel;}
+  ModelInstance::Element *getModelElement() const {return mpModelElement;}
   LibraryTreeItem* getLibraryTreeItem() {return mpLibraryTreeItem;}
-  QString getName() {return mpElementInfo->getName();}
+  QString getName() const;
+  QString getClassName() const;
+  QString getComment() const;
   GraphicsView* getGraphicsView() {return mpGraphicsView;}
   Element *getReferenceComponent() {return mpReferenceComponent;}
   Element* getParentComponent() {return mpParentComponent;}
@@ -220,7 +229,13 @@ public:
   QStringList getDialogAnnotation() {return mDialogAnnotation;}
   void setChoicesAnnotation(QStringList choicesAnnotation) {mChoicesAnnotation = choicesAnnotation;}
   QStringList getChoicesAnnotation() {return mChoicesAnnotation;}
+  void setChoicesAllMatchingAnnotation(QStringList choicesAllMatching) {mChoicesAllMatchingAnnotation = choicesAllMatching;}
+  QStringList getChoicesAllMatchingAnnotation() {return mChoicesAllMatchingAnnotation;}
+  void setChoices(QStringList choices) {mChoices = choices;}
+  QStringList getChoices() {return mChoices;}
+  bool hasChoices() {return (mChoices.size() > 0);}
   CoOrdinateSystem getCoOrdinateSystem() const;
+  ModelInstance::CoordinateSystem getCoOrdinateSystemNew() const;
   OriginItem* getOriginItem() {return mpOriginItem;}
   QAction* getParametersAction() {return mpParametersAction;}
   QAction* getFetchInterfaceDataAction() {return mpFetchInterfaceDataAction;}
@@ -288,6 +303,8 @@ public:
   Transformation mTransformation;
   Transformation mOldTransformation;
 private:
+  ModelInstance::Element *mpModelElement;
+  ModelInstance::Model *mpModel;
   Element *mpReferenceComponent;
   Element *mpParentComponent;
   LibraryTreeItem *mpLibraryTreeItem;
@@ -298,6 +315,8 @@ private:
   QString mTransformationString;
   QStringList mDialogAnnotation;
   QStringList mChoicesAnnotation;
+  QStringList mChoicesAllMatchingAnnotation;
+  QStringList mChoices;
   QString mParameterValue;
   LineAnnotation *mpNonExistingElementLine;
   RectangleAnnotation *mpDefaultElementRectangle;
@@ -408,6 +427,7 @@ public slots:
   void showSubModelAttributes();
   void showElementPropertiesDialog();
   void updateDynamicSelect(double time);
+  void resetDynamicSelect();
 protected:
   virtual QVariant itemChange(GraphicsItemChange change, const QVariant &value) override;
 };

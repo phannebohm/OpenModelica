@@ -2,10 +2,6 @@
 
 #####################################################################################################
 # OMCppOMCFactory
-find_package(Boost COMPONENTS program_options filesystem)
-find_package(Threads)
-
-
 set(OMC_SIMRT_CPP_SIMCOREFACTORY_OMCFACTORY_SOURCES OMCFactory/OMCFactory.cpp)
 
 add_library(OMCppOMCFactory SHARED)
@@ -20,7 +16,10 @@ target_link_libraries(OMCppOMCFactory PUBLIC Boost::filesystem)
 target_link_libraries(OMCppOMCFactory PUBLIC Threads::Threads)
 target_link_libraries(OMCppOMCFactory PUBLIC ${CMAKE_DL_LIBS})
 
-target_link_options(OMCppOMCFactory PRIVATE  -Wl,--no-undefined)
+if(WIN32)
+  target_link_libraries(OMCppOMCFactory PUBLIC wsock32)
+  target_link_libraries(OMCppOMCFactory PUBLIC ws2_32)
+endif()
 
 install(TARGETS OMCppOMCFactory)
 

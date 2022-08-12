@@ -55,6 +55,7 @@ import AbsynUtil;
 import ErrorExt;
 import Flags;
 import Debug;
+import Array;
 import MetaModelica.Dangerous.listReverseInPlace;
 
 public
@@ -78,39 +79,41 @@ function simplifyEgraph
   "egraph simplification"
   input Expression exp;
   output Expression res;
-  protected
-    EGraph egraph;
-    EClassId baseId;
-    Extractor extractor;
-    Integer dist, counter, sizestart;
-    RuleApplier ruleApplier;
-    Boolean saturated;
+protected
+  EGraph egraph;
+  EClassId baseId;
+  Extractor extractor;
+  Integer dist, counter, sizestart;
+  RuleApplier ruleApplier;
+  Boolean saturated;
 algorithm
   print("----simplifyEgraph-----\n");
   print("input: " + Expression.toString(exp) + "\n");
   (egraph, baseId) := EGraph.newFromExp(exp, EGraph.new());
+
   ruleApplier := RuleApplier.RULEAPPLIER({});
   ruleApplier := RuleApplier.addRules(ruleApplier,
-  {{"(+ ?a 0)", "?a", "neutral-add"},
-  {"(* ?a 1)", "?a","neutral-mul"},
-  {"(+ ?a (- ?a))", "0", "inv-add"},
-  {"(* ?a (/ ?a))", "1", "inv-mul"},
-  {"(+ ?a ?b)", "(+ ?b ?a)", "comm-add"},
-  {"(* ?a ?b)", "(* ?b ?a)", "comm-mul"},
-  {"(+ ?a (+ ?b ?c))", "(+ (+ ?a ?b) ?c))", "assoc-add"},
-  {"(+ ?a ?a)","(* 2 ?a)", "a+a->2a"},
-  {"(* 2 ?a)", "(+ ?a ?a)", "2*a->a+a"},
-  {"(+ ?a (* ?b ?a))","(* (+ ?b 1) ?a)", "a + b*a-> (b+1)a"},
-  {"(+ (* ?c ?a) (* ?b ?a))","(* (+ ?b ?c) ?a)", "distrib1"},
-  {"(* (+ ?b ?c) ?a)","(+ (* ?c ?a) (* ?b ?a))", "distrib2"},
-  {"(* ?a (* ?b ?c))", "(* (* ?a ?b) ?c))", "assoc-mul"},
-  {"(* 0 ?a)", "0", "0-mul"},
-  {"(* ?a ?a)","(^ ?a 2)", "xx->x^2"},
-  {"(^ ?a 0)","1", "pow-0"},
-  {"(^ ?a 1)","?a", "pow-1"},
-  {"(* (^ ?a ?b) (^ ?a ?c))","(^ ?a (+ ?b ?c))", "pow-rule1"},
-  {"(/ (^ ?a ?c))","(^ ?a (- ?c))", "pow-rule2"},
-  {"(- ?a))", "(* -1 ?a)", "uminus=-1"}});
+   {{"(+ ?a 0)", "?a", "neutral-add"},
+    {"(* ?a 1)", "?a","neutral-mul"},
+    {"(+ ?a (- ?a))", "0", "inv-add"},
+    {"(* ?a (/ ?a))", "1", "inv-mul"},
+    {"(+ ?a ?b)", "(+ ?b ?a)", "comm-add"},
+    {"(* ?a ?b)", "(* ?b ?a)", "comm-mul"},
+    {"(+ ?a (+ ?b ?c))", "(+ (+ ?a ?b) ?c))", "assoc-add"},
+    {"(+ ?a ?a)","(* 2 ?a)", "a+a->2a"},
+    {"(* 2 ?a)", "(+ ?a ?a)", "2*a->a+a"},
+    {"(+ ?a (* ?b ?a))","(* (+ ?b 1) ?a)", "a + b*a-> (b+1)a"},
+    {"(+ (* ?c ?a) (* ?b ?a))","(* (+ ?b ?c) ?a)", "distrib1"},
+    {"(* (+ ?b ?c) ?a)","(+ (* ?c ?a) (* ?b ?a))", "distrib2"},
+    {"(* ?a (* ?b ?c))", "(* (* ?a ?b) ?c))", "assoc-mul"},
+    {"(* 0 ?a)", "0", "0-mul"},
+    {"(* ?a ?a)","(^ ?a 2)", "xx->x^2"},
+    {"(^ ?a 0)","1", "pow-0"},
+    {"(^ ?a 1)","?a", "pow-1"},
+    {"(* (^ ?a ?b) (^ ?a ?c))","(^ ?a (+ ?b ?c))", "pow-rule1"},
+    {"(/ (^ ?a ?c))","(^ ?a (- ?c))", "pow-rule2"},
+    {"(- ?a))", "(* -1 ?a)", "uminus=-1"}});
+
   saturated := false;
   counter := 0;
   sizestart := UnorderedMap.size(egraph.eclasses);
@@ -132,7 +135,6 @@ algorithm
   print("return: " + Expression.toString(res) + "\n" + "--------------- \n");
 end simplifyEgraph;
 
-
 function simplify
   input output Expression exp;
 algorithm
@@ -146,7 +148,7 @@ algorithm
 
     case Expression.ARRAY()
       algorithm
-        exp.elements := list(simplify(e) for e in exp.elements);
+        exp.elements := Array.map(exp.elements, simplify);
       then
         exp;
 
@@ -172,9 +174,10 @@ algorithm
     case Expression.UNBOX()             then Expression.UNBOX(simplify(exp.exp), exp.ty);
     case Expression.SUBSCRIPTED_EXP()   then simplifySubscriptedExp(exp);
     case Expression.TUPLE_ELEMENT()     then simplifyTupleElement(exp);
+    case Expression.RECORD_ELEMENT()    then simplifyRecordElement(exp);
     case Expression.BOX()               then Expression.BOX(simplify(exp.exp));
     case Expression.MUTABLE()           then simplify(Mutable.access(exp.exp));
-    else exp;
+                                        else exp;
   end match;
 end simplify;
 
@@ -308,10 +311,11 @@ algorithm
       then
         exp;
 
+    case "der"       then simplifyDer(listHead(args), call);
     case "fill"      then simplifyFill(listHead(args), listRest(args), call);
     case "homotopy"  then simplifyHomotopy(args, call);
-    case "max"       guard listLength(args) == 1 then simplifyReducedArrayConstructor(listHead(args), call);
-    case "min"       guard listLength(args) == 1 then simplifyReducedArrayConstructor(listHead(args), call);
+    case "max"       then simplifyMinMax(args, call, isMin = false);
+    case "min"       then simplifyMinMax(args, call, isMin = true);
     case "ones"      then simplifyFill(Expression.INTEGER(1), args, call);
     case "product"   then simplifySumProduct(listHead(args), call, isSum = false);
     case "sum"       then simplifySumProduct(listHead(args), call, isSum = true);
@@ -322,6 +326,31 @@ algorithm
     else Expression.CALL(call);
   end match;
 end simplifyBuiltinCall;
+
+function simplifyMinMax
+  input list<Expression> args;
+  input Call call;
+  input Boolean isMin;
+  output Expression exp;
+protected
+  Expression arg;
+  Type ty;
+algorithm
+  if listLength(args) == 1 then
+    arg := listHead(args);
+    ty := Expression.typeOf(arg);
+
+    if Type.isEmptyArray(ty) then
+      ty := Type.arrayElementType(ty);
+      exp := if isMin then Expression.makeMaxValue(ty) else
+                           Expression.makeMinValue(ty);
+    else
+      exp := simplifyReducedArrayConstructor(arg, call);
+    end if;
+  else
+    exp := Expression.CALL(call);
+  end if;
+end simplifyMinMax;
 
 function simplifySumProduct
   input Expression arg;
@@ -391,7 +420,7 @@ algorithm
 
   exp := match e
     case Expression.ARRAY()
-      guard List.all(e.elements, Expression.isArray)
+      guard Array.all(e.elements, Expression.isArray)
       then Expression.transposeArray(e);
 
     else Expression.CALL(call);
@@ -417,7 +446,7 @@ algorithm
 
   if is_literal or List.all(expl, Expression.isScalar) then
     ty := Type.arrayElementType(Expression.typeOf(arg));
-    exp := Expression.makeExpArray(expl, ty);
+    exp := Expression.makeExpArray(listArray(expl), ty);
   else
     exp := Expression.CALL(call);
   end if;
@@ -430,7 +459,7 @@ function simplifyFill
   output Expression exp;
 algorithm
   if List.all(dimArgs, Expression.isLiteral) then
-    exp := Ceval.evalBuiltinFill2(fillArg, dimArgs);
+    exp := Expression.fillArgs(fillArg, dimArgs);
   else
     exp := Expression.CALL(call);
   end if;
@@ -447,6 +476,18 @@ algorithm
     else Expression.CALL(call);
   end match;
 end simplifyHomotopy;
+
+function simplifyDer
+  input Expression arg;
+  input Call call;
+  output Expression exp;
+algorithm
+  if Call.variability(call) < Variability.DISCRETE then
+    exp := Expression.makeZero(Expression.typeOf(arg));
+  else
+    exp := Expression.CALL(call);
+  end if;
+end simplifyDer;
 
 function simplifyArrayConstructor
   input Call call;
@@ -476,9 +517,10 @@ algorithm
           outExp := Expression.makeEmptyArray(ty);
         elseif dim_size == 1 then
           // Result is Array[1], return array with the single element.
-          (Expression.ARRAY(elements = {e}), _) := ExpandExp.expand(e);
+          e := ExpandExp.expand(e);
+          e := Expression.arrayScalarElement(e);
           exp := Expression.replaceIterator(exp, iter, e);
-          exp := Expression.makeArray(ty, {exp});
+          exp := Expression.makeArray(ty, listArray({exp}));
           outExp := simplify(exp);
         elseif Expression.isLiteral(e) and not Expression.hasNonArrayIteratorSubscript(exp, iter) then
           // If the iterator is only used to subscript array expressions like
@@ -529,7 +571,8 @@ algorithm
               SOME(outExp) := call.defaultExp;
             elseif dim_size == 1 then
               // Iteration range is one, return reduction expression with iterator value applied.
-              (Expression.ARRAY(elements = {e}), _) := ExpandExp.expand(e);
+              e := ExpandExp.expand(e);
+              e := Expression.arrayScalarElement(e);
               outExp := Expression.replaceIterator(call.exp, iter, e);
               outExp := simplify(outExp);
             else
@@ -622,7 +665,7 @@ algorithm
 
         if List.all(dims, function Dimension.isKnown(allowExp = true)) then
           exp := Expression.makeArray(Type.ARRAY(Type.INTEGER(), {Dimension.fromInteger(listLength(dims))}),
-                                      list(Dimension.sizeExp(d) for d in dims));
+                                      listArray(list(Dimension.sizeExp(d) for d in dims)));
         else
           exp := sizeExp;
         end if;
@@ -851,9 +894,7 @@ algorithm
     then tmp;
 
     // non-empty multaries
-    case Expression.MULTARY(arguments = arguments, inv_arguments = inv_arguments, operator = operator)
-      algorithm
-
+    case Expression.MULTARY(arguments = arguments, inv_arguments = inv_arguments, operator = operator) algorithm
       // get math classification
       mcl := Operator.getMathClassification(operator);
 
@@ -973,7 +1014,6 @@ algorithm
 
       /*
       // split them into constant and non constant arguments
-
       (const_args, arguments) := List.splitOnTrue(arguments, Expression.isConstNumber);
       (inv_const_args, inv_arguments) := List.splitOnTrue(inv_arguments, Expression.isConstNumber);
 
@@ -981,37 +1021,19 @@ algorithm
       new_const := combineConstantNumbers(const_args, inv_const_args, mcl);
 
       // return combined multary expression and check for trivial replacements
-      */
+
       // check if the constant is used
       useConst := match mcl
-        case NFOperator.MathClassification.ADDITION guard(realval == 0.0) then false;
-        case NFOperator.MathClassification.MULTIPLICATION guard(realval == 1.0) then false;
+        case NFOperator.MathClassification.ADDITION guard(Expression.isZero(new_const)) then false;
+        case NFOperator.MathClassification.MULTIPLICATION guard(Expression.isOne(new_const)) then false;
         else true;
-
       end match;
 
-      /*
-      if (realval < 0 and Operator.isDashClassification(Operator.getMathClassification(operator))) then
-        newinv_arguments := Expression.REAL(-1 * realval) :: newinv_arguments;
-      else
-        newarguments := Expression.REAL(realval) :: newarguments;
-      end if;*/
-
       result := match (mcl, arguments, inv_arguments)
-
-        case (_, {}, {}) then Expression.REAL(realval);
-
-        case (NFOperator.MathClassification.MULTIPLICATION, _, _) guard(realval == 0.0) then Expression.REAL(0.0);
-
-        case (_, {tmp}, {}) guard(not useConst) then tmp;
-
-        case (NFOperator.MathClassification.ADDITION, {}, {tmp}) guard(not useConst)
-          then Expression.negate(tmp);
-
         // const + {} - {} = const
         // const * {} / {} = const
-//        case (_, {}, {}) then new_const;
-        /*
+        case (_, {}, {}) then new_const;
+
         // 0 + {cr} - {} = cr
         // 1 * {cr} / {} = cr
         case (_, {tmp}, {}) guard(not useConst) then tmp;
@@ -1021,7 +1043,7 @@ algorithm
         then Expression.negate(tmp);
 
         // 0 * {...} / {...} = 0
-        case (NFOperator.MathClassification.MULTIPLICATION, _, _) guard(realval == 0.0) then realval;
+        case (NFOperator.MathClassification.MULTIPLICATION, _, _) guard(Expression.isZero(new_const)) then new_const;
 
         // THIS SEEMS LIKE A BAD IDEA STRUCTURALLY
         // apply negative constant to inverse list for addition
@@ -1034,11 +1056,10 @@ algorithm
         */
 
         else Expression.MULTARY(
-            arguments     = if useConst then Expression.REAL(realval) :: arguments else arguments,
+            arguments     = if useConst then new_const :: arguments else arguments,
             inv_arguments = inv_arguments,
             operator      = operator
           );
-
       end match;
 
       // negate the expression if there was an odd number of negative arguments (only multiplication)
@@ -1047,9 +1068,7 @@ algorithm
     else algorithm
       Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for expression: " + Expression.toString(exp)});
     then fail();
-
   end match;
-
 end simplifyMultary;
 
 function simplifyMultarySigns
@@ -1324,6 +1343,7 @@ algorithm
     local
       list<Expression> expl;
       Operator o;
+      array<Expression> arr;
 
     // false and e => false
     case (Expression.BOOLEAN(false), _) then exp1;
@@ -1337,10 +1357,10 @@ algorithm
     case (Expression.ARRAY(), Expression.ARRAY())
       algorithm
         o := Operator.unlift(op);
-        expl := list(simplifyLogicBinaryAnd(e1, o, e2)
-                     threaded for e1 in exp1.elements, e2 in exp2.elements);
+        arr := Array.threadMap(exp1.elements, exp2.elements,
+          function simplifyLogicBinaryAnd(op = o));
       then
-        Expression.makeArray(Operator.typeOf(op), expl);
+        Expression.makeArray(Operator.typeOf(op), arr);
 
     else Expression.LBINARY(exp1, op, exp2);
   end match;
@@ -1356,6 +1376,7 @@ algorithm
     local
       list<Expression> expl;
       Operator o;
+      array<Expression> arr;
 
     // true or e => true
     case (Expression.BOOLEAN(true), _) then exp1;
@@ -1369,10 +1390,10 @@ algorithm
     case (Expression.ARRAY(), Expression.ARRAY())
       algorithm
         o := Operator.unlift(op);
-        expl := list(simplifyLogicBinaryAnd(e1, o, e2)
-                     threaded for e1 in exp1.elements, e2 in exp2.elements);
+        arr := Array.threadMap(exp1.elements, exp2.elements,
+          function simplifyLogicBinaryOr(op = o));
       then
-        Expression.makeArray(Operator.typeOf(op), expl);
+        Expression.makeArray(Operator.typeOf(op), arr);
 
     else Expression.LBINARY(exp1, op, exp2);
   end match;
@@ -1462,7 +1483,7 @@ algorithm
     case (Type.ARRAY(elementType = Type.REAL()), Expression.ARRAY())
       algorithm
         ety := Type.unliftArray(ty);
-        exp.elements := list(simplifyCast(e, ety) for e in exp.elements);
+        exp.elements := Array.map(exp.elements, function simplifyCast(ty = ety));
         exp.ty := Type.setArrayElementType(exp.ty, Type.arrayElementType(ty));
       then
         exp;
@@ -1501,6 +1522,21 @@ algorithm
   e := simplify(e);
   tupleExp := Expression.tupleElement(e, ty, index);
 end simplifyTupleElement;
+
+function simplifyRecordElement
+  input output Expression exp;
+protected
+  Expression e, e2;
+  Integer idx;
+  Type ty;
+algorithm
+  Expression.RECORD_ELEMENT(e, idx, _, ty) := exp;
+  e2 := simplify(e);
+
+  if not referenceEq(e, e2) then
+    exp := Expression.nthRecordElement(idx, e2);
+  end if;
+end simplifyRecordElement;
 
 public function combineConstantNumbers
   input list<Expression> const      "has to be a list of REAL(), INTEGER() and/or CAST()";
@@ -1550,7 +1586,7 @@ algorithm
 
   end match;
 
-  res := if anyReal then REAL(result) else INTEGER(realInt(result));
+  res := if anyReal then Expression.REAL(result) else Expression.INTEGER(realInt(result));
 end combineConstantNumbers;
 
 protected function getConstantValue
@@ -1605,6 +1641,8 @@ algorithm
       list<Expression> final_stack = {};
       list<Expression> final_inverse_stack = {};
       Expression new_exp;
+      ComponentRef cref;
+      Call call;
 
     // #######################################################
     //          Building MULTARY() recursively
@@ -1680,11 +1718,17 @@ algorithm
     //      Other expressions that do not get combined
     // #######################################################
 
-    // combine for both arguments
-
     // going deeper on the different expression types
+
+    case (_, Expression.CREF(cref = cref as ComponentRef.CREF())) algorithm
+      cref.subscripts := list(combineBinariesSubscript(sub) for sub in cref.subscripts);
+      exp.cref := cref;
+    then addArgument(result, exp, inverse);
+
     case (_, Expression.ARRAY()) algorithm
-      exp.elements := list(combineBinariesExp(element) for element in exp.elements);
+      exp.elements := Array.map(exp.elements,
+        function combineBinariesExp(optOperator = NONE(),
+          result = Expression.EMPTY(Expression.typeOf(exp)), inverse = false));
     then addArgument(result, exp, inverse);
 
     case (_, Expression.RANGE()) algorithm
@@ -1701,6 +1745,11 @@ algorithm
 
     case (_, Expression.RECORD()) algorithm
       exp.elements := list(combineBinariesExp(element) for element in exp.elements);
+    then addArgument(result, exp, inverse);
+
+    case (_, Expression.CALL(call = call as Call.TYPED_CALL())) algorithm
+      call.arguments := list(combineBinariesExp(arg) for arg in call.arguments);
+      exp.call := call;
     then addArgument(result, exp, inverse);
 
     case (_, Expression.SIZE()) algorithm

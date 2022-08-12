@@ -42,8 +42,9 @@ protected
   // NF imports
   import BackendExtension = NFBackendExtension;
   import ComponentRef = NFComponentRef;
+  import ConvertDAE = NFConvertDAE;
   import Expression = NFExpression;
-  import FunctionTree = NFFlatten.FunctionTree;
+  import NFFlatten.{FunctionTree, FunctionTreeImpl};
   import InstNode = NFInstNode.InstNode;
   import Operator = NFOperator;
   import Statement = NFStatement;
@@ -54,14 +55,10 @@ protected
   import OldBackendDAE = BackendDAE;
 
   // Backend imports
+  import AliasInfo = NBStrongComponent.AliasInfo;
   import BackendDAE = NBackendDAE;
   import BEquation = NBEquation;
-  import NBEquation.Equation;
-  import NBEquation.EquationAttributes;
-  import NBEquation.EquationKind;
-  import NBEquation.EquationPointers;
-  import NBEquation.WhenEquationBody;
-  import NBEquation.WhenStatement;
+  import NBEquation.{Equation, EquationAttributes, EquationKind, EquationPointer, EquationPointers, WhenEquationBody, WhenStatement, IfEquationBody, SlicingStatus};
   import BVariable = NBVariable;
   import Jacobian = NBJacobian;
   import Solve = NBSolve;
@@ -74,12 +71,13 @@ protected
 
   // SimCode imports
   import SimCode = NSimCode;
+  import NSimCode.SimCodeIndices;
   import NSimJacobian.SimJacobian;
-  import NSimVar.SimVar;
-  import NSimVar.VarType;
+  import NSimVar.{SimVar, SimVars, VarType};
 
   // Util imports
   import Error;
+  import Slice = NBSlice;
 
 public
   uniontype Block
@@ -128,23 +126,25 @@ public
     end ARRAY_ASSIGN;
 
     record ALIAS
-      "Simple alias assignment pointing to the alias equation."
+      "Simple alias assignment pointing to the alias equation.
+      - alias of will be -1 at the point of creation and computed afterwards"
       Integer index;
-      Integer aliasOf;
+      AliasInfo aliasInfo     "backend alias info";
+      Integer aliasOf         "final alias index";
     end ALIAS;
 
     record ALGORITHM
       "An algorithm section."
       // ToDo: do we need to keep inputs/outputs here?
       Integer index;
-      list<Statement> statements;
+      list<Statement> stmts;
       EquationAttributes attr;
     end ALGORITHM;
 
     record INVERSE_ALGORITHM
       "An algorithm section that had to be inverted."
       Integer index;
-      list<Statement> statements;
+      list<Statement> stmts;
       list<ComponentRef> knownOutputs "this is a subset of output crefs of the original algorithm, which are already known";
       Boolean insideNonLinearSystem;
       EquationAttributes attr;
@@ -153,7 +153,7 @@ public
     record IF
       "An if section."
       Integer index;
-      BEquation.IfEquationBody body;
+      list<tuple<Expression, list<Block>>> branches;
       DAE.ElementSource source;
       EquationAttributes attr;
     end IF;
@@ -168,17 +168,6 @@ public
       DAE.ElementSource source;
       EquationAttributes attr;
     end WHEN;
-
-    record FOR
-      "A for loop section used for non scalarized models."
-      Integer index;
-      InstNode iter;
-      Expression range;
-      ComponentRef lhs;
-      Expression rhs;
-      DAE.ElementSource source;
-      EquationAttributes attr;
-    end FOR;
 
     record LINEAR
       "Linear algebraic loop."
@@ -212,17 +201,51 @@ public
         case SIMPLE_ASSIGN()      then str + "(" + intString(blck.index) + ") " + ComponentRef.toString(blck.lhs) + " := " + Expression.toString(blck.rhs) + "\n";
         case ARRAY_ASSIGN()       then str + "(" + intString(blck.index) + ") " + Expression.toString(blck.lhs) + " := " + Expression.toString(blck.rhs) + "\n";
         case ALIAS()              then str + "(" + intString(blck.index) + ") Alias of " + intString(blck.aliasOf) + "\n";
-        case ALGORITHM()          then str + "(" + intString(blck.index) + ") Algorithm\n" + Statement.toStringList(blck.statements, str) + "\n";
-        case INVERSE_ALGORITHM()  then str + "(" + intString(blck.index) + ") Inverse Algorithm\n" + Statement.toStringList(blck.statements, str) + "\n";
-        case IF()                 then str + BEquation.IfEquationBody.toString(blck.body, str + "    ", "(" + intString(blck.index) + ") ") + "\n";
+        case ALGORITHM()          then str + "(" + intString(blck.index) + ") Algorithm\n" + Statement.toStringList(blck.stmts, str) + "\n";
+        case INVERSE_ALGORITHM()  then str + "(" + intString(blck.index) + ") Inverse Algorithm\n" + Statement.toStringList(blck.stmts, str) + "\n";
+        case IF()                 then str + "(" + intString(blck.index) + ") " + List.toString(blck.branches, function ifTplStr(str = str), "", str, str + "else ", str + "end if;\n");
         case WHEN()               then str + "(" + intString(blck.index) + ") " + whenString(blck.conditions, blck.when_stmts, blck.else_when);
-        case FOR()                then str + "(" + intString(blck.index) + ") for " + InstNode.name(blck.iter) + " in " + Expression.toString(blck.range) + "\n" + str + "  " + ComponentRef.toString(blck.lhs) + " := " + Expression.toString(blck.rhs) + "\n" + str + "end for;";
         case LINEAR()             then str + "(" + intString(blck.system.index) + ") " + LinearSystem.toString(blck.system, str);
         case NONLINEAR()          then str + "(" + intString(blck.system.index) + ") " + NonlinearSystem.toString(blck.system, str);
         case HYBRID()             then str + "(" + intString(blck.index) + ") Hybrid\n"; // ToDo!
                                   else getInstanceName() + " failed.\n";
       end match;
     end toString;
+
+    function ifTplStr
+      input tuple<Expression, list<Block>> tpl;
+      input output String str;
+    protected
+      Expression condition;
+      list<Block> blcks;
+    algorithm
+      (condition, blcks) := tpl;
+      str := "if " + Expression.toString(condition) + " then\n  "
+         + List.toString(blcks, function toString(str = str + "  "), "", "", "\n" ,"");
+    end ifTplStr;
+
+    function getIndex
+      input Block blck;
+      output Integer index;
+    algorithm
+      index := match blck
+        case RESIDUAL()           then blck.index;
+        case ARRAY_RESIDUAL()     then blck.index;
+        case SIMPLE_ASSIGN()      then blck.index;
+        case ARRAY_ASSIGN()       then blck.index;
+        case ALIAS()              then blck.index;
+        case ALGORITHM()          then blck.index;
+        case INVERSE_ALGORITHM()  then blck.index;
+        case IF()                 then blck.index;
+        case WHEN()               then blck.index;
+        case LINEAR()             then blck.system.index;
+        case NONLINEAR()          then blck.system.index;
+        case HYBRID()             then blck.index;
+        else algorithm
+          Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for \n" + toString(blck)});
+        then fail();
+      end match;
+    end getIndex;
 
     function isDiscrete
       input Block blck;
@@ -240,7 +263,6 @@ public
         case INVERSE_ALGORITHM(attr = attr)  then EquationKind.isDiscrete(attr.kind);
         case IF(attr = attr)                 then EquationKind.isDiscrete(attr.kind);
         case WHEN(attr = attr)               then EquationKind.isDiscrete(attr.kind); // should hopefully always be true
-        case FOR(attr = attr)                then EquationKind.isDiscrete(attr.kind);
         else false;
       end match;
     end isDiscrete;
@@ -293,13 +315,13 @@ public
       input list<System.System> systems;
       output list<list<Block>> blcks = {};
       input output list<Block> all_blcks;
-      input output SimCode.SimCodeIndices simCodeIndices;
-      input output FunctionTree funcTree;
+      input output SimCodeIndices simCodeIndices;
+      input UnorderedMap<ComponentRef, SimVar> simcode_map;
     protected
       list<Block> tmp;
     algorithm
       for system in systems loop
-        (tmp, simCodeIndices, funcTree) := fromSystem(system, simCodeIndices, funcTree, NBSystem.SystemType.ODE);
+        (tmp, simCodeIndices) := fromSystem(system, simCodeIndices, simcode_map);
         blcks := tmp :: blcks;
         all_blcks := listAppend(tmp, all_blcks);
       end for;
@@ -311,13 +333,13 @@ public
       input output list<list<Block>> blcks;
       input output list<Block> all_blcks;
       input output list<Block> event_dependencies;
-      input output SimCode.SimCodeIndices simCodeIndices;
-      input output FunctionTree funcTree;
+      input output SimCodeIndices simCodeIndices;
+      input UnorderedMap<ComponentRef, SimVar> simcode_map;
     protected
       list<Block> tmp;
     algorithm
       for system in systems loop
-        (tmp, simCodeIndices, funcTree) := fromSystem(system, simCodeIndices, funcTree, NBSystem.SystemType.ODE);
+        (tmp, simCodeIndices) := fromSystem(system, simCodeIndices, simcode_map);
         // add all
         all_blcks := listAppend(tmp, all_blcks);
         // filter all when equations and add to blcks (ode or algebraic)
@@ -333,14 +355,14 @@ public
     function createInitialBlocks
       input list<System.System> systems;
       output list<Block> blcks;
-      input output SimCode.SimCodeIndices simCodeIndices;
-      input output FunctionTree funcTree;
+      input output SimCodeIndices simCodeIndices;
+      input UnorderedMap<ComponentRef, SimVar> simcode_map;
     protected
       list<Block> tmp;
       list<list<Block>> tmp_lst = {};
     algorithm
       for system in systems loop
-        (tmp, simCodeIndices, funcTree) := fromSystem(system, simCodeIndices, funcTree, NBSystem.SystemType.INI);
+        (tmp, simCodeIndices) := fromSystem(system, simCodeIndices, simcode_map);
         tmp_lst := tmp :: tmp_lst;
       end for;
       blcks := List.flatten(tmp_lst);
@@ -350,16 +372,16 @@ public
       input list<System.System> systems;
       output list<list<Block>> blcks = {};
       output list<SimVar> vars = {};
-      input output SimCode.SimCodeIndices simCodeIndices;
-      input output FunctionTree funcTree;
+      input output SimCodeIndices simCodeIndices;
+      input UnorderedMap<ComponentRef, SimVar> simcode_map;
     protected
-      Pointer<SimCode.SimCodeIndices> indices_ptr = Pointer.create(simCodeIndices);
+      Pointer<SimCodeIndices> indices_ptr = Pointer.create(simCodeIndices);
       Pointer<list<SimVar>> vars_ptr = Pointer.create({});
       list<Block> tmp;
     algorithm
       for system in listReverse(systems) loop
-        BVariable.VariablePointers.map(system.unknowns, function SimVar.traverseCreate(acc = vars_ptr, indices_ptr = indices_ptr, varType = VarType.DAE_MODE_RESIDUAL));
-        (tmp, simCodeIndices, funcTree) := fromSystem(system, Pointer.access(indices_ptr), funcTree, NBSystem.SystemType.DAE);
+        BVariable.VariablePointers.map(system.unknowns, function SimVar.traverseCreate(acc = vars_ptr, indices_ptr = indices_ptr, varType = VarType.RESIDUAL));
+        (tmp, simCodeIndices) := fromSystem(system, Pointer.access(indices_ptr), simcode_map);
         blcks := tmp :: blcks;
       end for;
       vars := listReverse(Pointer.access(vars_ptr));
@@ -368,9 +390,9 @@ public
     function createNoReturnBlocks
       input EquationPointers equations;
       output list<Block> blcks = {};
-      input output SimCode.SimCodeIndices simCodeIndices;
-      input output FunctionTree funcTree;
+      input output SimCodeIndices simCodeIndices;
       input System.SystemType systemType;
+      input UnorderedMap<ComponentRef, SimVar> simcode_map;
     protected
       Equation eqn;
       Block tmp;
@@ -378,16 +400,15 @@ public
       for i in 1:ExpandableArray.getLastUsedIndex(equations.eqArr) loop
         if ExpandableArray.occupied(i, equations.eqArr) then
           eqn := Pointer.access(ExpandableArray.get(i, equations.eqArr));
-          (tmp, simCodeIndices, funcTree) := match eqn
+          (tmp, simCodeIndices) := match eqn
             local
               ComponentRef cref;
 
             case Equation.SCALAR_EQUATION(lhs = Expression.CREF(cref = cref))
-            then createEquation(NBVariable.getVar(cref), eqn, simCodeIndices, funcTree, systemType);
-
+            then createEquation(NBVariable.getVar(cref), eqn, NBSolve.Status.EXPLICIT, simCodeIndices, systemType, simcode_map);
 
             case Equation.WHEN_EQUATION()
-            then createEquation(NBVariable.DUMMY_VARIABLE, eqn, simCodeIndices, funcTree, systemType);
+            then createEquation(NBVariable.DUMMY_VARIABLE, eqn, NBSolve.Status.EXPLICIT, simCodeIndices, systemType, simcode_map);
 
             /* ToDo: ARRAY_EQUATION ... */
 
@@ -405,22 +426,25 @@ public
     function fromSystem
       input System.System system;
       output list<Block> blcks;
-      input output SimCode.SimCodeIndices simCodeIndices;
-      input output FunctionTree funcTree;
-      input System.SystemType systemType;
+      input output SimCodeIndices simCodeIndices;
+      input UnorderedMap<ComponentRef, SimVar> simcode_map;
     algorithm
       blcks := match system.strongComponents
         local
           array<StrongComponent> comps;
           Block tmp;
           list<Block> result = {};
+          Integer index;
+
         case SOME(comps)
           algorithm
-            for i in 1:arrayLength(comps) loop
-              (tmp, simCodeIndices, funcTree) := fromStrongComponent(comps[i], simCodeIndices, funcTree, systemType);
+            for i in arrayLength(comps):-1:1 loop
+              (tmp, simCodeIndices, index) := fromStrongComponent(comps[i], simCodeIndices, system.systemType, simcode_map);
+              // add it to the alias map
+              UnorderedMap.add(AliasInfo.ALIAS_INFO(system.systemType, system.partitionIndex, i), index, simCodeIndices.alias_map);
               result := tmp :: result;
             end for;
-        then listReverse(result);
+        then result;
 
         else algorithm
           Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for \n" + System.System.toString(system)});
@@ -431,11 +455,12 @@ public
     function fromStrongComponent
       input StrongComponent comp;
       output Block blck;
-      input output SimCode.SimCodeIndices simCodeIndices;
-      input output FunctionTree funcTree;
+      input output SimCodeIndices simCodeIndices;
+      output Integer index;
       input System.SystemType systemType;
+      input UnorderedMap<ComponentRef, SimVar> simcode_map;
     algorithm
-      blck := match comp
+      (blck, index) := match comp
         local
           Tearing strict;
           NonlinearSystem system;
@@ -446,81 +471,132 @@ public
           Variable var;
           SimJacobian tmpJac;
           Option<SimJacobian> jacobian;
+          EquationPointer eqn_ptr;
+          Equation eqn;
+          list<Statement> stmts = {};
+          SlicingStatus status;
+          ComponentRef var_cref;
+          Integer aliasOf;
+          list<Integer> eqn_indices, sizes;
+          list<Equation> entwined_eqns = {};
+          UnorderedMap<ComponentRef, Expression> replacements;
 
-        case StrongComponent.SINGLE_EQUATION()
-          algorithm
-            (tmp, simCodeIndices, funcTree) := createEquation(Pointer.access(comp.var), Pointer.access(comp.eqn), simCodeIndices, funcTree, systemType);
-        then tmp;
+        case StrongComponent.SINGLE_EQUATION() algorithm
+          (tmp, simCodeIndices) := createEquation(Pointer.access(comp.var), Pointer.access(comp.eqn), comp.status, simCodeIndices, systemType, simcode_map);
+        then (tmp, getIndex(tmp));
 
-        case StrongComponent.SINGLE_ARRAY(vars = {varPtr})
-          algorithm
-            (tmp, simCodeIndices, funcTree) := createEquation(Pointer.access(varPtr), Pointer.access(comp.eqn), simCodeIndices, funcTree, systemType);
-        then tmp;
+        case StrongComponent.SINGLE_ARRAY() algorithm
+          (tmp, simCodeIndices) := createEquation(Pointer.access(comp.var), Pointer.access(comp.eqn), comp.status, simCodeIndices, systemType, simcode_map);
+        then (tmp, getIndex(tmp));
 
-        case StrongComponent.TORN_LOOP(strict = strict)
-          algorithm
-            for i in 1:arrayLength(strict.innerEquations) loop
-              (tmp, simCodeIndices, funcTree) := fromInnerEquation(strict.innerEquations[i], simCodeIndices, funcTree, systemType);
-              eqns := tmp :: eqns;
-            end for;
-            for eqn_ptr in strict.residual_eqns loop
-              (tmp, simCodeIndices) := createResidual(Pointer.access(eqn_ptr), simCodeIndices);
-              eqns := tmp :: eqns;
-            end for;
-            for var_ptr in strict.iteration_vars loop
-              var := Pointer.access(var_ptr);
-              // This does not seem to be correct
-              //var.backendinfo := BackendExtension.BackendInfo.setVarKind(var.backendinfo, BackendExtension.LOOP_ITERATION());
-              Pointer.update(var_ptr, var);
-              crefs := var.name :: crefs;
-            end for;
-            // ToDo: correct the following values: size, homotopy, torn
-            if Util.isSome(strict.jac) then
-              (jacobian, simCodeIndices, funcTree) := SimJacobian.create(Util.getOption(strict.jac), simCodeIndices, funcTree);
-            else
-              (tmpJac, simCodeIndices) := SimJacobian.empty("NLS_DUMMY_" + intString(simCodeIndices.jacobianIndex), simCodeIndices);
-              jacobian := SOME(tmpJac);
-            end if;
-            system := NONLINEAR_SYSTEM(
-              index         = simCodeIndices.equationIndex,
-              blcks         = listReverse(eqns),
-              crefs         = listReverse(crefs),
-              indexSystem   = simCodeIndices.nonlinearSystemIndex,
-              size          = listLength(crefs),
-              jacobian      = jacobian,
-              homotopy      = false,
-              mixed         = comp.mixed,
-              torn          = true
-            );
-            simCodeIndices.nonlinearSystemIndex := simCodeIndices.nonlinearSystemIndex + 1;
-            simCodeIndices.equationIndex := simCodeIndices.equationIndex + 1;
-        then NONLINEAR(system, NONE());
+        case StrongComponent.SINGLE_RECORD_EQUATION() algorithm
+          (tmp, simCodeIndices) := createAlgorithm(Pointer.access(comp.eqn), simCodeIndices);
+        then (tmp, getIndex(tmp));
 
+        case StrongComponent.SINGLE_WHEN_EQUATION() algorithm
+          (tmp, simCodeIndices) := createEquation(NBVariable.DUMMY_VARIABLE, Pointer.access(comp.eqn), comp.status, simCodeIndices, systemType, simcode_map);
+        then (tmp, getIndex(tmp));
+
+        case StrongComponent.SINGLE_IF_EQUATION() algorithm
+          (tmp, simCodeIndices) := createEquation(NBVariable.DUMMY_VARIABLE, Pointer.access(comp.eqn), comp.status, simCodeIndices, systemType, simcode_map);
+        then (tmp, getIndex(tmp));
+
+        case StrongComponent.SINGLE_ALGORITHM() algorithm
+          (tmp, simCodeIndices) := createEquation(NBVariable.DUMMY_VARIABLE, Pointer.access(comp.eqn), comp.status, simCodeIndices, systemType, simcode_map);
+        then (tmp, getIndex(tmp));
+
+        case StrongComponent.SLICED_EQUATION() guard(Equation.isForEquation(Slice.getT(comp.eqn))) algorithm
+          (tmp, simCodeIndices) := createAlgorithm(Pointer.access(Slice.getT(comp.eqn)), simCodeIndices);
+        then (tmp, getIndex(tmp));
+
+        case StrongComponent.SLICED_EQUATION() algorithm
+          // just a regular equation solved for a sliced variable
+          // use cref instead of var because it has subscripts!
+          eqn := Pointer.access(Slice.getT(comp.eqn));
+          (tmp, simCodeIndices) := createEquation(Variable.fromCref(comp.var_cref), eqn, comp.status, simCodeIndices, systemType, simcode_map);
+        then (tmp, getIndex(tmp));
+
+        case StrongComponent.TORN_LOOP(strict = strict)algorithm
+          for i in 1:arrayLength(strict.innerEquations) loop
+            (tmp, simCodeIndices) := fromInnerEquation(strict.innerEquations[i], simCodeIndices, systemType, simcode_map);
+            eqns := tmp :: eqns;
+          end for;
+          for slice in strict.residual_eqns loop
+            (tmp, simCodeIndices) := createResidual(Pointer.access(Slice.getT(slice)), simCodeIndices);
+            eqns := tmp :: eqns;
+          end for;
+          for var_ptr in strict.iteration_vars loop
+            var := Pointer.access(var_ptr);
+            // This does not seem to be correct
+            //var.backendinfo := BackendExtension.BackendInfo.setVarKind(var.backendinfo, BackendExtension.LOOP_ITERATION());
+            Pointer.update(var_ptr, var);
+            crefs := var.name :: crefs;
+          end for;
+
+          // reactivate this once nonlinear loops actually work
+          if Util.isSome(strict.jac) and false then
+            (jacobian, simCodeIndices) := SimJacobian.create(Util.getOption(strict.jac), simCodeIndices, simcode_map);
+          else
+            jacobian := NONE();
+          end if;
+          system := NONLINEAR_SYSTEM(
+            index         = simCodeIndices.equationIndex,
+            blcks         = listReverse(eqns),
+            crefs         = listReverse(crefs),
+            indexSystem   = simCodeIndices.nonlinearSystemIndex,
+            size          = listLength(crefs),
+            jacobian      = Pointer.create(jacobian),
+            homotopy      = false,
+            mixed         = comp.mixed,
+            torn          = true
+          );
+          simCodeIndices.nonlinearSystemIndex := simCodeIndices.nonlinearSystemIndex + 1;
+          simCodeIndices.equationIndex := simCodeIndices.equationIndex + 1;
+        then (NONLINEAR(system, NONE()), system.index);
+
+        case StrongComponent.ALIAS() algorithm
+          if UnorderedMap.contains(comp.aliasInfo, simCodeIndices.alias_map) then
+            aliasOf := UnorderedMap.getSafe(comp.aliasInfo, simCodeIndices.alias_map);
+          else
+            aliasOf := -1;
+          end if;
+          tmp := ALIAS(simCodeIndices.equationIndex, comp.aliasInfo, aliasOf);
+          simCodeIndices.equationIndex := simCodeIndices.equationIndex + 1;
+        then (tmp, getIndex(tmp));
+
+        case StrongComponent.ENTWINED_EQUATION() algorithm
+          Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because entwined equations have to be resolved beforehand in Solve.solve(). Failed for:\n"
+            + StrongComponent.toString(comp)});
+        then fail();
+
+        else algorithm
+          Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed with unknown reason for \n" + StrongComponent.toString(comp)});
+        then fail();
       end match;
     end fromStrongComponent;
 
     function fromInnerEquation
       input BEquation.InnerEquation innerEqn;
       output Block blck;
-      input output SimCode.SimCodeIndices simCodeIndices;
-      input output FunctionTree funcTree;
+      input output SimCodeIndices simCodeIndices;
       input System.SystemType systemType;
+      input UnorderedMap<ComponentRef, SimVar> simcode_map;
     algorithm
       blck := match innerEqn
         case BEquation.InnerEquation.INNER_EQUATION()
           algorithm
-            (blck, simCodeIndices, funcTree) := createEquation(Pointer.access(innerEqn.var), Pointer.access(innerEqn.eqn), simCodeIndices, funcTree, systemType);
+            (blck, simCodeIndices) := createEquation(Pointer.access(innerEqn.var), Pointer.access(innerEqn.eqn), NBSolve.Status.EXPLICIT, simCodeIndices, systemType, simcode_map);
         then blck;
         else algorithm
-          Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for \n" + BEquation.Equation.toString(Pointer.access(innerEqn.eqn))});
+          Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for \n" + Equation.toString(Pointer.access(innerEqn.eqn))});
         then fail();
       end match;
     end fromInnerEquation;
 
     function createResidual
-      input BEquation.Equation eqn;
+      input Equation eqn;
       output Block blck;
-      input output SimCode.SimCodeIndices simCodeIndices;
+      input output SimCodeIndices simCodeIndices;
     algorithm
       blck := match eqn
         local
@@ -528,34 +604,50 @@ public
           Operator operator;
           Expression lhs, rhs;
           Block tmp;
+          Equation forEqn;
 
-        case BEquation.SCALAR_EQUATION()
-          algorithm
-            tmp := RESIDUAL(simCodeIndices.equationIndex, BEquation.Equation.getResidualExp(eqn), eqn.source, eqn.attr);
-            simCodeIndices.equationIndex := simCodeIndices.equationIndex + 1;
+        case BEquation.SCALAR_EQUATION() algorithm
+          tmp := RESIDUAL(simCodeIndices.equationIndex, eqn.rhs, eqn.source, eqn.attr);
+          simCodeIndices.equationIndex := simCodeIndices.equationIndex + 1;
         then tmp;
 
-        case BEquation.ARRAY_EQUATION()
-          algorithm
-            tmp := ARRAY_RESIDUAL(simCodeIndices.equationIndex, BEquation.Equation.getResidualExp(eqn), eqn.source, eqn.attr);
-            simCodeIndices.equationIndex := simCodeIndices.equationIndex + 1;
+        case BEquation.ARRAY_EQUATION() algorithm
+          tmp := ARRAY_RESIDUAL(simCodeIndices.equationIndex, eqn.rhs, eqn.source, eqn.attr);
+          simCodeIndices.equationIndex := simCodeIndices.equationIndex + 1;
         then tmp;
 
-        case BEquation.SIMPLE_EQUATION()
-          algorithm
-            ty := ComponentRef.getComponentType(eqn.lhs);
-            if Type.isArray(ty) then
-              tmp := ARRAY_RESIDUAL(simCodeIndices.equationIndex, BEquation.Equation.getResidualExp(eqn), eqn.source, eqn.attr);
-            else
-              tmp := RESIDUAL(simCodeIndices.equationIndex, BEquation.Equation.getResidualExp(eqn), eqn.source, eqn.attr);
-            end if;
-            simCodeIndices.equationIndex := simCodeIndices.equationIndex + 1;
+        case BEquation.SIMPLE_EQUATION() algorithm
+          ty := ComponentRef.getComponentType(eqn.lhs);
+          if Type.isArray(ty) then
+            tmp := ARRAY_RESIDUAL(simCodeIndices.equationIndex, Expression.fromCref(eqn.rhs), eqn.source, eqn.attr);
+          else
+            tmp := RESIDUAL(simCodeIndices.equationIndex, Expression.fromCref(eqn.rhs), eqn.source, eqn.attr);
+          end if;
+          simCodeIndices.equationIndex := simCodeIndices.equationIndex + 1;
+        then tmp;
+
+        /* this needs more thought
+        case BEquation.FOR_EQUATION() algorithm
+          rhs := BEquation.getResidualExp(eqn);
+          lhs := Expression.makeZero(
+          forEqn :=
+          eqn := Equation.splitIterators(eqn);
+          // handle these as if they were algorithms
+          stmt := Equation.toStatement(eqn);
+
+        then tmp;
+        */
+        case BEquation.FOR_EQUATION() algorithm
+          rhs := Equation.getRHS(eqn);
+          lhs := Expression.makeZero(Expression.typeOf(rhs));
+          tmp := RESIDUAL(simCodeIndices.equationIndex, lhs, eqn.source, eqn.attr);
+          simCodeIndices.equationIndex := simCodeIndices.equationIndex + 1;
         then tmp;
 
         // ToDo: add all other cases!
 
         else algorithm
-          Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for \n" + BEquation.Equation.toString(eqn)});
+          Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for \n" + Equation.toString(eqn)});
         then fail();
 
       end match;
@@ -563,68 +655,76 @@ public
 
     function createEquation
       "Creates a single equation"
-      input BVariable.Variable var;
-      input BEquation.Equation eqn;
+      input Variable var;
+      input Equation eqn;
+      input Solve.Status status;
       output Block blck;
-      input output SimCode.SimCodeIndices simCodeIndices;
-      input output FunctionTree funcTree;
+      input output SimCodeIndices simCodeIndices;
       input System.SystemType systemType;
-    protected
-      BEquation.Equation solvedEq;
-      Solve.Status status;
+      input UnorderedMap<ComponentRef, SimVar> simcode_map;
     algorithm
-      // empty input implies equation without return value
-      if ComponentRef.isEmpty(var.name) then
-        (solvedEq, status) := (eqn, NBSolve.Status.EXPLICIT);
-      else
-        (solvedEq, funcTree, status, _) := Solve.solve(eqn, var.name, funcTree);
-      end if;
-
-      blck := match (solvedEq, status)
+      blck := match (eqn, status)
         local
           Type ty;
           Operator operator;
           Expression lhs, rhs;
           Block tmp;
+          list<tuple<Expression, list<Block>>> branches;
 
-        case (BEquation.SCALAR_EQUATION(), NBSolve.Status.EXPLICIT)
-          algorithm
-            tmp := SIMPLE_ASSIGN(simCodeIndices.equationIndex, var.name, solvedEq.rhs, solvedEq.source, solvedEq.attr);
-            simCodeIndices.equationIndex := simCodeIndices.equationIndex + 1;
+        case (BEquation.SCALAR_EQUATION(), NBSolve.Status.EXPLICIT) algorithm
+          tmp := SIMPLE_ASSIGN(simCodeIndices.equationIndex, var.name, eqn.rhs, eqn.source, eqn.attr);
+          simCodeIndices.equationIndex := simCodeIndices.equationIndex + 1;
         then tmp;
 
-        case (BEquation.ARRAY_EQUATION(), NBSolve.Status.EXPLICIT)
-          algorithm
-            tmp := ARRAY_ASSIGN(simCodeIndices.equationIndex, Expression.fromCref(var.name), solvedEq.rhs, solvedEq.source, solvedEq.attr);
-            simCodeIndices.equationIndex := simCodeIndices.equationIndex + 1;
+        case (BEquation.ARRAY_EQUATION(), NBSolve.Status.EXPLICIT) algorithm
+          tmp := ARRAY_ASSIGN(simCodeIndices.equationIndex, Expression.fromCref(var.name), eqn.rhs, eqn.source, eqn.attr);
+          simCodeIndices.equationIndex := simCodeIndices.equationIndex + 1;
+        then tmp;
+
+        case (BEquation.ARRAY_EQUATION(), NBSolve.Status.EXPLICIT) algorithm
+          tmp := ARRAY_ASSIGN(simCodeIndices.equationIndex, Expression.fromCref(var.name), eqn.rhs, eqn.source, eqn.attr);
+          simCodeIndices.equationIndex := simCodeIndices.equationIndex + 1;
+        then tmp;
+
+        case (BEquation.RECORD_EQUATION(), NBSolve.Status.EXPLICIT) algorithm
+          (tmp, simCodeIndices) := createAlgorithm(eqn, simCodeIndices);
         then tmp;
 
         // remove simple equations should remove this, but if it is not activated we need this
-        case (BEquation.SIMPLE_EQUATION(), NBSolve.Status.EXPLICIT)
-          algorithm
-            ty := ComponentRef.getComponentType(solvedEq.lhs);
-            if Type.isArray(ty) then
-              tmp := ARRAY_ASSIGN(simCodeIndices.equationIndex, Expression.fromCref(var.name), Expression.fromCref(solvedEq.rhs), solvedEq.source, solvedEq.attr);
-            else
-              tmp := SIMPLE_ASSIGN(simCodeIndices.equationIndex, var.name, Expression.fromCref(solvedEq.rhs), solvedEq.source, solvedEq.attr);
-            end if;
-            simCodeIndices.equationIndex := simCodeIndices.equationIndex + 1;
+        case (BEquation.SIMPLE_EQUATION(), NBSolve.Status.EXPLICIT) algorithm
+          ty := ComponentRef.getComponentType(eqn.lhs);
+          if Type.isArray(ty) then
+            tmp := ARRAY_ASSIGN(simCodeIndices.equationIndex, Expression.fromCref(var.name), Expression.fromCref(eqn.rhs), eqn.source, eqn.attr);
+          else
+            tmp := SIMPLE_ASSIGN(simCodeIndices.equationIndex, var.name, Expression.fromCref(eqn.rhs), eqn.source, eqn.attr);
+          end if;
+          simCodeIndices.equationIndex := simCodeIndices.equationIndex + 1;
         then tmp;
 
         case (BEquation.WHEN_EQUATION(), NBSolve.Status.EXPLICIT) algorithm
-          (tmp, simCodeIndices) := createWhenBody(solvedEq.body, simCodeIndices, solvedEq.source, solvedEq.attr);
+          (tmp, simCodeIndices) := createWhenBody(eqn.body, eqn.source, eqn.attr, simCodeIndices);
+        then tmp;
+
+        case (BEquation.IF_EQUATION(), NBSolve.Status.EXPLICIT) algorithm
+          (branches, simCodeIndices) := createIfBody(eqn.body, {}, simCodeIndices, systemType, simcode_map);
+          tmp := IF(simCodeIndices.equationIndex, listReverse(branches), eqn.source, eqn.attr);
+          simCodeIndices.equationIndex := simCodeIndices.equationIndex + 1;
+        then tmp;
+
+        case (BEquation.ALGORITHM(), NBSolve.Status.EXPLICIT) algorithm
+          tmp := ALGORITHM(simCodeIndices.equationIndex, eqn.alg.statements, eqn.attr);
+          simCodeIndices.equationIndex := simCodeIndices.equationIndex + 1;
         then tmp;
 
         // ToDo: add all other cases!
 
         // fallback implicit solving
-        case (_, NBSolve.Status.IMPLICIT)
-          algorithm
-            (tmp, simCodeIndices, funcTree) := createImplicitEquation(var, eqn, simCodeIndices, funcTree, systemType);
+        case (_, NBSolve.Status.IMPLICIT) algorithm
+          (tmp, simCodeIndices) := createImplicitEquation(var, eqn, simCodeIndices, systemType, simcode_map);
          then tmp;
 
         else algorithm
-          Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for \n" + BEquation.Equation.toString(solvedEq)});
+          Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed with status " + Solve.statusString(status) + " for \n" + Equation.toString(eqn)});
         then fail();
 
       end match;
@@ -633,31 +733,31 @@ public
     function createImplicitEquation
       "Creates a single implicit equation"
       input BVariable.Variable var;
-      input BEquation.Equation eqn;
+      input Equation eqn;
       output Block blck;
-      input output SimCode.SimCodeIndices simCodeIndices;
-      input output FunctionTree funcTree;
+      input output SimCodeIndices simCodeIndices;
       input System.SystemType systemType;
+      input UnorderedMap<ComponentRef, SimVar> simcode_map;
     protected
       StrongComponent comp;
       Integer index;
     algorithm
-      (comp, funcTree, index)  := Tearing.implicit(
-        comp        = StrongComponent.SINGLE_EQUATION(Pointer.create(var), Pointer.create(eqn)),
-        funcTree    = funcTree,
+      (comp, _, index)  := Tearing.implicit(
+        comp        = StrongComponent.SINGLE_EQUATION(Pointer.create(var), Pointer.create(eqn), NBSolve.Status.IMPLICIT),
+        funcTree    = FunctionTreeImpl.EMPTY(),
         index       = simCodeIndices.implicitIndex,
         systemType  = systemType
       );
       simCodeIndices.implicitIndex := index;
-      (blck, simCodeIndices, funcTree) := fromStrongComponent(comp, simCodeIndices, funcTree, systemType);
+      (blck, simCodeIndices) := fromStrongComponent(comp, simCodeIndices, systemType, simcode_map);
     end createImplicitEquation;
 
     function createWhenBody
       input WhenEquationBody body;
       output Block blck;
-      input output SimCode.SimCodeIndices simCodeIndices;
       input DAE.ElementSource source;
       input EquationAttributes attr;
+      input output SimCodeIndices simCodeIndices;
     protected
       list<ComponentRef> conditions;
       list<WhenStatement> when_stmts;
@@ -667,7 +767,7 @@ public
     algorithm
       (conditions, when_stmts, else_when) := WhenEquationBody.getBodyAttributes(body);
       if Util.isSome(else_when) then
-        (tmp, simCodeIndices) := createWhenBody(Util.getOption(else_when), simCodeIndices, source, attr);
+        (tmp, simCodeIndices) := createWhenBody(Util.getOption(else_when), source, attr, simCodeIndices);
         else_when_block := SOME(tmp);
       else
         else_when_block := NONE();
@@ -676,61 +776,53 @@ public
       simCodeIndices.equationIndex := simCodeIndices.equationIndex + 1;
     end createWhenBody;
 
-    function traverseCreateEquation
-      "Only works, if the variable to solve for is saved in equation attributes!
-      used for dae mode jacobians."
-      input output BEquation.Equation eqn;
-      input Pointer<list<Block>> acc;
-      input Pointer<SimCode.SimCodeIndices> indices_ptr;
-      input Pointer<FunctionTree> funcTree_ptr;
+    function createIfBody
+      input IfEquationBody body;
+      input output list<tuple<Expression, list<Block>>> branches;
+      input output SimCodeIndices simCodeIndices;
       input System.SystemType systemType;
+      input UnorderedMap<ComponentRef, SimVar> simcode_map;
     protected
-      Pointer<Variable> residualVar;
+      list<StrongComponent> comps;
       Block blck;
-      SimCode.SimCodeIndices indices;
-      FunctionTree funcTree;
+      list<Block> blcks = {};
     algorithm
-      try
-        residualVar := EquationAttributes.getResidualVar(BEquation.Equation.getAttributes(eqn));
-        (blck, indices, funcTree) := createEquation(Pointer.access(residualVar), eqn, Pointer.access(indices_ptr), Pointer.access(funcTree_ptr), systemType);
-        Pointer.update(acc, blck :: Pointer.access(acc));
-        Pointer.update(indices_ptr, indices);
-        Pointer.update(funcTree_ptr, funcTree);
-      else
-        Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for:\n" + BEquation.Equation.toString(eqn)});
-        fail();
-      end try;
-    end traverseCreateEquation;
+      comps := list(StrongComponent.fromSolvedEquation(eqn) for eqn in body.then_eqns);
+      for comp in listReverse(comps) loop
+        (blck, simCodeIndices, _) := Block.fromStrongComponent(comp, simCodeIndices, systemType, simcode_map);
+        blcks := blck :: blcks;
+      end for;
+      branches := (body.condition, blcks) :: branches;
+      if Util.isSome(body.else_if) then
+        (branches, simCodeIndices) := createIfBody(Util.getOption(body.else_if), branches, simCodeIndices, systemType, simcode_map);
+      end if;
+    end createIfBody;
 
-    function traverseCreateResidual
-      "Only works, if the variable to solve for is saved in equation attributes!
-      used for dae mode jacobians."
-      input output BEquation.Equation eqn;
-      input Pointer<list<Block>> acc;
-      input Pointer<SimCode.SimCodeIndices> indices_ptr;
+    function createAlgorithm
+      input Equation eqn;
+      output Block blck;
+      input output SimCodeIndices indices;
     protected
-      Block blck;
-      SimCode.SimCodeIndices indices;
+      list<Statement> stmts;
     algorithm
-      try
-        (blck, indices) := createResidual(eqn, Pointer.access(indices_ptr));
-        Pointer.update(acc, blck :: Pointer.access(acc));
-        Pointer.update(indices_ptr, indices);
-      else
-        Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for:\n" + BEquation.Equation.toString(eqn)});
-        fail();
-      end try;
-    end traverseCreateResidual;
+      stmts := match eqn
+        case Equation.ALGORITHM() then eqn.alg.statements;
+        else {Equation.toStatement(eqn)};
+      end match;
+
+      blck := ALGORITHM(indices.equationIndex, stmts, Equation.getAttributes(eqn));
+      indices.equationIndex := indices.equationIndex + 1;
+    end createAlgorithm;
 
     function createAssignment
       "Creates an assignment equation."
-      input BEquation.Equation eqn;
+      input Equation eqn;
       output Block blck;
-      input output SimCode.SimCodeIndices simCodeIndices;
+      input output SimCodeIndices simCodeIndices;
     algorithm
       blck := match eqn
         local
-          BEquation.Equation qual;
+          Equation qual;
           Type ty;
           Operator operator;
           SimVar residualVar;
@@ -760,7 +852,7 @@ public
         // ToDo: add all other cases!
 
         else algorithm
-          Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for \n" + BEquation.Equation.toString(eqn)});
+          Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for \n" + Equation.toString(eqn)});
         then fail();
 
       end match;
@@ -771,20 +863,23 @@ public
       input output list<Block> linearLoops;
       input output list<Block> nonlinearLoops;
       input output list<SimJacobian> jacobians;
+      input output SimCodeIndices simCodeIndices;
+      input UnorderedMap<ComponentRef, SimVar> simcode_map;
     algorithm
       for blck_lst in blcks loop
         for blck in blck_lst loop
           (linearLoops, nonlinearLoops) := match blck
             local
               Option<SimJacobian> jacobian;
-            case LINEAR()     then (blck :: linearLoops, nonlinearLoops);
+            case LINEAR() then (blck :: linearLoops, nonlinearLoops);
             case NONLINEAR() algorithm
               jacobian := NonlinearSystem.getJacobian(blck.system);
               if Util.isSome(jacobian) then
                 jacobians := Util.getOption(jacobian) :: jacobians;
               end if;
+              blck.system := NonlinearSystem.setJacobian(blck.system, jacobian);
             then (linearLoops, blck :: nonlinearLoops);
-                              else (linearLoops, nonlinearLoops);
+            else (linearLoops, nonlinearLoops);
           end match;
         end for;
       end for;
@@ -795,10 +890,52 @@ public
       output OldSimCode.SimEqSystem oldBlck;
     algorithm
       oldBlck := match blck
+        local
+          ComponentRef iter;
+          Expression range, exp;
+          list<Block> blcks;
+          DAE.ComponentRef oldIter;
+          DAE.Type oldType;
+          DAE.Statement for_stmt;
+          list<tuple<DAE.Exp, list<OldSimCode.SimEqSystem>>> oldBranches = {};
+          list<OldSimCode.SimEqSystem> else_branch = {};
+
         case RESIDUAL()         then OldSimCode.SES_RESIDUAL(blck.index, Expression.toDAE(blck.exp), blck.source, EquationAttributes.convert(blck.attr));
         case ARRAY_RESIDUAL()   then OldSimCode.SES_RESIDUAL(blck.index, Expression.toDAE(blck.exp), blck.source, EquationAttributes.convert(blck.attr));
         case SIMPLE_ASSIGN()    then OldSimCode.SES_SIMPLE_ASSIGN(blck.index, ComponentRef.toDAE(blck.lhs), Expression.toDAE(blck.rhs), blck.source, EquationAttributes.convert(blck.attr));
         case ARRAY_ASSIGN()     then OldSimCode.SES_ARRAY_CALL_ASSIGN(blck.index, Expression.toDAE(blck.lhs), Expression.toDAE(blck.rhs), blck.source, EquationAttributes.convert(blck.attr));
+        case IF() algorithm
+          for branch in blck.branches loop
+            (exp, blcks) := branch;
+            if Expression.isEnd(exp) then
+              if listEmpty(else_branch) then
+                else_branch := list(convert(blck_) for blck_ in blcks);
+              else
+                Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because there is
+                  at least two non-conditional branches in:\n" + Block.toString(blck)});
+                fail();
+              end if;
+            elseif listEmpty(else_branch) then
+              oldBranches := (Expression.toDAE(exp), list(convert(blck_) for blck_ in blcks)) :: oldBranches;
+            else
+              Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because there is a
+                conditional branch after a non-conditional branch in:\n" + Block.toString(blck)});
+              fail();
+            end if;
+          end for;
+          if listEmpty(else_branch) then
+            Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because there is a
+              is no non-conditional branch in:\n" + Block.toString(blck)});
+            fail();
+          end if;
+        then OldSimCode.SES_IFEQUATION(
+          index = blck.index,
+          ifbranches = listReverse(oldBranches),
+          elsebranch = else_branch,
+          source = blck.source,
+          eqAttr = EquationAttributes.convert(blck.attr)
+        );
+
         case WHEN() then OldSimCode.SES_WHEN(
           index       = blck.index,
           conditions  = list(ComponentRef.toDAE(cr) for cr in blck.conditions),
@@ -808,8 +945,20 @@ public
           source      = blck.source,
           eqAttr      = EquationAttributes.convert(blck.attr)
         );
-        // ToDo: add all the other cases here!
+
         case NONLINEAR()        then OldSimCode.SES_NONLINEAR(NonlinearSystem.convert(blck.system), NONE(), EquationAttributes.convert(NBEquation.EQ_ATTR_DEFAULT_UNKNOWN) /* dangerous! */);
+
+        case ALGORITHM()        then OldSimCode.SES_ALGORITHM(blck.index, ConvertDAE.convertStatements(blck.stmts), EquationAttributes.convert(blck.attr));
+
+        case ALIAS() guard(blck.aliasOf > 0) then OldSimCode.SES_ALIAS(blck.index, blck.aliasOf);
+
+        // ToDo: add all the other cases here!
+
+
+        case ALIAS() guard(blck.aliasOf == -1) algorithm
+          Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for following alias block because the index has not been updated:\n" + toString(blck)});
+        then fail();
+
         else algorithm
           Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for \n" + toString(blck)});
         then fail();
@@ -844,7 +993,7 @@ public
     function fixIndices
       input list<Block> blcks;
       input output list<Block> acc;
-      input output SimCode.SimCodeIndices indices;
+      input output SimCodeIndices indices;
     algorithm
       (acc, indices) := match blcks
         local
@@ -859,7 +1008,7 @@ public
 
     function fixIndex
       input output Block blck;
-      input output SimCode.SimCodeIndices indices;
+      input output SimCodeIndices indices;
     algorithm
       blck := match blck
         local
@@ -913,11 +1062,6 @@ public
             (tmp, indices) := fixIndex(Util.getOption(blck.else_when), indices);
             blck.else_when := SOME(tmp);
           end if;
-        then blck;
-
-        case FOR() algorithm
-          blck.index := indices.equationIndex;
-          indices.equationIndex := indices.equationIndex + 1;
         then blck;
 
         case LINEAR() algorithm
@@ -1011,7 +1155,7 @@ public
       list<ComponentRef> crefs;
       Integer indexSystem;
       Integer size "Number of variables that are solved in this system. Needed because 'crefs' only contains the iteration variables.";
-      Option<SimJacobian> jacobian;
+      Pointer<Option<SimJacobian>> jacobian;
       Boolean homotopy;
       Boolean mixed;
       Boolean torn;
@@ -1019,8 +1163,15 @@ public
 
     function getJacobian
       input NonlinearSystem syst;
-      output Option<SimJacobian> jacobian = syst.jacobian;
+      output Option<SimJacobian> jacobian = Pointer.access(syst.jacobian);
     end getJacobian;
+
+    function setJacobian
+      input output NonlinearSystem syst;
+      input Option<SimJacobian> jacobian;
+    algorithm
+      Pointer.update(syst.jacobian, jacobian);
+    end setJacobian;
 
     function toString
       input NonlinearSystem system;
@@ -1046,7 +1197,7 @@ public
         crefs                 = listReverse(crefs),
         indexNonLinearSystem  = system.indexSystem,
         nUnknowns             = system.size,
-        jacobianMatrix        = SimJacobian.convertOpt(system.jacobian), // ToDo update this!
+        jacobianMatrix        = SimJacobian.convertOpt(Pointer.access(system.jacobian)), // ToDo update this!
         homotopySupport       = system.homotopy,
         mixedSystem           = system.mixed,
         tornSystem            = system.torn,

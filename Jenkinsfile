@@ -86,6 +86,8 @@ pipeline {
               common.buildOMC('clang', 'clang++', '--without-hwloc', true, true)
               common.getVersion()
             }
+            // Resolve symbolic links to make Jenkins happy
+            sh 'cp -Lr build build.new && rm -rf build && mv build.new build'
             stash name: 'omc-clang', includes: 'build/**, **/config.status'
           }
         }
@@ -184,9 +186,8 @@ pipeline {
           agent {
             dockerfile {
               additionalBuildArgs '--pull'
-              dir '.CI/cache-without-cmake'
+              dir '.CI/cache-bionic-cmake-3.17.2'
               label 'linux'
-              args "-v /var/lib/jenkins/gitcache:/var/lib/jenkins/gitcache"
               args "--mount type=volume,source=omlibrary-cache,target=/cache/omlibrary " +
                    "-v /var/lib/jenkins/gitcache:/var/lib/jenkins/gitcache"
             }
@@ -195,21 +196,9 @@ pipeline {
             beforeAgent true
             expression { !shouldWeSkipCMakeBuild_value }
           }
-          environment {
-            CC = "gcc-5"
-            CXX = "g++-5"
-          }
           steps {
             script {
-              echo "Download and install CMake 3.17.2"
-              sh '''
-                wget "cmake.org/files/v3.17/cmake-3.17.2-Linux-x86_64.sh"
-                mkdir -p /tmp/cmake
-                sh cmake-3.17.2-Linux-x86_64.sh --prefix=/tmp/cmake --skip-license
-                /tmp/cmake/bin/cmake --version
-              '''
-              common.buildOMC_CMake('-DCMAKE_BUILD_TYPE=Release -DOMC_USE_CCACHE=OFF -DCMAKE_INSTALL_PREFIX=build', '/tmp/cmake/bin/cmake')
-              sh "build/bin/omc --help"
+              common.buildOMC_CMake('-DCMAKE_BUILD_TYPE=Release -DOM_USE_CCACHE=OFF -DCMAKE_INSTALL_PREFIX=build', '/opt/cmake-3.17.2/bin/cmake')
               sh "build/bin/omc --version"
             }
             // stash name: 'omc-cmake-gcc', includes: 'OMCompiler/build_cmake/install_cmake/bin/**'
@@ -242,7 +231,38 @@ pipeline {
     }
     stage('tests') {
       parallel {
-        stage('testsuite-clang') {
+        stage('cross-build-fmu') {
+          agent {
+            label 'linux'
+          }
+          environment {
+            RUNTESTDB = "/cache/runtest/"
+            LIBRARIES = "/cache/omlibrary"
+          }
+          when {
+            beforeAgent true
+            expression { shouldWeRunTests }
+          }
+          steps {
+            script {
+              def deps = docker.build('testsuite-fmu-crosscompile', '--pull .CI/cache')
+              // deps.pull() // Already built...
+              def dockergid = sh (script: 'stat -c %g /var/run/docker.sock', returnStdout: true).trim()
+              deps.inside("-v /var/run/docker.sock:/var/run/docker.sock --group-add '${dockergid}'") {
+                common.standardSetup()
+                unstash 'omc-clang'
+                common.makeLibsAndCache()
+                writeFile file: 'testsuite/special/FmuExportCrossCompile/VERSION', text: common.getVersion()
+                sh 'make -C testsuite/special/FmuExportCrossCompile/ dockerpull'
+                sh 'make -C testsuite/special/FmuExportCrossCompile/ test'
+                stash name: 'cross-fmu', includes: 'testsuite/special/FmuExportCrossCompile/*.fmu'
+                stash name: 'cross-fmu-extras', includes: 'testsuite/special/FmuExportCrossCompile/*.mos, testsuite/special/FmuExportCrossCompile/*.csv, testsuite/special/FmuExportCrossCompile/*.sh, testsuite/special/FmuExportCrossCompile/*.opt, testsuite/special/FmuExportCrossCompile/*.txt, testsuite/special/FmuExportCrossCompile/VERSION'
+                archiveArtifacts "testsuite/special/FmuExportCrossCompile/*.fmu"
+              }
+            }
+          }
+        }
+        stage('testsuite-clang 1/3') {
           agent {
             dockerfile {
               additionalBuildArgs '--pull'
@@ -272,12 +292,80 @@ pipeline {
               common.standardSetup()
               unstash 'omc-clang'
               common.makeLibsAndCache()
-              common.partest()
+              common.partest(1,3)
+            }
+          }
+        }
+        stage('testsuite-clang 2/3') {
+          agent {
+            dockerfile {
+              additionalBuildArgs '--pull'
+              dir '.CI/cache'
+              /* The cache Dockerfile makes /cache/runtest, etc world writable
+               * This is necessary because we run the docker image as a user and need to
+               * be able to have a global caching of the omlibrary parts and the runtest database.
+               * Note that the database is stored in a volume on a per-node basis, so the first time
+               * the tests run on a particular node, they might execute slightly slower
+               */
+              label 'linux'
+              args "--mount type=volume,source=runtest-clang-cache,target=/cache/runtest " +
+                   "--mount type=volume,source=omlibrary-cache,target=/cache/omlibrary " +
+                   "-v /var/lib/jenkins/gitcache:/var/lib/jenkins/gitcache"
+            }
+          }
+          environment {
+            RUNTESTDB = "/cache/runtest/"
+            LIBRARIES = "/cache/omlibrary"
+          }
+          when {
+            beforeAgent true
+            expression { shouldWeRunTests }
+          }
+          steps {
+            script {
+              common.standardSetup()
+              unstash 'omc-clang'
+              common.makeLibsAndCache()
+              common.partest(2,3)
+            }
+          }
+        }
+        stage('testsuite-clang 3/3') {
+          agent {
+            dockerfile {
+              additionalBuildArgs '--pull'
+              dir '.CI/cache'
+              /* The cache Dockerfile makes /cache/runtest, etc world writable
+               * This is necessary because we run the docker image as a user and need to
+               * be able to have a global caching of the omlibrary parts and the runtest database.
+               * Note that the database is stored in a volume on a per-node basis, so the first time
+               * the tests run on a particular node, they might execute slightly slower
+               */
+              label 'linux'
+              args "--mount type=volume,source=runtest-clang-cache,target=/cache/runtest " +
+                   "--mount type=volume,source=omlibrary-cache,target=/cache/omlibrary " +
+                   "-v /var/lib/jenkins/gitcache:/var/lib/jenkins/gitcache"
+            }
+          }
+          environment {
+            RUNTESTDB = "/cache/runtest/"
+            LIBRARIES = "/cache/omlibrary"
+          }
+          when {
+            beforeAgent true
+            expression { shouldWeRunTests }
+          }
+          steps {
+            script {
+              common.standardSetup()
+              unstash 'omc-clang'
+              common.makeLibsAndCache()
+              common.partest(3,3)
             }
           }
         }
 
-        stage('testsuite-gcc') {
+        stage('testsuite-gcc 1/3') {
           agent {
             dockerfile {
               additionalBuildArgs '--pull'
@@ -301,43 +389,63 @@ pipeline {
               common.standardSetup()
               unstash 'omc-gcc'
               common.makeLibsAndCache()
-              common.partest()
+              common.partest(1,3)
             }
           }
         }
-
-        stage('testsuite-fmu-crosscompile') {
-          stages {
-            stage('cross-build-fmu') {
-              agent {
-                label 'linux'
-              }
-              environment {
-                RUNTESTDB = "/cache/runtest/"
-                LIBRARIES = "/cache/omlibrary"
-              }
-              when {
-                beforeAgent true
-                expression { shouldWeRunTests }
-              }
-              steps {
-                script {
-                  def deps = docker.build('testsuite-fmu-crosscompile', '--pull .CI/cache')
-                  // deps.pull() // Already built...
-                  def dockergid = sh (script: 'stat -c %g /var/run/docker.sock', returnStdout: true).trim()
-                  deps.inside("-v /var/run/docker.sock:/var/run/docker.sock --group-add '${dockergid}'") {
-                    common.standardSetup()
-                    unstash 'omc-clang'
-                    common.makeLibsAndCache()
-                    writeFile file: 'testsuite/special/FmuExportCrossCompile/VERSION', text: common.getVersion()
-                    sh 'make -C testsuite/special/FmuExportCrossCompile/ dockerpull'
-                    sh 'make -C testsuite/special/FmuExportCrossCompile/ test'
-                    stash name: 'cross-fmu', includes: 'testsuite/special/FmuExportCrossCompile/*.fmu'
-                    stash name: 'cross-fmu-extras', includes: 'testsuite/special/FmuExportCrossCompile/*.mos, testsuite/special/FmuExportCrossCompile/*.csv, testsuite/special/FmuExportCrossCompile/*.sh, testsuite/special/FmuExportCrossCompile/*.opt, testsuite/special/FmuExportCrossCompile/*.txt, testsuite/special/FmuExportCrossCompile/VERSION'
-                    archiveArtifacts "testsuite/special/FmuExportCrossCompile/*.fmu"
-                  }
-                }
-              }
+        stage('testsuite-gcc 2/3') {
+          agent {
+            dockerfile {
+              additionalBuildArgs '--pull'
+              dir '.CI/cache-xenial'
+              label 'linux'
+              args "--mount type=volume,source=runtest-gcc-cache,target=/cache/runtest " +
+                   "--mount type=volume,source=omlibrary-cache,target=/cache/omlibrary " +
+                   "-v /var/lib/jenkins/gitcache:/var/lib/jenkins/gitcache"
+            }
+          }
+          environment {
+            RUNTESTDB = "/cache/runtest/"
+            LIBRARIES = "/cache/omlibrary"
+          }
+          when {
+            beforeAgent true
+            expression { shouldWeRunTests }
+          }
+          steps {
+            script {
+              common.standardSetup()
+              unstash 'omc-gcc'
+              common.makeLibsAndCache()
+              common.partest(2,3)
+            }
+          }
+        }
+        stage('testsuite-gcc 3/3') {
+          agent {
+            dockerfile {
+              additionalBuildArgs '--pull'
+              dir '.CI/cache-xenial'
+              label 'linux'
+              args "--mount type=volume,source=runtest-gcc-cache,target=/cache/runtest " +
+                   "--mount type=volume,source=omlibrary-cache,target=/cache/omlibrary " +
+                   "-v /var/lib/jenkins/gitcache:/var/lib/jenkins/gitcache"
+            }
+          }
+          environment {
+            RUNTESTDB = "/cache/runtest/"
+            LIBRARIES = "/cache/omlibrary"
+          }
+          when {
+            beforeAgent true
+            expression { shouldWeRunTests }
+          }
+          steps {
+            script {
+              common.standardSetup()
+              unstash 'omc-gcc'
+              common.makeLibsAndCache()
+              common.partest(3,3)
             }
           }
         }
@@ -362,37 +470,6 @@ pipeline {
             LIBRARIES = "/cache/omlibrary"
             COMPLIANCEEXTRAREPORTFLAGS = "--expectedFailures=.CI/compliance.failures --flakyTests=.CI/compliance.flaky"
             COMPLIANCEPREFIX = "compliance"
-          }
-          when {
-            beforeAgent true
-            expression { shouldWeRunTests }
-          }
-          steps {
-            script { common.compliance() }
-          }
-        }
-
-        stage('testsuite-compliance-newinst') {
-          agent {
-            dockerfile {
-              additionalBuildArgs '--pull'
-              dir '.CI/cache'
-              /* The cache Dockerfile makes /cache/runtest, etc world writable
-               * This is necessary because we run the docker image as a user and need to
-               * be able to have a global caching of the omlibrary parts and the runtest database.
-               * Note that the database is stored in a volume on a per-node basis, so the first time
-               * the tests run on a particular node, they might execute slightly slower
-               */
-              label 'linux'
-              args "--mount type=volume,source=omlibrary-cache,target=/cache/omlibrary " +
-                   "-v /var/lib/jenkins/gitcache:/var/lib/jenkins/gitcache"
-            }
-          }
-          environment {
-            LIBRARIES = "/cache/omlibrary"
-            COMPLIANCEEXTRAFLAGS = "-d=newInst"
-            COMPLIANCEEXTRAREPORTFLAGS = "--expectedFailures=.CI/compliance-newinst.failures"
-            COMPLIANCEPREFIX = "compliance-newinst"
           }
           when {
             beforeAgent true
@@ -475,7 +552,7 @@ pipeline {
             script {
               common.standardSetup()
               unstash 'omc-clang'
-              common.partest(false, '-j1 -parmodexp')
+              common.partest(1, 1, false, '-j1 -parmodexp')
             }
           }
         }
@@ -550,23 +627,7 @@ pipeline {
 
       }
     }
-    stage('OMEdit testsuite') {
-      parallel {
-        stage('clang-qt5') {
-          agent {
-            docker {
-              image 'docker.openmodelica.org/build-deps:v1.16.3'
-              label 'linux'
-              alwaysPull true
-            }
-          }
-          steps {
-            script { common.buildAndRunOMEditTestsuite('omedit-testsuite-clang') }
-          }
-        }
-      }
-    }
-    stage('fmuchecker') {
+    stage('fmuchecker + OMEdit testsuite') {
       parallel {
         stage('linux-wine-fmuchecker') {
           agent {
@@ -647,6 +708,18 @@ pipeline {
             stash name: 'cross-fmu-results-armhf', includes: 'testsuite/special/FmuExportCrossCompile/*.csv, testsuite/special/FmuExportCrossCompile/Test_FMUs/**'
           }
         }
+        stage('clang-qt5') {
+          agent {
+            docker {
+              image 'docker.openmodelica.org/build-deps:v1.16.3'
+              label 'linux'
+              alwaysPull true
+            }
+          }
+          steps {
+            script { common.buildAndRunOMEditTestsuite('omedit-testsuite-clang') }
+          }
+        }
       }
     }
     stage('check-and-upload') {
@@ -664,15 +737,16 @@ pipeline {
             expression { shouldWeRunTests }
           }
           options {
-            skipDefaultCheckout true
+            skipDefaultCheckout true // This seems to cause problems for symbolic links
           }
           steps {
+            echo "${env.NODE_NAME}"
+            sh 'rm -rf build/ testsuite/'
             unstash 'omc-clang'
             unstash 'cross-fmu-extras'
             unstash 'cross-fmu-results-linux-wine'
             unstash 'cross-fmu-results-osx'
             unstash 'cross-fmu-results-armhf'
-            echo "${env.NODE_NAME}"
             sh 'cd testsuite/special/FmuExportCrossCompile && ../../../build/bin/omc check-files.mos'
             sh 'cd testsuite/special/FmuExportCrossCompile && tar -czf ../../../Test_FMUs.tar.gz Test_FMUs'
             archiveArtifacts 'Test_FMUs.tar.gz'
@@ -692,7 +766,6 @@ pipeline {
           }
           steps {
             unstash 'compliance'
-            unstash 'compliance-newinst'
             echo "${env.NODE_NAME}"
             sshPublisher(publishers: [sshPublisherDesc(configName: 'ModelicaComplianceReports', transfers: [sshTransfer(sourceFiles: 'compliance-*html')])])
           }

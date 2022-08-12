@@ -136,7 +136,6 @@ constant list<Flags.DebugFlag> allDebugFlags = {
   Flags.GRAPH_INST,
   Flags.GRAPH_INST_RUN_DEP,
   Flags.GRAPH_INST_GEN_GRAPH,
-  Flags.GRAPH_INST_SHOW_GRAPH,
   Flags.DUMP_CONST_REPL,
   Flags.SHOW_EQUATION_SOURCE,
   Flags.LS_ANALYTIC_JACOBIAN,
@@ -237,16 +236,18 @@ constant list<Flags.DebugFlag> allDebugFlags = {
   Flags.DUMP_JL,
   Flags.DUMP_ASSC,
   Flags.SPLIT_CONSTANT_PARTS_SYMJAC,
-  Flags.NF_DUMP_FLAT,
   Flags.DUMP_FORCE_FMI_ATTRIBUTES,
   Flags.DUMP_DATARECONCILIATION,
   Flags.ARRAY_CONNECT,
   Flags.COMBINE_SUBSCRIPTS,
   Flags.ZMQ_LISTEN_TO_ALL,
   Flags.DUMP_CONVERSION_RULES,
+  Flags.PRINT_RECORD_TYPES,
   Flags.DUMP_SIMPLIFY,
   Flags.DUMP_BACKEND_CLOCKS,
-  Flags.DUMP_SET_BASED_GRAPHS
+  Flags.DUMP_SET_BASED_GRAPHS,
+  Flags.MERGE_COMPONENTS,
+  Flags.DUMP_SLICE
 };
 
 protected
@@ -381,6 +382,8 @@ constant list<Flags.ConfigFlag> allConfigFlags = {
   Flags.LINEARIZATION_DUMP_LANGUAGE,
   Flags.NO_ASSC,
   Flags.FULL_ASSC,
+  Flags.REAL_ASSC,
+  Flags.INIT_ASSC,
   Flags.MAX_SIZE_ASSC,
   Flags.USE_ZEROMQ_IN_SIM,
   Flags.ZEROMQ_PUB_PORT,
@@ -393,12 +396,17 @@ constant list<Flags.ConfigFlag> allConfigFlags = {
   Flags.FMI_FILTER,
   Flags.FMI_SOURCES,
   Flags.FMI_FLAGS,
+  Flags.FMU_CMAKE_BUILD,
   Flags.NEW_BACKEND,
   Flags.PARMODAUTO,
   Flags.INTERACTIVE_PORT,
   Flags.ALLOW_NON_STANDARD_MODELICA,
   Flags.EXPORT_CLOCKS_IN_MODELDESCRIPTION,
-  Flags.LINK_TYPE
+  Flags.LINK_TYPE,
+  Flags.TEARING_ALWAYS_DERIVATIVES,
+  Flags.DUMP_FLAT_MODEL,
+  Flags.SIMULATION,
+  Flags.OBFUSCATE
 };
 
 public function new

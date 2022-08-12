@@ -32,100 +32,40 @@ simulate(partitioning); getErrorString();
 // ################################################################################
 //
 // ========================================
-// CONTINUOUS ODE System
+// CONTINUOUS 1 ODE System
 // ========================================
 //
-// BLOCK 1: Single Equation
+// BLOCK 1: Single Equation (status = Solve.UNPROCESSED)
 // ----------------------------------------
 // ### Variable:
 // 	Real $DER.x
 // ### Equation:
-// 	[SCAL] ($RES_SIM_0) $DER.x = sin(time)
+// 	[SCAL] (1) $DER.x = sin(time) ($RES_SIM_0)
 //
-// BLOCK 2: Single Equation
+// BLOCK 2: Single Equation (status = Solve.UNPROCESSED)
 // ----------------------------------------
 // ### Variable:
 // 	Real y
 // ### Equation:
-// 	[SCAL] ($RES_SIM_1) y = x ^ 2.0 + a
+// 	[SCAL] (1) y = x ^ 2.0 + a ($RES_SIM_1)
 //
 // ========================================
-// AdjacencyMatrix
+// CONTINUOUS 2 ODE System
 // ========================================
 //
-// Normal Adjacency Matrix (row = equation)
-// ****************************************
-// 	(1)	{1}
-// 	(2)	{2}
-//
-// Transposed Adjacency Matrix (row = variable)
-// ****************************************
-// 	(1)	{1}
-// 	(2)	{2}
-//
-//
-// ========================================
-// Scalar Matching
-// ========================================
-//
-// variable to equation
-// ****************************************
-// 	var 1 --> eqn 1
-// 	var 2 --> eqn 2
-//
-// equation to variable
-// ****************************************
-// 	eqn 1 --> var 1
-// 	eqn 2 --> var 2
-//
-//
-// ========================================
-// CONTINUOUS ODE System
-// ========================================
-//
-// BLOCK 1: Single Equation
+// BLOCK 1: Single Equation (status = Solve.UNPROCESSED)
 // ----------------------------------------
 // ### Variable:
 // 	Real k
 // ### Equation:
-// 	[SCAL] ($RES_SIM_3) k = cos(time)
+// 	[SCAL] (1) k = cos(time) ($RES_SIM_3)
 //
-// BLOCK 2: Single Equation
+// BLOCK 2: Single Equation (status = Solve.UNPROCESSED)
 // ----------------------------------------
 // ### Variable:
 // 	Real z
 // ### Equation:
-// 	[SCAL] ($RES_SIM_2) z = a ^ 2.0 * k
-//
-// ========================================
-// AdjacencyMatrix
-// ========================================
-//
-// Normal Adjacency Matrix (row = equation)
-// ****************************************
-// 	(1)	{2, 1}
-// 	(2)	{2}
-//
-// Transposed Adjacency Matrix (row = variable)
-// ****************************************
-// 	(1)	{1}
-// 	(2)	{2, 1}
-//
-//
-// ========================================
-// Scalar Matching
-// ========================================
-//
-// variable to equation
-// ****************************************
-// 	var 1 --> eqn 1
-// 	var 2 --> eqn 2
-//
-// equation to variable
-// ****************************************
-// 	eqn 1 --> var 1
-// 	eqn 2 --> var 2
-//
+// 	[SCAL] (1) z = a ^ 2.0 * k ($RES_SIM_2)
 //
 // ################################################################################
 //
@@ -134,100 +74,40 @@ simulate(partitioning); getErrorString();
 // ################################################################################
 //
 // ========================================
-// CONTINUOUS ODE System
+// CONTINUOUS 1 ODE System
 // ========================================
 //
-// BLOCK 1: Single Equation
+// BLOCK 1: Single Equation (status = Solve.UNPROCESSED)
 // ----------------------------------------
 // ### Variable:
 // 	Real $DER.x
 // ### Equation:
-// 	[SCAL] ($RES_SIM_0) $DER.x = sin(time)
+// 	[SCAL] (1) $DER.x = sin(time) ($RES_SIM_0)
 //
-// BLOCK 2: Single Equation
+// BLOCK 2: Single Equation (status = Solve.UNPROCESSED)
 // ----------------------------------------
 // ### Variable:
 // 	Real y
 // ### Equation:
-// 	[SCAL] ($RES_SIM_1) y = x ^ 2.0 + a
+// 	[SCAL] (1) y = x ^ 2.0 + a ($RES_SIM_1)
 //
 // ========================================
-// AdjacencyMatrix
+// CONTINUOUS 2 ODE System
 // ========================================
 //
-// Normal Adjacency Matrix (row = equation)
-// ****************************************
-// 	(1)	{1}
-// 	(2)	{2}
-//
-// Transposed Adjacency Matrix (row = variable)
-// ****************************************
-// 	(1)	{1}
-// 	(2)	{2}
-//
-//
-// ========================================
-// Scalar Matching
-// ========================================
-//
-// variable to equation
-// ****************************************
-// 	var 1 --> eqn 1
-// 	var 2 --> eqn 2
-//
-// equation to variable
-// ****************************************
-// 	eqn 1 --> var 1
-// 	eqn 2 --> var 2
-//
-//
-// ========================================
-// CONTINUOUS ODE System
-// ========================================
-//
-// BLOCK 1: Single Equation
+// BLOCK 1: Single Equation (status = Solve.UNPROCESSED)
 // ----------------------------------------
 // ### Variable:
 // 	Real k
 // ### Equation:
-// 	[SCAL] ($RES_SIM_3) k = cos(time)
+// 	[SCAL] (1) k = cos(time) ($RES_SIM_3)
 //
-// BLOCK 2: Single Equation
+// BLOCK 2: Single Equation (status = Solve.UNPROCESSED)
 // ----------------------------------------
 // ### Variable:
 // 	Real z
 // ### Equation:
-// 	[SCAL] ($RES_SIM_2) z = a ^ 2.0 * k
-//
-// ========================================
-// AdjacencyMatrix
-// ========================================
-//
-// Normal Adjacency Matrix (row = equation)
-// ****************************************
-// 	(1)	{2, 1}
-// 	(2)	{2}
-//
-// Transposed Adjacency Matrix (row = variable)
-// ****************************************
-// 	(1)	{1}
-// 	(2)	{2, 1}
-//
-//
-// ========================================
-// Scalar Matching
-// ========================================
-//
-// variable to equation
-// ****************************************
-// 	var 1 --> eqn 1
-// 	var 2 --> eqn 2
-//
-// equation to variable
-// ****************************************
-// 	eqn 1 --> var 1
-// 	eqn 2 --> var 2
-//
+// 	[SCAL] (1) z = a ^ 2.0 * k ($RES_SIM_2)
 //
 // ################################################################################
 //
@@ -236,108 +116,145 @@ simulate(partitioning); getErrorString();
 // ################################################################################
 //
 // ========================================
-// CONTINUOUS INI System
+// CONTINUOUS 1 INI System
 // ========================================
 //
-// ========================================
-// AdjacencyMatrix
-// ========================================
-//
-// Empty Adjacency Matrix
-// ****************************************
-//
-//
-// ========================================
-// Empty Matching
-// ========================================
-//
-//
-// ========================================
-// CONTINUOUS INI System
-// ========================================
-//
-// BLOCK 1: Single Equation
-// ----------------------------------------
-// ### Variable:
-// 	Real $DER.x
-// ### Equation:
-// 	[SCAL] ($RES_SIM_0) $DER.x = sin(time)
-//
-// BLOCK 2: Single Equation
-// ----------------------------------------
-// ### Variable:
-// 	Real x
-// ### Equation:
-// 	[SIMP] ($RES_SIM_5) x = $START.x
-//
-// BLOCK 3: Single Equation
-// ----------------------------------------
-// ### Variable:
-// 	Real y
-// ### Equation:
-// 	[SCAL] ($RES_SIM_1) y = x ^ 2.0 + a
-//
-// BLOCK 4: Single Equation
+// BLOCK 1: Single Equation (status = Solve.UNPROCESSED)
 // ----------------------------------------
 // ### Variable:
 // 	Real k
 // ### Equation:
-// 	[SCAL] ($RES_SIM_3) k = cos(time)
+// 	[SCAL] (1) k = cos(time) ($RES_SIM_3)
 //
-// BLOCK 5: Single Equation
+// BLOCK 2: Single Equation (status = Solve.UNPROCESSED)
 // ----------------------------------------
 // ### Variable:
 // 	Real z
 // ### Equation:
-// 	[SCAL] ($RES_SIM_2) z = a ^ 2.0 * k
+// 	[SCAL] (1) z = a ^ 2.0 * k ($RES_SIM_2)
+//
+// BLOCK 3: Single Equation (status = Solve.UNPROCESSED)
+// ----------------------------------------
+// ### Variable:
+// 	Real x
+// ### Equation:
+// 	[SCAL] (1) x = $START.x ($RES_SIM_5)
+//
+// BLOCK 4: Single Equation (status = Solve.UNPROCESSED)
+// ----------------------------------------
+// ### Variable:
+// 	Real y
+// ### Equation:
+// 	[SCAL] (1) y = x ^ 2.0 + a ($RES_SIM_1)
+//
+// BLOCK 5: Single Equation (status = Solve.UNPROCESSED)
+// ----------------------------------------
+// ### Variable:
+// 	Real $DER.x
+// ### Equation:
+// 	[SCAL] (1) $DER.x = sin(time) ($RES_SIM_0)
+//
+// ################################################################################
+//
+// 	[ODE] Differential-Algebraic: (Solve)
+//
+// ################################################################################
 //
 // ========================================
-// AdjacencyMatrix
+// CONTINUOUS 1 ODE System
 // ========================================
 //
-// Normal Adjacency Matrix (row = equation)
-// ****************************************
-// 	(1)	{4}
-// 	(2)	{4, 3}
-// 	(3)	{2, 5}
-// 	(4)	{1}
-// 	(5)	{5}
+// --- Alias of INI[1 | 5] ---
+// BLOCK 1: Single Equation (status = Solve.EXPLICIT)
+// ----------------------------------------
+// ### Variable:
+// 	Real $DER.x
+// ### Equation:
+// 	[SCAL] (1) $DER.x = sin(time) ($RES_SIM_0)
 //
-// Transposed Adjacency Matrix (row = variable)
-// ****************************************
-// 	(1)	{4}
-// 	(2)	{3}
-// 	(3)	{2}
-// 	(4)	{2, 1}
-// 	(5)	{3, 5}
+// --- Alias of INI[1 | 4] ---
+// BLOCK 2: Single Equation (status = Solve.EXPLICIT)
+// ----------------------------------------
+// ### Variable:
+// 	Real y
+// ### Equation:
+// 	[SCAL] (1) y = x ^ 2.0 + a ($RES_SIM_1)
 //
+// ################################################################################
+//
+// 	[ALG] Algebraic: (Solve)
+//
+// ################################################################################
 //
 // ========================================
-// Scalar Matching
+// CONTINUOUS 2 ALG System
 // ========================================
 //
-// variable to equation
-// ****************************************
-// 	var 1 --> eqn 4
-// 	var 2 --> eqn 3
-// 	var 3 --> eqn 2
-// 	var 4 --> eqn 1
-// 	var 5 --> eqn 5
+// --- Alias of INI[1 | 1] ---
+// BLOCK 1: Single Equation (status = Solve.EXPLICIT)
+// ----------------------------------------
+// ### Variable:
+// 	Real k
+// ### Equation:
+// 	[SCAL] (1) k = cos(time) ($RES_SIM_3)
 //
-// equation to variable
-// ****************************************
-// 	eqn 1 --> var 4
-// 	eqn 2 --> var 3
-// 	eqn 3 --> var 2
-// 	eqn 4 --> var 1
-// 	eqn 5 --> var 5
+// --- Alias of INI[1 | 2] ---
+// BLOCK 2: Single Equation (status = Solve.EXPLICIT)
+// ----------------------------------------
+// ### Variable:
+// 	Real z
+// ### Equation:
+// 	[SCAL] (1) z = a ^ 2.0 * k ($RES_SIM_2)
 //
+// ################################################################################
+//
+// 	[INI] Initialization: (Solve)
+//
+// ################################################################################
+//
+// ========================================
+// CONTINUOUS 1 INI System
+// ========================================
+//
+// BLOCK 1: Single Equation (status = Solve.EXPLICIT)
+// ----------------------------------------
+// ### Variable:
+// 	Real k
+// ### Equation:
+// 	[SCAL] (1) k = cos(time) ($RES_SIM_3)
+//
+// BLOCK 2: Single Equation (status = Solve.EXPLICIT)
+// ----------------------------------------
+// ### Variable:
+// 	Real z
+// ### Equation:
+// 	[SCAL] (1) z = a ^ 2.0 * k ($RES_SIM_2)
+//
+// BLOCK 3: Single Equation (status = Solve.EXPLICIT)
+// ----------------------------------------
+// ### Variable:
+// 	Real x
+// ### Equation:
+// 	[SCAL] (1) x = $START.x ($RES_SIM_5)
+//
+// BLOCK 4: Single Equation (status = Solve.EXPLICIT)
+// ----------------------------------------
+// ### Variable:
+// 	Real y
+// ### Equation:
+// 	[SCAL] (1) y = x ^ 2.0 + a ($RES_SIM_1)
+//
+// BLOCK 5: Single Equation (status = Solve.EXPLICIT)
+// ----------------------------------------
+// ### Variable:
+// 	Real $DER.x
+// ### Equation:
+// 	[SCAL] (1) $DER.x = sin(time) ($RES_SIM_0)
 //
 // record SimulationResult
 //     resultFile = "partitioning_res.mat",
 //     simulationOptions = "startTime = 0.0, stopTime = 1.0, numberOfIntervals = 500, tolerance = 1e-06, method = 'dassl', fileNamePrefix = 'partitioning', options = '', outputFormat = 'mat', variableFilter = '.*', cflags = '', simflags = ''",
-//     messages = "stdout            | info    | Jacobian or SparsePattern is not generated or failed to initialize! Switch back to normal.
-// LOG_SUCCESS       | info    | The initialization finished successfully without homotopy method.
+//     messages = "LOG_SUCCESS       | info    | The initialization finished successfully without homotopy method.
 // LOG_SUCCESS       | info    | The simulation finished successfully.
 // "
 // end SimulationResult;

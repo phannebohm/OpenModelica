@@ -115,8 +115,8 @@ const char *FLAG_NAME[FLAG_MAX+1] = {
   /* FLAG_NLS */                          "nls",
   /* FLAG_NLS_INFO */                     "nlsInfo",
   /* FLAG_NLS_LS */                       "nlsLS",
-  /* FLAG_NLS_MAX_DENSITY */              "nlssMaxDensity",
-  /* FLAG_NLS_MIN_SIZE */                 "nlssMinSize",
+  /* FLAG_NLSS_MAX_DENSITY */             "nlssMaxDensity",
+  /* FLAG_NLSS_MIN_SIZE */                "nlssMinSize",
   /* FLAG_NOEMIT */                       "noemit",
   /* FLAG_NOEQUIDISTANT_GRID */           "noEquidistantTimeGrid",
   /* FLAG_NOEQUIDISTANT_OUT_FREQ*/        "noEquidistantOutputFrequency",
@@ -137,6 +137,17 @@ const char *FLAG_NAME[FLAG_MAX+1] = {
   /* FLAG_R */                            "r",
   /* FLAG_DATA_RECONCILE  */              "reconcile",
   /* FLAG_DATA_RECONCILE_BOUNDARY */      "reconcileBoundaryConditions",
+  /* FLAG_SR */                           "gbm",
+  /* FLAG_SR_CTRL */                      "gbctrl",
+  /* FLAG_SR_ERR */                       "gberr",
+  /* FLAG_SR_INT */                       "gbint",
+  /* FLAG_SR_NLS */                       "gbnls",
+  /* FLAG_MR */                           "gbfm",
+  /* FLAG_MR_CTRL */                      "gbfctrl",
+  /* FLAG_MR_ERR */                       "gbferr",
+  /* FLAG_MR_INT */                       "gbfint",
+  /* FLAG_MR_NLS */                       "gbfnls",
+  /* FLAG_MR_PAR */                       "gbratio",
   /* FLAG_RT */                           "rt",
   /* FLAG_S */                            "s",
   /* FLAG_SINGLE_PRECISION */             "single",
@@ -219,7 +230,7 @@ const char *FLAG_DESC[FLAG_MAX+1] = {
   /* FLAG_LS */                           "value specifies the linear solver method (default: lapack, totalpivot (fallback))",
   /* FLAG_LS_IPOPT */                     "value specifies the linear solver method for ipopt",
   /* FLAG_LSS */                          "value specifies the linear sparse solver method (default: umfpack)",
-  /* FLAG_LSS_MAX_DENSITY */              "[double (default 0.2)] value specifies the maximum density for using a linear sparse solver",
+  /* FLAG_LSS_MAX_DENSITY */              "[double (default " EXPANDSTRING(DEFAULT_FLAG_LSS_MAX_DENSITY) ")] value specifies the maximum density for using a linear sparse solver",
   /* FLAG_LSS_MIN_SIZE */                 "[int (default " EXPANDSTRING(DEFAULT_FLAG_LSS_MIN_SIZE) ")] value specifies the minimum system size for using a linear sparse solver",
   /* FLAG_LV */                           "[string list] value specifies the logging level",
   /* FLAG_LV_TIME */                      "[double list] specifying time interval to allow loging in",
@@ -235,8 +246,8 @@ const char *FLAG_DESC[FLAG_MAX+1] = {
   /* FLAG_NLS */                          "value specifies the nonlinear solver",
   /* FLAG_NLS_INFO */                     "outputs detailed information about solving process of non-linear systems into csv files.",
   /* FLAG_NLS_LS */                       "value specifies the linear solver used by the non-linear solver",
-  /* FLAG_NLS_MAX_DENSITY */              "[double (default 0.2)] value specifies the maximum density for using a non-linear sparse solver",
-  /* FLAG_NLS_MIN_SIZE */                 "[int (default " EXPANDSTRING(DEFAULT_FLAG_NLS_MIN_SIZE) ")] value specifies the minimum system size for using a non-linear sparse solver",
+  /* FLAG_NLSS_MAX_DENSITY */             "[double (default " EXPANDSTRING(DEFAULT_FLAG_NLSS_MAX_DENSITY) ")] value specifies the maximum density for using a non-linear sparse solver",
+  /* FLAG_NLSS_MIN_SIZE */                "[int (default " EXPANDSTRING(DEFAULT_FLAG_NLSS_MIN_SIZE) ")] value specifies the minimum system size for using a non-linear sparse solver",
   /* FLAG_NOEMIT */                       "do not emit any results to the result file",
   /* FLAG_NOEQUIDISTANT_GRID */           "stores results not in equidistant time grid as given by stepSize or numberOfIntervals, instead the variable step size of dassl or ida integrator.",
   /* FLAG_NOEQUIDISTANT_OUT_FREQ*/        "value controls the output frequency in noEquidistantTimeGrid mode",
@@ -257,6 +268,17 @@ const char *FLAG_DESC[FLAG_MAX+1] = {
   /* FLAG_R */                            "value specifies a new result file than the default Model_res.mat",
   /* FLAG_DATA_RECONCILE */               "Run the Data Reconciliation numerical computation algorithm for constrained equations",
   /* FLAG_DATA_RECONCILE_BOUNDARY */      "Run the Data Reconciliation numerical computation algorithm for boundary condition equations",
+  /* FLAG_SR */                           "Value specifies the chosen solver of solver gbode (single-rate, slow states integrator)",
+  /* FLAG_SR_CTRL */                      "Step size control of solver gbode (single-rate, slow states integrator)",
+  /* FLAG_SR_ERR */                       "Error estimation done by Richardson extrapolation of solver gbode (single-rate, slow states integrator)",
+  /* FLAG_SR_INT */                       "Interpolation method of solver gbode (single-rate, slow states integrator)",
+  /* FLAG_SR_NLS */                       "Non-linear solver method of solver gbode (single-rate, slow states integrator)",
+  /* FLAG_MR */                           "Value specifies the chosen solver of solver gbode (multi-rate, fast states integrator)",
+  /* FLAG_MR_CTRL */                      "Step size control of solver gbode (multi-rate, fast states integrator)",
+  /* FLAG_MR_ERR */                       "Error estimation done by Richardson extrapolation of solver gbode (multi-rate, fast states integrator)",
+  /* FLAG_MR_INT */                       "Interpolation method of solver gbode (multi-rate, fast states integrator)",
+  /* FLAG_MR_NLS */                       "Non-linear solver method of solver gbode (multi-rate, fast states integrator)",
+  /* FLAG_MR_PAR */                       "Define percentage of states for the fast states selection of solver gbode",
   /* FLAG_RT */                           "value specifies the scaling factor for real-time synchronization (0 disables)",
   /* FLAG_S */                            "value specifies the integration method",
   /* FLAG_SINGLE */                       "output in single precision",
@@ -437,10 +459,10 @@ const char *FLAG_DETAILED_DESC[FLAG_MAX+1] = {
   "  Value specifies the linear sparse solver method",
   /* FLAG_LSS_MAX_DENSITY */
   "  Value specifies the maximum density for using a linear sparse solver.\n"
-  "  The value is a Double with default value 0.2.",
+  "  The value is a Double with default value " EXPANDSTRING(DEFAULT_FLAG_LSS_MAX_DENSITY) ".",
   /* FLAG_LSS_MIN_SIZE */
   "  Value specifies the minimum system size for using a linear sparse solver.\n"
-  "  The value is an Integer with default value 4001.",
+  "  The value is an Integer with default value " EXPANDSTRING(DEFAULT_FLAG_LSS_MIN_SIZE) ".",
   /* FLAG_LV */
   "  Value (a comma-separated String list) specifies which logging levels to\n"
   "  enable. Multiple options can be enabled at the same time.",
@@ -484,12 +506,12 @@ const char *FLAG_DETAILED_DESC[FLAG_MAX+1] = {
   "  Outputs detailed information about solving process of non-linear systems into csv files.",
   /* FLAG_NLS_LS */
   "  Value specifies the linear solver used by the non-linear solver:",
-  /* FLAG_NLS_MAX_DENSITY */
+  /* FLAG_NLSS_MAX_DENSITY */
   "  Value specifies the maximum density for using a non-linear sparse solver.\n"
-  "  The value is a Double with default value 0.2.",
-  /* FLAG_NLS_MIN_SIZE */
+  "  The value is a Double with default value " EXPANDSTRING(DEFAULT_FLAG_NLSS_MAX_DENSITY) ".",
+  /* FLAG_NLSS_MIN_SIZE */
   "  Value specifies the minimum system size for using a non-linear sparse solver.\n"
-  "  The value is an Integer with default value 10001.",
+  "  The value is an Integer with default value " EXPANDSTRING(DEFAULT_FLAG_NLSS_MIN_SIZE) ".",
   /* FLAG_NOEMIT */
   "  Do not emit any results to the result file.",
   /* FLAG_NOEQUIDISTANT_GRID */
@@ -545,6 +567,28 @@ const char *FLAG_DETAILED_DESC[FLAG_MAX+1] = {
   "  Run the Data Reconciliation numerical computation algorithm for constrained equations",
   /* FLAG_DATA_RECONCILE_BOUNDARY */
   "  Run the Data Reconciliation numerical computation algorithm for boundary condition equations",
+  /* FLAG_SR */
+  "Value specifies the chosen solver of solver gbode (single-rate, slow states integrator)",
+  /* FLAG_SR_CTRL */
+  "Step size control of solver gbode (single-rate, slow states integrator)",
+  /* FLAG_SR_ERR */
+  "Error estimation done by Richardson extrapolation of solver gbode (single-rate, slow states integrator)",
+  /* FLAG_SR_INT */
+  "Interpolation method of solver gbode (single-rate, slow states integrator)",
+  /* FLAG_SR_NLS */
+  "Non-linear solver method of solver gbode (single-rate, slow states integrator)",
+  /* FLAG_MR */
+  "Value specifies the chosen solver of solver gbode (multi-rate, fast states integrator)",
+  /* FLAG_MR_CTRL */
+  "Step size control of solver gbode (multi-rate, fast states integrator)",
+  /* FLAG_MR_ERR */
+  "Error estimation done by Richardson extrapolation of solver gbode (multi-rate, fast states integrator)",
+  /* FLAG_MR_INT */
+  "Interpolation method of solver gbode (multi-rate, fast states integrator)",
+  /* FLAG_MR_NLS */
+  "Non-linear solver method of solver gbode (multi-rate, fast states integrator)",
+  /* FLAG_MR_PAR */
+  "Define percentage of states for the fast states selection of solver gbode",
   /* FLAG_RT */
   "  Value specifies the scaling factor for real-time synchronization (0 disables).\n"
   "  A value > 1 means the simulation takes a longer time to simulate.\n",
@@ -653,8 +697,8 @@ const flag_repeat_policy FLAG_REPEAT_POLICIES[FLAG_MAX] = {
   /* FLAG_NLS */                          FLAG_REPEAT_POLICY_FORBID,
   /* FLAG_NLS_INFO */                     FLAG_REPEAT_POLICY_FORBID,
   /* FLAG_NLS_LS */                       FLAG_REPEAT_POLICY_FORBID,
-  /* FLAG_NLS_MAX_DENSITY */              FLAG_REPEAT_POLICY_FORBID,
-  /* FLAG_NLS_MIN_SIZE */                 FLAG_REPEAT_POLICY_FORBID,
+  /* FLAG_NLSS_MAX_DENSITY */             FLAG_REPEAT_POLICY_FORBID,
+  /* FLAG_NLSS_MIN_SIZE */                FLAG_REPEAT_POLICY_FORBID,
   /* FLAG_NOEMIT */                       FLAG_REPEAT_POLICY_FORBID,
   /* FLAG_NOEQUIDISTANT_GRID */           FLAG_REPEAT_POLICY_FORBID,
   /* FLAG_NOEQUIDISTANT_OUT_FREQ*/        FLAG_REPEAT_POLICY_FORBID,
@@ -669,14 +713,25 @@ const flag_repeat_policy FLAG_REPEAT_POLICIES[FLAG_MAX] = {
   /* FLAG_OPTIMIZER_TGRID */              FLAG_REPEAT_POLICY_FORBID,
   /* FLAG_OUTPUT */                       FLAG_REPEAT_POLICY_FORBID,
   /* FLAG_OUTPUT_PATH */                  FLAG_REPEAT_POLICY_FORBID,
-  /* FLAG_OVERRIDE */                     FLAG_REPEAT_POLICY_FORBID,
-  /* FLAG_OVERRIDE_FILE */                FLAG_REPEAT_POLICY_FORBID,
+  /* FLAG_OVERRIDE */                     FLAG_REPEAT_POLICY_COMBINE,
+  /* FLAG_OVERRIDE_FILE */                FLAG_REPEAT_POLICY_COMBINE,
   /* FLAG_PORT */                         FLAG_REPEAT_POLICY_FORBID,
   /* FLAG_R */                            FLAG_REPEAT_POLICY_FORBID,
   /* FLAG_DATA_RECONCILE  */              FLAG_REPEAT_POLICY_FORBID,
   /* FLAG_DATA_RECONCILE_BOUNDARY */      FLAG_REPEAT_POLICY_FORBID,
+  /* FLAG_SR */                           FLAG_REPEAT_POLICY_FORBID,
+  /* FLAG_SR_CTRL */                      FLAG_REPEAT_POLICY_FORBID,
+  /* FLAG_SR_ERR */                       FLAG_REPEAT_POLICY_FORBID,
+  /* FLAG_SR_INT */                       FLAG_REPEAT_POLICY_FORBID,
+  /* FLAG_SR_NLS */                       FLAG_REPEAT_POLICY_FORBID,
+  /* FLAG_MR */                           FLAG_REPEAT_POLICY_FORBID,
+  /* FLAG_MR_CTRL */                      FLAG_REPEAT_POLICY_FORBID,
+  /* FLAG_MR_ERR */                       FLAG_REPEAT_POLICY_FORBID,
+  /* FLAG_MR_INT */                       FLAG_REPEAT_POLICY_FORBID,
+  /* FLAG_MR_NLS */                       FLAG_REPEAT_POLICY_FORBID,
+  /* FLAG_MR_PAR */                       FLAG_REPEAT_POLICY_FORBID,
   /* FLAG_RT */                           FLAG_REPEAT_POLICY_FORBID,
-  /* FLAG_S */                            FLAG_REPEAT_POLICY_FORBID,
+  /* FLAG_S */                            FLAG_REPEAT_POLICY_REPLACE,
   /* FLAG_SINGLE_PRECISION */             FLAG_REPEAT_POLICY_FORBID,
   /* FLAG_SOLVER_STEPS */                 FLAG_REPEAT_POLICY_FORBID,
   /* FLAG_STEADY_STATE */                 FLAG_REPEAT_POLICY_FORBID,
@@ -772,8 +827,8 @@ const int FLAG_TYPE[FLAG_MAX] = {
   /* FLAG_NLS */                          FLAG_TYPE_OPTION,
   /* FLAG_NLS_INFO */                     FLAG_TYPE_FLAG,
   /* FLAG_NLS_LS */                       FLAG_TYPE_OPTION,
-  /* FLAG_NLS_MAX_DENSITY */              FLAG_TYPE_OPTION,
-  /* FLAG_NLS_MIN_SIZE */                 FLAG_TYPE_OPTION,
+  /* FLAG_NLSS_MAX_DENSITY */             FLAG_TYPE_OPTION,
+  /* FLAG_NLSS_MIN_SIZE */                FLAG_TYPE_OPTION,
   /* FLAG_NOEMIT */                       FLAG_TYPE_FLAG,
   /* FLAG_NOEQUIDISTANT_GRID*/            FLAG_TYPE_FLAG,
   /* FLAG_NOEQUIDISTANT_OUT_FREQ*/        FLAG_TYPE_OPTION,
@@ -794,6 +849,17 @@ const int FLAG_TYPE[FLAG_MAX] = {
   /* FLAG_R */                            FLAG_TYPE_OPTION,
   /* FLAG_DATA_RECONCILE */               FLAG_TYPE_FLAG,
   /* FLAG_DATA_RECONCILE_BOUNDARY */      FLAG_TYPE_FLAG,
+  /* FLAG_SR */                           FLAG_TYPE_OPTION,
+  /* FLAG_SR_CTRL */                      FLAG_TYPE_OPTION,
+  /* FLAG_SR_ERR */                       FLAG_TYPE_OPTION,
+  /* FLAG_SR_INT */                       FLAG_TYPE_OPTION,
+  /* FLAG_SR_NLS */                       FLAG_TYPE_OPTION,
+  /* FLAG_MR */                           FLAG_TYPE_OPTION,
+  /* FLAG_MR_CTRL */                      FLAG_TYPE_OPTION,
+  /* FLAG_MR_ERR */                       FLAG_TYPE_OPTION,
+  /* FLAG_MR_INT */                       FLAG_TYPE_OPTION,
+  /* FLAG_MR_NLS */                       FLAG_TYPE_OPTION,
+  /* FLAG_MR_PAR */                       FLAG_TYPE_OPTION,
   /* FLAG_RT */                           FLAG_TYPE_OPTION,
   /* FLAG_S */                            FLAG_TYPE_OPTION,
   /* FLAG_SINGLE */                       FLAG_TYPE_FLAG,
@@ -805,6 +871,98 @@ const int FLAG_TYPE[FLAG_MAX] = {
   /* FLAG_W */                            FLAG_TYPE_FLAG
 };
 
+const char *GB_METHOD_NAME[RK_MAX] = {
+  /* GB_UNKNOWN = 0 */   "unknown",
+  /* MS_ADAMS_MOULTON */ "adams",
+  /* RK_EXPL_EULER */    "expl_euler",
+  /* RK_IMPL_EULER */    "impl_euler",
+  /* RK_TRAPEZOID */     "trapezoid",
+  /* RK_SDIRK2 */        "sdirk2",
+  /* RK_SDIRK3 */        "sdirk3",
+  /* RK_ESDIRK2 */       "esdirk2",
+  /* RK_ESDIRK3 */       "esdirk3",
+  /* RK_ESDIRK4 */       "esdirk4",
+  /* RK_RADAU_IA_2 */    "radauIA2",
+  /* RK_RADAU_IA_3 */    "radauIA3",
+  /* RK_RADAU_IA_4 */    "radauIA4",
+  /* RK_RADAU_IIA_2 */   "radauIIA2",
+  /* RK_RADAU_IIA_3 */   "radauIIA3",
+  /* RK_RADAU_IIA_4 */   "radauIIA4",
+  /* RK_LOBA_IIIA_3 */   "lobattoIIIA3",
+  /* RK_LOBA_IIIA_4 */   "lobattoIIIA4",
+  /* RK_LOBA_IIIB_3 */   "lobattoIIIB3",
+  /* RK_LOBA_IIIB_4 */   "lobattoIIIB4",
+  /* RK_LOBA_IIIC_3 */   "lobattoIIIC3",
+  /* RK_LOBA_IIIC_4 */   "lobattoIIIC4",
+  /* RK_GAUSS2 */        "gauss2",
+  /* RK_GAUSS3 */        "gauss3",
+  /* RK_GAUSS4 */        "gauss4",
+  /* RK_GAUSS5 */        "gauss5",
+  /* RK_GAUSS6 */        "gauss6",
+  /* RK_MERSON */        "merson",
+  /* RK_HEUN */          "heun",
+  /* RK_FEHLBERG12 */    "fehlberg12",
+  /* RK_FEHLBERG45 */    "fehlberg45",
+  /* RK_FEHLBERG78 */    "fehlberg78",
+  /* RK_RK810 */         "rk810",
+  /* RK_RK1012 */        "rk1012",
+  /* RK_RK1214 */        "rk1214",
+  /* RK_DOPRI45 */       "dopri45",
+  /* RK_RKSSC */         "rungekuttaSsc"
+};
+
+const char *GB_METHOD_DESC[RK_MAX] = {
+  /* GB_UNKNOWN = 0 */   "unknown",
+  /* MS_ADAMS_MOULTON */ "Implicit multistep method of type Adams-Moulton (order 2)",
+  /* RK_EXPL_EULER */    "Explizit Runge-Kutta Euler method (order 1)",
+  /* RK_IMPL_EULER */    "Implizit Runge-Kutta Euler method (order 1)",
+  /* RK_TRAPEZOID */     "Implicit Runge-Kutta trapezoid method (order 2)",
+  /* RK_SDIRK2 */        "Singly-diagonal implicit Runge-Kutta (order 2)",
+  /* RK_SDIRK3 */        "Singly-diagonal implicit Runge-Kutta (order 3)",
+  /* RK_ESDIRK2 */       "Explicit singly-diagonal implicit Runge-Kutta (order 2)",
+  /* RK_ESDIRK3 */       "Explicit singly-diagonal implicit Runge-Kutta (order 3)",
+  /* RK_ESDIRK4 */       "Explicit singly-diagonal implicit Runge-Kutta (order 4)",
+  /* RK_RADAU_IA_2 */    "Implicit Runge-Kutta method of Radau family IA (order 3)",
+  /* RK_RADAU_IA_3 */    "Implicit Runge-Kutta method of Radau family IA (order 5)",
+  /* RK_RADAU_IA_4 */    "Implicit Runge-Kutta method of Radau family IA (order 7)",
+  /* RK_RADAU_IIA_2 */   "Implicit Runge-Kutta method of Radau family IIA (order 3)",
+  /* RK_RADAU_IIA_3 */   "Implicit Runge-Kutta method of Radau family IIA (order 5)",
+  /* RK_RADAU_IIA_4 */   "Implicit Runge-Kutta method of Radau family IIA (order 7)",
+  /* RK_LOBA_IIIA_3 */   "Implicit Runge-Kutta method of Lobatto family IIIA (order 4)",
+  /* RK_LOBA_IIIA_4 */   "Implicit Runge-Kutta method of Lobatto family IIIA (order 6)",
+  /* RK_LOBA_IIIB_3 */   "Implicit Runge-Kutta method of Lobatto family IIIB (order 4)",
+  /* RK_LOBA_IIIB_4 */   "Implicit Runge-Kutta method of Lobatto family IIIB (order 6)",
+  /* RK_LOBA_IIIC_3 */   "Implicit Runge-Kutta method of Lobatto family IIIC (order 4)",
+  /* RK_LOBA_IIIC_4 */   "Implicit Runge-Kutta method of Lobatto family IIIC (order 6)",
+  /* RK_GAUSS2 */        "Implicit Runge-Kutta method of Gauss (order 4)",
+  /* RK_GAUSS3 */        "Implicit Runge-Kutta method of Gauss (order 6)",
+  /* RK_GAUSS4 */        "Implicit Runge-Kutta method of Gauss (order 8)",
+  /* RK_GAUSS5 */        "Implicit Runge-Kutta method of Gauss (order 10)",
+  /* RK_GAUSS6 */        "Implicit Runge-Kutta method of Gauss (order 12)",
+  /* RK_MERSON */        "Explicit Runge-Kutta Merson method (order 4)",
+  /* RK_HEUN */          "Explicit Runge-Kutta Heun method (order 2)",
+  /* RK_FEHLBERG12 */    "Explicit Runge-Kutta Fehlberg method (order 2)",
+  /* RK_FEHLBERG45 */    "Explicit Runge-Kutta Fehlberg method (order 5)",
+  /* RK_FEHLBERG78 */    "Explicit Runge-Kutta Fehlberg method (order 8)",
+  /* RK_RK810 */         "Explicit 8-10 Runge-Kutta method (order 10)",
+  /* RK_RK1012 */        "Explicit 10-12 Runge-Kutta method (order 12)",
+  /* RK_RK1214 */        "Explicit 12-14 Runge-Kutta method (order 14)",
+  /* RK_DOPRI45 */       "Explicit Runge-Kutta method Dormand-Prince (order 5)",
+  /* RK_RKSSC */         "Explicit Runge-Kutta method with large stabiliy region (order 1)"
+};
+
+const char *GB_NLS_METHOD_NAME[GB_NLS_MAX] = {
+  /* GB_NLS_UNKNOWN = 0*/ "unknown",
+  /* GB_NLS_NEWTON */     "newton",
+  /* GB_NLS_KINSOL */     "kinsol"
+};
+
+const char *GB_NLS_METHOD_DESC[GB_NLS_MAX] = {
+  /* GB_NLS_UNKNOWN = 0*/ "unknown",
+  /* GB_NLS_NEWTON */     "Newton method, dense",
+  /* GB_NLS_KINSOL */     "SUNDIALS KINSOL: Inexact Newton, sparse"
+};
+
 const char *SOLVER_METHOD_NAME[S_MAX] = {
   /* S_UNKNOWN = 0 */   "unknown",
   /* S_EULER */         "euler",
@@ -813,6 +971,7 @@ const char *SOLVER_METHOD_NAME[S_MAX] = {
   /* S_IMPEULER */      "impeuler",
   /* S_TRAPEZOID */     "trapezoid",
   /* S_IMPRUNGEKUTTA */ "imprungekutta",
+  /* S_GBODE */         "gbode",
   /* S_IRKSCO */        "irksco",
   /* S_DASSL */         "dassl",
   /* S_IDA */           "ida",
@@ -832,6 +991,7 @@ const char *SOLVER_METHOD_DESC[S_MAX] = {
   /* S_IMPEULER */      "impeuler - Euler - implicit, fixed step size, order 1",
   /* S_TRAPEZOID */     "trapezoid - trapezoidal rule - implicit, fixed step size, order 2",
   /* S_IMPRUNGEKUTTA */ "imprungekutta - Runge-Kutta methods based on Radau and Lobatto IIA - implicit, fixed step size, order 1-6(selected manually by flag -impRKOrder)",
+  /* S_GBODE */         "gbode - generic bi-rate ODE solver - implicit, explicit, step size control, arbitrary order",
   /* S_IRKSCO */        "irksco - own developed Runge-Kutta solver - implicit, step size control, order 1-2",
   /* S_DASSL */         "dassl - default solver - BDF method - implicit, step size control, order 1-5",
   /* S_IDA */           "ida - SUNDIALS IDA solver - BDF method with sparse linear solver - implicit, step size control, order 1-5",

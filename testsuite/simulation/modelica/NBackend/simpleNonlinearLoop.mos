@@ -25,7 +25,7 @@ simulate(simpleNonlinearLoop); getErrorString();
 // ################################################################################
 //
 // ========================================
-// CONTINUOUS ODE System
+// CONTINUOUS 1 ODE System
 // ========================================
 //
 // BLOCK 1: Algebraic Loop (Mixed = false)
@@ -35,38 +35,8 @@ simulate(simpleNonlinearLoop); getErrorString();
 // 	Real x
 //
 // ### Equations:
-// 	[SCAL] ($RES_SIM_1) x = y ^ 2.0 + sin(time)
-// 	[SCAL] ($RES_SIM_0) y = sin(x)
-//
-// ========================================
-// AdjacencyMatrix
-// ========================================
-//
-// Normal Adjacency Matrix (row = equation)
-// ****************************************
-// 	(1)	{2, 1}
-// 	(2)	{2, 1}
-//
-// Transposed Adjacency Matrix (row = variable)
-// ****************************************
-// 	(1)	{2, 1}
-// 	(2)	{2, 1}
-//
-//
-// ========================================
-// Scalar Matching
-// ========================================
-//
-// variable to equation
-// ****************************************
-// 	var 1 --> eqn 2
-// 	var 2 --> eqn 1
-//
-// equation to variable
-// ****************************************
-// 	eqn 1 --> var 2
-// 	eqn 2 --> var 1
-//
+// 	[SCAL] (1) x = y ^ 2.0 + sin(time) ($RES_SIM_1)
+// 	[SCAL] (1) y = sin(x) ($RES_SIM_0)
 //
 // ################################################################################
 //
@@ -75,7 +45,7 @@ simulate(simpleNonlinearLoop); getErrorString();
 // ################################################################################
 //
 // ========================================
-// CONTINUOUS ODE System
+// CONTINUOUS 1 ODE System
 // ========================================
 //
 // BLOCK 1: Algebraic Loop (Mixed = false)
@@ -85,38 +55,8 @@ simulate(simpleNonlinearLoop); getErrorString();
 // 	Real x
 //
 // ### Equations:
-// 	[SCAL] ($RES_SIM_1) x = y ^ 2.0 + sin(time)
-// 	[SCAL] ($RES_SIM_0) y = sin(x)
-//
-// ========================================
-// AdjacencyMatrix
-// ========================================
-//
-// Normal Adjacency Matrix (row = equation)
-// ****************************************
-// 	(1)	{2, 1}
-// 	(2)	{2, 1}
-//
-// Transposed Adjacency Matrix (row = variable)
-// ****************************************
-// 	(1)	{2, 1}
-// 	(2)	{2, 1}
-//
-//
-// ========================================
-// Scalar Matching
-// ========================================
-//
-// variable to equation
-// ****************************************
-// 	var 1 --> eqn 2
-// 	var 2 --> eqn 1
-//
-// equation to variable
-// ****************************************
-// 	eqn 1 --> var 2
-// 	eqn 2 --> var 1
-//
+// 	[SCAL] (1) x = y ^ 2.0 + sin(time) ($RES_SIM_1)
+// 	[SCAL] (1) y = sin(x) ($RES_SIM_0)
 //
 // ################################################################################
 //
@@ -125,64 +65,175 @@ simulate(simpleNonlinearLoop); getErrorString();
 // ################################################################################
 //
 // ========================================
-// CONTINUOUS INI System
-// ========================================
-//
-// ========================================
-// AdjacencyMatrix
-// ========================================
-//
-// Empty Adjacency Matrix
-// ****************************************
-//
-//
-// ========================================
-// Empty Matching
-// ========================================
-//
-//
-// ========================================
-// CONTINUOUS INI System
+// CONTINUOUS 1 INI System
 // ========================================
 //
 // BLOCK 1: Algebraic Loop (Mixed = false)
 // ----------------------------------------
 // ### Variables:
+// 	Real x
+// 	Real y
+//
+// ### Equations:
+// 	[SCAL] (1) y = sin(x) ($RES_SIM_0)
+// 	[SCAL] (1) x = y ^ 2.0 + sin(time) ($RES_SIM_1)
+//
+// ################################################################################
+//
+// 	[ALG] Algebraic: (Solve)
+//
+// ################################################################################
+//
+// ========================================
+// CONTINUOUS 1 ALG System
+// ========================================
+//
+// BLOCK 1: Torn Algebraic Loop (Linear = false, Mixed = false)
+// ----------------------------------------
+// Strict Tearing Set
+// ****************************************
+// ### Iteration Variables:
 // 	Real y
 // 	Real x
 //
-// ### Equations:
-// 	[SCAL] ($RES_SIM_0) y = sin(x)
-// 	[SCAL] ($RES_SIM_1) x = y ^ 2.0 + sin(time)
+// ### Residual Equations:
+// 	[SCAL] (1) $RES_SIM_1 = y ^ 2.0 + sin(time) - x ($RES_SIM_1) ;
+// 	[SCAL] (1) $RES_SIM_0 = sin(x) - y ($RES_SIM_0) ;
+// ### Inner Equations:
+//
+// ################################################################################
+//
+// 	[NLS] Jacobian ODE_NLS_JAC_1: NLS
+//
+// ################################################################################
+//
+// Partial Derivative Variables (2/2)
+// ****************************************
+// (1)       [JACV] (1) Real $pDER_ODE_NLS_JAC_1.$RES_SIM_1
+// (2)       [JACV] (1) Real $pDER_ODE_NLS_JAC_1.$RES_SIM_0
+//
+// Seed Variables (2/2)
+// ****************************************
+// (1)       [SEED] (1) Real $SEED_ODE_NLS_JAC_1.x
+// (2)       [SEED] (1) Real $SEED_ODE_NLS_JAC_1.y
+//
+// BLOCK 1: Single Equation (status = Solve.EXPLICIT)
+// ----------------------------------------
+// ### Variable:
+// 	Real $pDER_ODE_NLS_JAC_1.$RES_SIM_1
+// ### Equation:
+// 	[SCAL] (1) $pDER_ODE_NLS_JAC_1.$RES_SIM_1 = 2.0 * y * $SEED_ODE_NLS_JAC_1.y - $SEED_ODE_NLS_JAC_1.x ($RES_ODE_NLS_JAC_1_0)
+//
+// BLOCK 2: Single Equation (status = Solve.EXPLICIT)
+// ----------------------------------------
+// ### Variable:
+// 	Real $pDER_ODE_NLS_JAC_1.$RES_SIM_0
+// ### Equation:
+// 	[SCAL] (1) $pDER_ODE_NLS_JAC_1.$RES_SIM_0 = cos(x) * $SEED_ODE_NLS_JAC_1.x - $SEED_ODE_NLS_JAC_1.y ($RES_ODE_NLS_JAC_1_1)
 //
 // ========================================
-// AdjacencyMatrix
+// Sparsity Pattern (nnz: 4)
 // ========================================
 //
-// Normal Adjacency Matrix (row = equation)
-// ****************************************
-// 	(1)	{2, 1}
-// 	(2)	{2, 1}
+// ### Columns ###
+// ----------------------------------------
+// (x)	 affects:	{$RES_SIM_0,$RES_SIM_1}
+// (y)	 affects:	{$RES_SIM_0,$RES_SIM_1}
 //
-// Transposed Adjacency Matrix (row = variable)
-// ****************************************
-// 	(1)	{2, 1}
-// 	(2)	{2, 1}
-//
+// ##### Rows #####
+// ----------------------------------------
+// ($RES_SIM_0)	 depends on:	{y,x}
+// ($RES_SIM_1)	 depends on:	{x,y}
 //
 // ========================================
-// Scalar Matching
+// Sparsity Coloring
+// ========================================
+// Color (1)
+//   - Column: {y}
+//   - Row:    {$RES_SIM_0,$RES_SIM_1}
+//
+// Color (2)
+//   - Column: {x}
+//   - Row:    {$RES_SIM_0,$RES_SIM_1}
+//
+//
+// ################################################################################
+//
+// 	[INI] Initialization: (Solve)
+//
+// ################################################################################
+//
+// ========================================
+// CONTINUOUS 1 INI System
 // ========================================
 //
-// variable to equation
+// BLOCK 1: Torn Algebraic Loop (Linear = false, Mixed = false)
+// ----------------------------------------
+// Strict Tearing Set
 // ****************************************
-// 	var 1 --> eqn 2
-// 	var 2 --> eqn 1
+// ### Iteration Variables:
+// 	Real x
+// 	Real y
 //
-// equation to variable
+// ### Residual Equations:
+// 	[SCAL] (1) $RES_SIM_0 = sin(x) - y ($RES_SIM_0) ;
+// 	[SCAL] (1) $RES_SIM_1 = y ^ 2.0 + sin(time) - x ($RES_SIM_1) ;
+// ### Inner Equations:
+//
+// ################################################################################
+//
+// 	[NLS] Jacobian INI_NLS_JAC_1: NLS
+//
+// ################################################################################
+//
+// Partial Derivative Variables (2/2)
 // ****************************************
-// 	eqn 1 --> var 2
-// 	eqn 2 --> var 1
+// (1)       [JACV] (1) Real $pDER_INI_NLS_JAC_1.$RES_SIM_0
+// (2)       [JACV] (1) Real $pDER_INI_NLS_JAC_1.$RES_SIM_1
+//
+// Seed Variables (2/2)
+// ****************************************
+// (1)       [SEED] (1) Real $SEED_INI_NLS_JAC_1.y
+// (2)       [SEED] (1) Real $SEED_INI_NLS_JAC_1.x
+//
+// BLOCK 1: Single Equation (status = Solve.EXPLICIT)
+// ----------------------------------------
+// ### Variable:
+// 	Real $pDER_INI_NLS_JAC_1.$RES_SIM_0
+// ### Equation:
+// 	[SCAL] (1) $pDER_INI_NLS_JAC_1.$RES_SIM_0 = cos(x) * $SEED_INI_NLS_JAC_1.x - $SEED_INI_NLS_JAC_1.y ($RES_INI_NLS_JAC_1_0)
+//
+// BLOCK 2: Single Equation (status = Solve.EXPLICIT)
+// ----------------------------------------
+// ### Variable:
+// 	Real $pDER_INI_NLS_JAC_1.$RES_SIM_1
+// ### Equation:
+// 	[SCAL] (1) $pDER_INI_NLS_JAC_1.$RES_SIM_1 = 2.0 * y * $SEED_INI_NLS_JAC_1.y - $SEED_INI_NLS_JAC_1.x ($RES_INI_NLS_JAC_1_1)
+//
+// ========================================
+// Sparsity Pattern (nnz: 4)
+// ========================================
+//
+// ### Columns ###
+// ----------------------------------------
+// (y)	 affects:	{$RES_SIM_1,$RES_SIM_0}
+// (x)	 affects:	{$RES_SIM_1,$RES_SIM_0}
+//
+// ##### Rows #####
+// ----------------------------------------
+// ($RES_SIM_1)	 depends on:	{x,y}
+// ($RES_SIM_0)	 depends on:	{y,x}
+//
+// ========================================
+// Sparsity Coloring
+// ========================================
+// Color (1)
+//   - Column: {x}
+//   - Row:    {$RES_SIM_1,$RES_SIM_0}
+//
+// Color (2)
+//   - Column: {y}
+//   - Row:    {$RES_SIM_1,$RES_SIM_0}
 //
 //
 // record SimulationResult

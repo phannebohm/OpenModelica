@@ -91,7 +91,9 @@ INCLUDEPATH += . ../ \
   $$OPENMODELICAHOME/include/omc/scripting-API \
   $$OPENMODELICAHOME/include/omc/c \
   $$OPENMODELICAHOME/include/omc/c/util \
-  $$OPENMODELICAHOME/include/omc/fmil
+  $$OPENMODELICAHOME/include/omc/fmil \
+  $$OPENMODELICAHOME/../OMParser/ \
+  $$OPENMODELICAHOME/../OMParser/3rdParty/antlr4/runtime/Cpp/runtime/src
 
 # Don't show the warnings from included headers.
 # Don't add a space between for and open parenthesis below. Qt4 complains about it.
@@ -106,6 +108,7 @@ SOURCES += Util/Helper.cpp \
   MainWindow.cpp \
   $$OPENMODELICAHOME/include/omc/scripting-API/OpenModelicaScriptingAPIQt.cpp \
   OMC/OMCProxy.cpp \
+  Modeling/Model.cpp \
   Modeling/MessagesWidget.cpp \
   Modeling/ItemDelegate.cpp \
   Modeling/LibraryTreeWidget.cpp \
@@ -114,6 +117,7 @@ SOURCES += Util/Helper.cpp \
   Modeling/ModelWidgetContainer.cpp \
   Modeling/ModelicaClassDialog.cpp \
   Modeling/FunctionArgumentDialog.cpp \
+  Modeling/InstallLibraryDialog.cpp \
   Search/SearchWidget.cpp \
   Options/OptionsDialog.cpp \
   Editors/BaseEditor.cpp \
@@ -135,6 +139,13 @@ SOURCES += Util/Helper.cpp \
   Annotations/EllipseAnnotation.cpp \
   Annotations/TextAnnotation.cpp \
   Annotations/BitmapAnnotation.cpp \
+  Annotations/DynamicAnnotation.cpp \
+  Annotations/BooleanAnnotation.cpp \
+  Annotations/ColorAnnotation.cpp \
+  Annotations/ExtentAnnotation.cpp \
+  Annotations/PointAnnotation.cpp \
+  Annotations/RealAnnotation.cpp \
+  Annotations/StringAnnotation.cpp \
   Element/ElementProperties.cpp \
   Element/Transformation.cpp \
   Modeling/DocumentationWidget.cpp \
@@ -199,6 +210,7 @@ HEADERS  += Util/Helper.h \
   MainWindow.h \
   $$OPENMODELICAHOME/include/omc/scripting-API/OpenModelicaScriptingAPIQt.h \
   OMC/OMCProxy.h \
+  Modeling/Model.h \
   Modeling/MessagesWidget.h \
   Modeling/ItemDelegate.h \
   Modeling/LibraryTreeWidget.h \
@@ -207,6 +219,7 @@ HEADERS  += Util/Helper.h \
   Modeling/ModelWidgetContainer.h \
   Modeling/ModelicaClassDialog.h \
   Modeling/FunctionArgumentDialog.h \
+  Modeling/InstallLibraryDialog.h \
   Search/SearchWidget.h \
   Options/OptionsDialog.h \
   Editors/BaseEditor.h \
@@ -228,6 +241,13 @@ HEADERS  += Util/Helper.h \
   Annotations/EllipseAnnotation.h \
   Annotations/TextAnnotation.h \
   Annotations/BitmapAnnotation.h \
+  Annotations/DynamicAnnotation.h \
+  Annotations/BooleanAnnotation.h \
+  Annotations/ColorAnnotation.h \
+  Annotations/ExtentAnnotation.h \
+  Annotations/PointAnnotation.h \
+  Annotations/RealAnnotation.h \
+  Annotations/StringAnnotation.h \
   Element/ElementProperties.h \
   Element/Transformation.h \
   Modeling/DocumentationWidget.h \
@@ -304,13 +324,15 @@ SOURCES += Animation/AbstractAnimationWindow.cpp \
   Animation/AnimationWindow.cpp \
   Animation/ThreeDViewer.cpp \
   Animation/ExtraShapes.cpp \
-  Animation/Visualizer.cpp \
-  Animation/VisualizerMAT.cpp \
-  Animation/VisualizerCSV.cpp \
-  Animation/VisualizerFMU.cpp \
+  Animation/Visualization.cpp \
+  Animation/VisualizationMAT.cpp \
+  Animation/VisualizationCSV.cpp \
+  Animation/VisualizationFMU.cpp \
   Animation/FMUSettingsDialog.cpp \
   Animation/FMUWrapper.cpp \
-  Animation/Shapes.cpp
+  Animation/AbstractVisualizer.cpp \
+  Animation/Shape.cpp \
+  Animation/Vector.cpp
 
 greaterThan(QT_MAJOR_VERSION, 4):greaterThan(QT_MINOR_VERSION, 3) { # if Qt 5.4 or greater
   HEADERS += Animation/OpenGLWidget.h
@@ -323,13 +345,15 @@ HEADERS += Animation/AbstractAnimationWindow.h \
   Animation/ThreeDViewer.h \
   Animation/AnimationUtil.h \
   Animation/ExtraShapes.h \
-  Animation/Visualizer.h \
-  Animation/VisualizerMAT.h \
-  Animation/VisualizerCSV.h \
-  Animation/VisualizerFMU.h \
+  Animation/Visualization.h \
+  Animation/VisualizationMAT.h \
+  Animation/VisualizationCSV.h \
+  Animation/VisualizationFMU.h \
   Animation/FMUSettingsDialog.h \
   Animation/FMUWrapper.h \
-  Animation/Shapes.h \
+  Animation/AbstractVisualizer.h \
+  Animation/Shape.h \
+  Animation/Vector.h \
   Animation/rapidxml.hpp
 }
 

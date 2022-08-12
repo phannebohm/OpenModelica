@@ -53,7 +53,7 @@ import Error;
 import InstUtil;
 import Class = NFClass;
 import Component = NFComponent;
-import NFComponent.Attributes;
+import Attributes = NFAttributes;
 import Typing = NFTyping;
 import TypeCheck = NFTypeCheck;
 import Util;
@@ -81,6 +81,7 @@ import ComplexType = NFComplexType;
 import InstContext = NFInstContext;
 import UnorderedSet;
 import Graph;
+import FlatModelicaUtil = NFFlatModelicaUtil;
 
 public
 
@@ -107,7 +108,7 @@ type SlotEvalStatus = enumeration(NOT_EVALUATED, EVALUATING, EVALUATED);
 
 uniontype Slot
   record SLOT
-    String name;
+    InstNode node;
     SlotType ty;
     Option<Expression> default;
     Option<TypedArg> arg;
@@ -137,11 +138,16 @@ uniontype Slot
     end match;
   end named;
 
-  function hasName
-    input String name;
+  function name
     input Slot slot;
-    output Boolean hasName = name == slot.name;
-  end hasName;
+    output String name = InstNode.name(slot.node);
+  end name;
+
+  function hasNode
+    input InstNode node;
+    input Slot slot;
+    output Boolean hasNode = InstNode.refEqual(node, slot.node);
+  end hasNode;
 end Slot;
 
 public
@@ -645,7 +651,7 @@ uniontype Function
 
       // Add the name from the slot and not the node, since some builtin
       // functions don't bother using proper names for the nodes.
-      input_str := s.name + input_str;
+      input_str := Slot.name(s) + input_str;
 
       // Add a $ in front of the name if the parameter only takes positional
       // arguments.
@@ -719,11 +725,12 @@ uniontype Function
     list<Statement> fn_body;
     SCode.Comment cmt;
     SCode.Mod annMod;
-    String str;
   algorithm
     if isDefaultRecordConstructor(fn) then
       s := IOStream.append(s, InstNode.toFlatString(fn.node));
     else
+      cmt := Util.getOptionOrDefault(SCodeUtil.getElementComment(InstNode.definition(fn.node)), SCode.COMMENT(NONE(), NONE()));
+
       fn_name := AbsynUtil.pathString(fn.path);
       if stringEmpty(overrideName) then
         fn_name := Util.makeQuotedIdentifier(fn_name);
@@ -732,6 +739,7 @@ uniontype Function
       end if;
       s := IOStream.append(s, "function ");
       s := IOStream.append(s, fn_name);
+      s := FlatModelicaUtil.appendCommentString(SOME(cmt), s);
       s := IOStream.append(s, "\n");
 
       for i in fn.inputs loop
@@ -758,7 +766,6 @@ uniontype Function
 
       s := Sections.toFlatStream(InstNode.getSections(fn.node), fn.path, s);
 
-      cmt := Util.getOptionOrDefault(SCodeUtil.getElementComment(InstNode.definition(fn.node)), SCode.COMMENT(NONE(), NONE()));
       if isSome(cmt.annotation_) then
         SOME(SCode.ANNOTATION(modification=annMod)) := cmt.annotation_;
       else
@@ -768,20 +775,17 @@ uniontype Function
       annMod := SCodeUtil.filterSubMods(annMod,
         function SCodeUtil.removeGivenSubModNames(namesToRemove={"derivative", "inverse"}));
 
-      for derivative in fn.derivatives loop
+      for derivative in listReverse(fn.derivatives) loop
         annMod := SCodeUtil.prependSubModToMod(FunctionDerivative.toSubMod(derivative), annMod);
       end for;
 
-      for inverse in fn.inverses loop
-        annMod := SCodeUtil.prependSubModToMod(FunctionInverse.toSubMod(inverse), annMod);
+      for i in arrayLength(fn.inverses):-1:1 loop
+        annMod := SCodeUtil.prependSubModToMod(FunctionInverse.toSubMod(fn.inverses[i]), annMod);
       end for;
 
       if not SCodeUtil.emptyModOrEquality(annMod) then
-        str := SCodeDump.printAnnotationStr(SCode.COMMENT(SOME(SCode.ANNOTATION(annMod)),NONE()));
-        if not stringEmpty(str) then
-          s := IOStream.append(s, str);
-          s := IOStream.append(s, ";\n");
-        end if;
+        cmt := SCode.COMMENT(SOME(SCode.ANNOTATION(annMod)), NONE());
+        s := FlatModelicaUtil.appendCommentAnnotation(SOME(cmt), "  ", ";\n", s);
       end if;
 
       s := IOStream.append(s, "end ");
@@ -901,7 +905,7 @@ uniontype Function
 
       SOME(arg_name) := arg.name;
 
-      if s.name == arg_name then
+      if Slot.name(s) == arg_name then
         if not Slot.named(s) then
           // Slot doesn't allow named argument (used for some builtin functions).
           matching := false;
@@ -926,7 +930,7 @@ uniontype Function
     // exist, or we removed it when handling positional argument. We need to
     // search through all slots to be sure.
     for s in fn.slots loop
-      if arg_name == s.name then
+      if arg_name == Slot.name(s) then
         // We found a slot, so it must have already been filled.
         Error.addSourceMessage(Error.FUNCTION_SLOT_ALREADY_FILLED,
           {arg_name, ""}, info);
@@ -951,10 +955,9 @@ uniontype Function
     Expression e;
     Option<TypedArg> arg;
     TypedArg a;
-    String name;
   algorithm
     for s in slots loop
-      SLOT(name = name, default = default, arg = arg) := s;
+      SLOT(default = default, arg = arg) := s;
 
       args := matchcontinue arg
         // Use the argument from the call if one was given.
@@ -991,7 +994,7 @@ uniontype Function
       // Give an error if no argument was given and there's no default argument.
       else
         algorithm
-          Error.addSourceMessage(Error.UNFILLED_SLOT, {slot.name}, info);
+          Error.addSourceMessage(Error.UNFILLED_SLOT, {Slot.name(slot)}, info);
         then
           fail();
 
@@ -1018,7 +1021,7 @@ uniontype Function
       // A slot in the process of being evaluated => cyclic bindings.
       case SlotEvalStatus.EVALUATING
         algorithm
-          Error.addSourceMessage(Error.CYCLIC_DEFAULT_VALUE, {slot.name}, info);
+          Error.addSourceMessage(Error.CYCLIC_DEFAULT_VALUE, {Slot.name(slot)}, info);
         then
           fail();
 
@@ -1071,9 +1074,9 @@ uniontype Function
     ComponentRef cref;
     Type cref_ty;
     list<ComponentRef> cref_parts;
-    String name;
     Option<Slot> slot;
     TypedArg arg;
+    InstNode cref_node;
   algorithm
     Expression.CREF(cref = cref, ty = cref_ty) := crefExp;
 
@@ -1082,8 +1085,8 @@ uniontype Function
     end if;
 
     cref :: cref_parts := ComponentRef.toListReverse(cref);
-    name := ComponentRef.firstName(cref);
-    slot := lookupSlotInArray(name, slots);
+    cref_node := ComponentRef.node(cref);
+    slot := lookupSlotInArray(cref_node, slots);
 
     if isSome(slot) then
       arg := fillDefaultSlot(Util.getOption(slot), slots, info);
@@ -1102,14 +1105,14 @@ uniontype Function
   end evaluateSlotCref;
 
   function lookupSlotInArray
-    input String slotName;
+    input InstNode node;
     input array<Slot> slots;
     output Option<Slot> outSlot;
   protected
     Slot slot;
   algorithm
     try
-      slot := Array.getMemberOnTrue(slotName, slots, Slot.hasName);
+      slot := Array.getMemberOnTrue(node, slots, Slot.hasNode);
       outSlot := SOME(slot);
     else
       outSlot := NONE();
@@ -1552,7 +1555,7 @@ uniontype Function
       i :: rest_inputs := rest_inputs;
       s :: rest_slots := rest_slots;
 
-      if s.name == argName then
+      if InstNode.name(s.node) == argName then
         (argExp, _, mk) := TypeCheck.matchTypes(argType, InstNode.getType(i), argExp, true);
 
         if TypeCheck.isIncompatibleMatch(mk) then
@@ -1617,7 +1620,6 @@ uniontype Function
           // argument should be a cref?
           case "change" then true;
           case "der" then true;
-          case "diagonal" then true;
           // Function should not be used in function context.
           case "edge" then true;
           // can have variable number of arguments
@@ -1648,8 +1650,8 @@ uniontype Function
           // argument should be a cref?
           case "pre" then true;
           // needs unboxing and return type fix.
-          case "product" then true;
           case "promote" then true;
+          case "pure" then true;
           case "root" then true;
           case "rooted" then true;
           case "uniqueRoot" then true;
@@ -1664,7 +1666,6 @@ uniontype Function
           case "smooth" then true;
           case "subSample" then true;
           // needs unboxing and return type fix.
-          case "sum" then true;
           case "superSample" then true;
           // unbox args and set return type.
           case "symmetric" then true;
@@ -1862,6 +1863,7 @@ uniontype Function
   function mapExp
     input output Function fn;
     input MapFunc mapFn;
+    input MapFunc mapFnFields = mapFn "Used for expressions in subcomponents, i.e. record fields";
     input Boolean mapParameters = true;
     input Boolean mapBody = true;
 
@@ -1880,7 +1882,8 @@ uniontype Function
 
     if mapParameters then
       ctree := Class.classTree(cls);
-      ClassTree.applyComponents(ctree, function mapExpParameter(mapFn = mapFn));
+      ClassTree.applyComponents(ctree,
+        function mapExpParameter(mapFn = mapFn, mapFnFields = mapFnFields));
       fn.returnType := makeReturnType(fn);
     end if;
 
@@ -1894,6 +1897,7 @@ uniontype Function
   function mapExpParameter
     input InstNode node;
     input MapFunc mapFn;
+    input MapFunc mapFnFields;
 
     partial function MapFunc
       input output Expression exp;
@@ -1926,7 +1930,7 @@ uniontype Function
 
           cls := InstNode.getClass(comp.classInst);
           ClassTree.applyComponents(Class.classTree(cls),
-            function mapExpParameter(mapFn = mapFn));
+            function mapExpParameter(mapFn = mapFnFields, mapFnFields = mapFnFields));
         then
           ();
 
@@ -2083,18 +2087,30 @@ protected
     input InstNode component;
     output Direction direction;
   protected
+    Component comp;
     ConnectorType.Type cty;
     InnerOuter io;
     Visibility vis;
     Variability var;
   algorithm
-    Component.Attributes.ATTRIBUTES(
+    comp := InstNode.component(InstNode.resolveOuter(component));
+
+    // Outer components are not instantiated, so check this first to make sure
+    // it's safe to e.g. fetch the attributes of the component.
+    io := Component.innerOuter(comp);
+
+    // Function components may not be inner/outer.
+    if io <> InnerOuter.NOT_INNER_OUTER then
+      Error.addSourceMessage(Error.INNER_OUTER_FORMAL_PARAMETER,
+        {Prefixes.innerOuterString(io), InstNode.name(component)},
+        InstNode.info(InstNode.resolveOuter(component)));
+      fail();
+    end if;
+
+    Attributes.ATTRIBUTES(
       connectorType = cty,
       direction = direction,
-      innerOuter = io) := Component.getAttributes(InstNode.component(component));
-
-    vis := InstNode.visibility(component);
-    var := Component.variability(InstNode.component(component));
+      variability = var) := Component.getAttributes(comp);
 
     // Function components may not be connectors.
     if ConnectorType.isFlowOrStream(cty) then
@@ -2104,15 +2120,9 @@ protected
       fail();
     end if;
 
-    // Function components may not be inner/outer.
-    if io <> InnerOuter.NOT_INNER_OUTER then
-      Error.addSourceMessage(Error.INNER_OUTER_FORMAL_PARAMETER,
-        {Prefixes.innerOuterString(io), InstNode.name(component)},
-        InstNode.info(component));
-      fail();
-    end if;
-
     // Formal parameters must be public, other function variables must be protected.
+    vis := InstNode.visibility(component);
+
     if direction <> Direction.NONE then
       if vis == Visibility.PROTECTED then
         Error.addSourceMessage(Error.PROTECTED_FORMAL_FUNCTION_VAR,
@@ -2161,7 +2171,7 @@ protected
         end if;
       end if;
 
-      slot := SLOT(InstNode.name(component), SlotType.GENERIC, default, NONE(), index, SlotEvalStatus.NOT_EVALUATED);
+      slot := SLOT(component, SlotType.GENERIC, default, NONE(), index, SlotEvalStatus.NOT_EVALUATED);
     else
       Error.assertion(false, getInstanceName() + " got invalid component", sourceInfo());
     end try;
@@ -2476,25 +2486,44 @@ protected
     input UnorderedSet<InstNode> locals;
     output list<InstNode> dependencies;
   protected
-    Component comp;
-    Binding binding;
     UnorderedSet<InstNode> deps;
   algorithm
     // Use a set to store the dependencies to avoid duplicates.
     deps := UnorderedSet.new(InstNode.hash, InstNode.refEqual, 1);
+    deps := getLocalDependencies2(node, locals, deps);
 
-    comp := InstNode.component(node);
-    binding := Component.getBinding(comp);
+    // If we have a record instance with fields that have bindings that refer to
+    // other fields we'll get a dependency on the record instance itself here.
+    // But that's actually fine, so remove it to avoid a false cycle being detected.
+    UnorderedSet.remove(node, deps);
 
-    if Binding.hasExp(binding) then
-      deps := getLocalDependenciesExp(Binding.getExp(binding), locals, deps);
-    end if;
-
-    deps := Type.foldDims(Component.getType(comp),
+    deps := Type.foldDims(InstNode.getType(node),
       function getLocalDependenciesDim(locals = locals), deps);
 
     dependencies := UnorderedSet.toList(deps);
   end getLocalDependencies;
+
+  function getLocalDependencies2
+    input InstNode node;
+    input UnorderedSet<InstNode> locals;
+    input output UnorderedSet<InstNode> dependencies;
+  protected
+    Component comp;
+    Binding binding;
+  algorithm
+    comp := InstNode.component(node);
+    binding := Component.getBinding(comp);
+
+    if Binding.hasExp(binding) then
+      dependencies := getLocalDependenciesExp(Binding.getExp(binding), locals, dependencies);
+    elseif Type.isRecord(Component.getType(comp)) then
+      // If the component is a record instance without a binding, check the
+      // bindings on the record fields instead.
+      dependencies := ClassTree.foldComponents(
+        Class.classTree(InstNode.getClass(node)),
+        function getLocalDependencies2(locals = locals), dependencies);
+    end if;
+  end getLocalDependencies2;
 
   function getLocalDependenciesExp
     input Expression exp;
@@ -2546,6 +2575,30 @@ protected
     deps := Dimension.foldExp(dim,
       function getLocalDependenciesExp(locals = locals), deps);
   end getLocalDependenciesDim;
+
+  function getDerivative
+    "returns the first derivative that fits the interface_map
+    and returns NONE() if none of them fit."
+    input Function original;
+    input UnorderedMap<String, Boolean> interface_map;
+    output Option<Function> derivative = NONE();
+  protected
+    list<FunctionDerivative> derivatives;
+    Boolean perfect_fit;
+  algorithm
+    for func in original.derivatives loop
+      if FunctionDerivative.perfectFit(func, interface_map) then
+        derivative := SOME(List.first(getCachedFuncs(func.derivativeFn)));
+        return;
+      end if;
+    end for;
+
+    // no derivative could be found, set whole map to true
+    // so that the self-generated function removes as much as possible
+    for key in UnorderedMap.keyList(interface_map) loop
+      UnorderedMap.add(key, true, interface_map);
+    end for;
+  end getDerivative;
 end Function;
 
 annotation(__OpenModelica_Interface="frontend");

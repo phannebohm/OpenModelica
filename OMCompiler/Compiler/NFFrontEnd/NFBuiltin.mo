@@ -43,6 +43,7 @@ encapsulated package NFBuiltin
 public
 import Absyn;
 import AbsynUtil;
+import Attributes = NFAttributes;
 import SCode;
 import NFBinding;
 import Class = NFClass;
@@ -164,37 +165,37 @@ constant ClassTree REAL_CLASS_TREE = ClassTree.FLAT_TREE(
   REAL_LOOKUP_TREE,
   listArrayLiteral({}),
   listArrayLiteral({
-    InstNode.COMPONENT_NODE("quantity", Visibility.PUBLIC,
+    InstNode.COMPONENT_NODE("quantity", NONE(), Visibility.PUBLIC,
       Pointer.createImmutable(Component.TYPE_ATTRIBUTE(Type.STRING(),
       Modifier.NOMOD())), InstNode.EMPTY_NODE(), InstNodeType.NORMAL_COMP()),
-    InstNode.COMPONENT_NODE("unit", Visibility.PUBLIC,
+    InstNode.COMPONENT_NODE("unit", NONE(), Visibility.PUBLIC,
       Pointer.createImmutable(Component.TYPE_ATTRIBUTE(Type.STRING(),
       Modifier.NOMOD())), InstNode.EMPTY_NODE(), InstNodeType.NORMAL_COMP()),
-    InstNode.COMPONENT_NODE("displayUnit", Visibility.PUBLIC,
+    InstNode.COMPONENT_NODE("displayUnit", NONE(), Visibility.PUBLIC,
       Pointer.createImmutable(Component.TYPE_ATTRIBUTE(Type.STRING(),
       Modifier.NOMOD())), InstNode.EMPTY_NODE(), InstNodeType.NORMAL_COMP()),
-    InstNode.COMPONENT_NODE("min", Visibility.PUBLIC,
+    InstNode.COMPONENT_NODE("min", NONE(), Visibility.PUBLIC,
       Pointer.createImmutable(Component.TYPE_ATTRIBUTE(Type.REAL(),
       Modifier.NOMOD())), InstNode.EMPTY_NODE(), InstNodeType.NORMAL_COMP()),
-    InstNode.COMPONENT_NODE("max", Visibility.PUBLIC,
+    InstNode.COMPONENT_NODE("max", NONE(), Visibility.PUBLIC,
       Pointer.createImmutable(Component.TYPE_ATTRIBUTE(Type.REAL(),
       Modifier.NOMOD())), InstNode.EMPTY_NODE(), InstNodeType.NORMAL_COMP()),
-    InstNode.COMPONENT_NODE("start", Visibility.PUBLIC,
+    InstNode.COMPONENT_NODE("start", NONE(), Visibility.PUBLIC,
       Pointer.createImmutable(Component.TYPE_ATTRIBUTE(Type.REAL(),
       Modifier.NOMOD())), InstNode.EMPTY_NODE(), InstNodeType.NORMAL_COMP()),
-    InstNode.COMPONENT_NODE("fixed", Visibility.PUBLIC,
+    InstNode.COMPONENT_NODE("fixed", NONE(), Visibility.PUBLIC,
       Pointer.createImmutable(Component.TYPE_ATTRIBUTE(Type.BOOLEAN(),
       Modifier.NOMOD())), InstNode.EMPTY_NODE(), InstNodeType.NORMAL_COMP()),
-    InstNode.COMPONENT_NODE("nominal", Visibility.PUBLIC,
+    InstNode.COMPONENT_NODE("nominal", NONE(), Visibility.PUBLIC,
       Pointer.createImmutable(Component.TYPE_ATTRIBUTE(Type.REAL(),
       Modifier.NOMOD())), InstNode.EMPTY_NODE(), InstNodeType.NORMAL_COMP()),
-    InstNode.COMPONENT_NODE("unbounded", Visibility.PUBLIC,
+    InstNode.COMPONENT_NODE("unbounded", NONE(), Visibility.PUBLIC,
       Pointer.createImmutable(Component.TYPE_ATTRIBUTE(Type.BOOLEAN(),
       Modifier.NOMOD())), InstNode.EMPTY_NODE(), InstNodeType.NORMAL_COMP()),
-    InstNode.COMPONENT_NODE("stateSelect", Visibility.PUBLIC,
+    InstNode.COMPONENT_NODE("stateSelect", NONE(), Visibility.PUBLIC,
       Pointer.createImmutable(Component.TYPE_ATTRIBUTE(STATESELECT_TYPE,
       Modifier.NOMOD())), InstNode.EMPTY_NODE(), InstNodeType.NORMAL_COMP()),
-    InstNode.COMPONENT_NODE("uncertain", Visibility.PUBLIC,
+    InstNode.COMPONENT_NODE("uncertain", NONE(), Visibility.PUBLIC,
       Pointer.createImmutable(Component.TYPE_ATTRIBUTE(UNCERTAINTY_TYPE,
       Modifier.NOMOD())), InstNode.EMPTY_NODE(), InstNodeType.NORMAL_COMP())
   }),
@@ -226,19 +227,19 @@ constant ClassTree INTEGER_CLASS_TREE = ClassTree.FLAT_TREE(
   INTEGER_LOOKUP_TREE,
   listArrayLiteral({}),
   listArrayLiteral({
-    InstNode.COMPONENT_NODE("quantity", Visibility.PUBLIC,
+    InstNode.COMPONENT_NODE("quantity", NONE(), Visibility.PUBLIC,
       Pointer.createImmutable(Component.TYPE_ATTRIBUTE(Type.STRING(),
       Modifier.NOMOD())), InstNode.EMPTY_NODE(), InstNodeType.NORMAL_COMP()),
-    InstNode.COMPONENT_NODE("min", Visibility.PUBLIC,
+    InstNode.COMPONENT_NODE("min", NONE(), Visibility.PUBLIC,
       Pointer.createImmutable(Component.TYPE_ATTRIBUTE(Type.INTEGER(),
       Modifier.NOMOD())), InstNode.EMPTY_NODE(), InstNodeType.NORMAL_COMP()),
-    InstNode.COMPONENT_NODE("max", Visibility.PUBLIC,
+    InstNode.COMPONENT_NODE("max", NONE(), Visibility.PUBLIC,
       Pointer.createImmutable(Component.TYPE_ATTRIBUTE(Type.INTEGER(),
       Modifier.NOMOD())), InstNode.EMPTY_NODE(), InstNodeType.NORMAL_COMP()),
-    InstNode.COMPONENT_NODE("start", Visibility.PUBLIC,
+    InstNode.COMPONENT_NODE("start", NONE(), Visibility.PUBLIC,
       Pointer.createImmutable(Component.TYPE_ATTRIBUTE(Type.INTEGER(),
       Modifier.NOMOD())), InstNode.EMPTY_NODE(), InstNodeType.NORMAL_COMP()),
-    InstNode.COMPONENT_NODE("fixed", Visibility.PUBLIC,
+    InstNode.COMPONENT_NODE("fixed", NONE(), Visibility.PUBLIC,
       Pointer.createImmutable(Component.TYPE_ATTRIBUTE(Type.BOOLEAN(),
       Modifier.NOMOD())), InstNode.EMPTY_NODE(), InstNodeType.NORMAL_COMP())
   }),
@@ -264,13 +265,13 @@ constant ClassTree BOOLEAN_CLASS_TREE = ClassTree.FLAT_TREE(
   BOOLEAN_LOOKUP_TREE,
   listArrayLiteral({}),
   listArrayLiteral({
-    InstNode.COMPONENT_NODE("quantity", Visibility.PUBLIC,
+    InstNode.COMPONENT_NODE("quantity", NONE(), Visibility.PUBLIC,
       Pointer.createImmutable(Component.TYPE_ATTRIBUTE(Type.STRING(),
       Modifier.NOMOD())), InstNode.EMPTY_NODE(), InstNodeType.NORMAL_COMP()),
-    InstNode.COMPONENT_NODE("start", Visibility.PUBLIC,
+    InstNode.COMPONENT_NODE("start", NONE(), Visibility.PUBLIC,
       Pointer.createImmutable(Component.TYPE_ATTRIBUTE(Type.BOOLEAN(),
       Modifier.NOMOD())), InstNode.EMPTY_NODE(), InstNodeType.NORMAL_COMP()),
-    InstNode.COMPONENT_NODE("fixed", Visibility.PUBLIC,
+    InstNode.COMPONENT_NODE("fixed", NONE(), Visibility.PUBLIC,
       Pointer.createImmutable(Component.TYPE_ATTRIBUTE(Type.BOOLEAN(),
       Modifier.NOMOD())), InstNode.EMPTY_NODE(), InstNodeType.NORMAL_COMP())
   }),
@@ -299,13 +300,13 @@ constant ClassTree STRING_CLASS_TREE = ClassTree.FLAT_TREE(
   STRING_LOOKUP_TREE,
   listArrayLiteral({}),
   listArrayLiteral({
-    InstNode.COMPONENT_NODE("quantity", Visibility.PUBLIC,
+    InstNode.COMPONENT_NODE("quantity", NONE(), Visibility.PUBLIC,
       Pointer.createImmutable(Component.TYPE_ATTRIBUTE(Type.STRING(),
       Modifier.NOMOD())), InstNode.EMPTY_NODE(), InstNodeType.NORMAL_COMP()),
-    InstNode.COMPONENT_NODE("start", Visibility.PUBLIC,
+    InstNode.COMPONENT_NODE("start", NONE(), Visibility.PUBLIC,
       Pointer.createImmutable(Component.TYPE_ATTRIBUTE(Type.STRING(),
       Modifier.NOMOD())), InstNode.EMPTY_NODE(), InstNodeType.NORMAL_COMP()),
-    InstNode.COMPONENT_NODE("fixed", Visibility.PUBLIC,
+    InstNode.COMPONENT_NODE("fixed", NONE(), Visibility.PUBLIC,
       Pointer.createImmutable(Component.TYPE_ATTRIBUTE(Type.BOOLEAN(),
       Modifier.NOMOD())), InstNode.EMPTY_NODE(), InstNodeType.NORMAL_COMP())
   }),
@@ -368,13 +369,13 @@ constant ClassTree CLOCK_CLASS_TREE = ClassTree.FLAT_TREE(
   CLOCK_LOOKUP_TREE,
   listArrayLiteral({}),
   listArrayLiteral({
-    InstNode.COMPONENT_NODE("quantity", Visibility.PUBLIC,
+    InstNode.COMPONENT_NODE("quantity", NONE(), Visibility.PUBLIC,
       Pointer.createImmutable(Component.TYPE_ATTRIBUTE(Type.STRING(),
       Modifier.NOMOD())), InstNode.EMPTY_NODE(), InstNodeType.NORMAL_COMP()),
-    InstNode.COMPONENT_NODE("start", Visibility.PUBLIC,
+    InstNode.COMPONENT_NODE("start", NONE(), Visibility.PUBLIC,
       Pointer.createImmutable(Component.TYPE_ATTRIBUTE(Type.CLOCK(),
       Modifier.NOMOD())), InstNode.EMPTY_NODE(), InstNodeType.NORMAL_COMP()),
-    InstNode.COMPONENT_NODE("fixed", Visibility.PUBLIC,
+    InstNode.COMPONENT_NODE("fixed", NONE(), Visibility.PUBLIC,
       Pointer.createImmutable(Component.TYPE_ATTRIBUTE(Type.CLOCK(),
       Modifier.NOMOD())), InstNode.EMPTY_NODE(), InstNodeType.NORMAL_COMP())
   }),
@@ -386,20 +387,33 @@ constant InstNode CLOCK_NODE = InstNode.CLASS_NODE("Clock",
   Pointer.createImmutable(
     Class.PARTIAL_BUILTIN(Type.CLOCK(), CLOCK_CLASS_TREE, Modifier.NOMOD(),
       NFClass.DEFAULT_PREFIXES, Restriction.CLOCK())),
-  EMPTY_NODE_CACHE, InstNode.EMPTY_NODE(), InstNodeType.BUILTIN_CLASS());
+  listArrayLiteral({
+    NFInstNode.CachedData.FUNCTION({
+        NFBuiltinFuncs.CLOCK_INFERRED,
+        NFBuiltinFuncs.CLOCK_INT,
+        NFBuiltinFuncs.CLOCK_REAL,
+        NFBuiltinFuncs.CLOCK_BOOL,
+        NFBuiltinFuncs.CLOCK_SOLVER
+        },
+      true, true),
+    NFInstNode.CachedData.NO_CACHE(),
+    NFInstNode.CachedData.NO_CACHE()}
+  ),
+  InstNode.EMPTY_NODE(), InstNodeType.BUILTIN_CLASS());
 
 constant ComponentRef CLOCK_CREF =
   ComponentRef.CREF(CLOCK_NODE, {}, Type.CLOCK(), Origin.CREF, ComponentRef.EMPTY());
 
 constant InstNode TIME =
   InstNode.COMPONENT_NODE("time",
+    NONE(),
     Visibility.PUBLIC,
     Pointer.createImmutable(Component.TYPED_COMPONENT(
       REAL_NODE,
       Type.REAL(),
       NFBinding.EMPTY_BINDING,
       NFBinding.EMPTY_BINDING,
-      NFComponent.INPUT_ATTR,
+      NFAttributes.INPUT_ATTR,
       NONE(),
       NONE(),
       AbsynUtil.dummyInfo)),

@@ -37,6 +37,7 @@ encapsulated package NFLookup
 
 import Absyn;
 import AbsynUtil;
+import Attributes = NFAttributes;
 import SCode;
 import Dump;
 import ErrorTypes;
@@ -57,10 +58,17 @@ import NFInstNode.CachedData;
 import Component = NFComponent;
 import Subscript = NFSubscript;
 import ComplexType = NFComplexType;
-import Config;
 import Error;
+import ErrorExt;
 import UnorderedMap;
 import Modifier = NFModifier;
+import BackendInterface;
+import Settings;
+import Testsuite;
+import AbsynToSCode;
+import NFClassTree.ClassTree;
+import SCodeUtil;
+import System;
 
 public
 type MatchType = enumeration(FOUND, NOT_FOUND, PARTIAL);
@@ -307,13 +315,13 @@ algorithm
   (foundCref, foundScope, state) := match cref
     case Absyn.ComponentRef.CREF_IDENT()
       algorithm
-        (_, foundCref, foundScope, state) := lookupSimpleCref(cref.name, cref.subscripts, scope);
+        (_, foundCref, foundScope, state) := lookupSimpleCref(cref.name, cref.subscripts, scope, context);
       then
         (foundCref, foundScope, state);
 
     case Absyn.ComponentRef.CREF_QUAL()
       algorithm
-        (node, foundCref, foundScope, state) := lookupSimpleCref(cref.name, cref.subscripts, scope);
+        (node, foundCref, foundScope, state) := lookupSimpleCref(cref.name, cref.subscripts, scope, context);
         (foundCref, foundScope, state) :=
           lookupCrefInNode(cref.componentRef, node, foundCref, foundScope, state, context);
       then
@@ -392,7 +400,7 @@ algorithm
     else
       // Continue looking in the instance parent's scope.
       prev_scope := cur_scope;
-      cur_scope := InstNode.derivedParent(cur_scope);
+      cur_scope := InstNode.instanceParent(cur_scope);
     end try;
   end while;
 
@@ -415,10 +423,12 @@ end lookupLocalSimpleName;
 function lookupSimpleName
   input String name;
   input InstNode scope;
+  input InstContext.Type context;
   output InstNode node;
 protected
   InstNode cur_scope = scope;
   Boolean require_builtin = false;
+  Boolean loaded = false;
 algorithm
   // Look for the name in each enclosing scope, until it's either found or we
   // run out of scopes.
@@ -443,8 +453,25 @@ algorithm
         node := cur_scope;
         return;
       else
-        // Otherwise, continue in the enclosing scope.
-        cur_scope := InstNode.parentScope(cur_scope);
+        if InstNode.isTopScope(cur_scope) then
+          // If the name couldn't be found in any scope...
+          if InstContext.inAnnotation(context) then
+            // If we're in an annotation, check in the special scope where
+            // annotation classes are defined.
+            cur_scope := InstNode.annotationScope(cur_scope);
+          elseif not loaded then
+            // If we haven't already tried, try to load a library with that name
+            // and then try to look it up in the top scope again.
+            loaded := true;
+            loadLibrary(name, cur_scope);
+          else
+            // Nothing more to try, just fail.
+            fail();
+          end if;
+        else
+          // Otherwise, continue in the enclosing scope.
+          cur_scope := InstNode.parentScope(cur_scope);
+        end if;
       end if;
     end try;
   end for;
@@ -483,15 +510,15 @@ algorithm
   (node, state) := match name
     // Simple name, look it up in the given scope.
     case Absyn.Path.IDENT()
-      then lookupFirstIdent(name.name, scope);
+      then lookupFirstIdent(name.name, scope, context);
 
     // Qualified name, look up first part in the given scope and look up the
     // rest of the name in the found element.
     case Absyn.Path.QUALIFIED()
       algorithm
-        (node, state) := lookupFirstIdent(name.name, scope);
+        (node, state) := lookupFirstIdent(name.name, scope, context);
       then
-        lookupLocalName(name.path, node, state, context, checkAccessViolations, InstNode.refEqual(node, scope));
+        lookupLocalName(name.path, node, state, context, checkAccessViolations, isSelfReference(node, scope));
 
     // Fully qualified path, start from top scope.
     case Absyn.Path.FULLYQUALIFIED()
@@ -499,6 +526,25 @@ algorithm
 
   end match;
 end lookupName;
+
+function isSelfReference
+  input InstNode node;
+  input InstNode scope;
+  output Boolean res;
+protected
+  InstNode parent = scope;
+algorithm
+  while not InstNode.isEmpty(parent) loop
+    if InstNode.refEqual(node, parent) then
+      res := true;
+      return;
+    end if;
+
+    parent := InstNode.instanceParent(parent);
+  end while;
+
+  res := false;
+end isSelfReference;
 
 function lookupNames
   input Absyn.Path name;
@@ -514,7 +560,7 @@ algorithm
     // Simple name, look it up in the given scope.
     case Absyn.Path.IDENT()
       algorithm
-        (node, state) := lookupFirstIdent(name.name, scope);
+        (node, state) := lookupFirstIdent(name.name, scope, context);
       then
         ({node}, state);
 
@@ -522,9 +568,9 @@ algorithm
     // rest of the name in the found element.
     case Absyn.Path.QUALIFIED()
       algorithm
-        (node, state) := lookupFirstIdent(name.name, scope);
+        (node, state) := lookupFirstIdent(name.name, scope, context);
       then
-        lookupLocalNames(name.path, node, {node}, state, context, InstNode.refEqual(node, scope));
+        lookupLocalNames(name.path, node, {node}, state, context, isSelfReference(node, scope));
 
     // Fully qualified path, start from top scope.
     case Absyn.Path.FULLYQUALIFIED()
@@ -537,6 +583,7 @@ function lookupFirstIdent
   "Looks up the first part of a name."
   input String name;
   input InstNode scope;
+  input InstContext.Type context;
   output InstNode node;
   output LookupState state;
 algorithm
@@ -546,7 +593,7 @@ algorithm
     state := LookupState.PREDEF_CLASS();
   else
     // Otherwise, check each scope until the name is found.
-    node := lookupSimpleName(name, scope);
+    node := lookupSimpleName(name, scope, context);
     state := LookupState.nodeState(node);
   end try;
 end lookupFirstIdent;
@@ -641,12 +688,14 @@ algorithm
   if not selfReference then
     node := Inst.instPackage(node, context);
 
-    // Disabled due to the MSL containing classes that extends from classes
-    // inside partial packages.
-    //if InstNode.isPartial(node) then
-    //  state := LookupState.ERROR(LookupState.PARTIAL_CLASS());
-    //  return;
-    //end if;
+    // PartialModelicaServices is mistakenly partial in MSL versions older than
+    // 3.2.3. We can't just check for Modelica 3.2 since that will break e.g. 3.2.2,
+    // so just disable the check specifically for PartialModelicaServices instead.
+    if InstNode.isPartial(node) and not InstContext.inRelaxed(context) and
+       not InstNode.name(node) == "PartialModelicaServices" then
+      state := LookupState.ERROR(LookupState.PARTIAL_CLASS());
+      return;
+    end if;
   end if;
 
   // Look up the path in the scope.
@@ -682,8 +731,6 @@ algorithm
     case "Integer" then NFBuiltin.INTEGER_NODE;
     case "Boolean" then NFBuiltin.BOOLEAN_NODE;
     case "String" then NFBuiltin.STRING_NODE;
-    case "Clock" then NFBuiltin.CLOCK_NODE;
-    case "polymorphic" then NFBuiltin.POLYMORPHIC_NODE;
   end match;
 end lookupSimpleBuiltinName;
 
@@ -694,7 +741,6 @@ function lookupSimpleBuiltinCref
   output ComponentRef cref;
   output LookupState state;
 algorithm
-
   (node, cref, state) := match name
     case "time"
       then (NFBuiltin.TIME, NFBuiltin.TIME_CREF, LookupState.PREDEF_COMP());
@@ -704,8 +750,6 @@ algorithm
       then (NFBuiltinFuncs.INTEGER_NODE, NFBuiltinFuncs.INTEGER_CREF, LookupState.FUNC());
     case "String"
       then (NFBuiltinFuncs.STRING_NODE, NFBuiltinFuncs.STRING_CREF, LookupState.FUNC());
-    case "Clock" guard Config.synchronousFeaturesAllowed()
-      then (NFBuiltinFuncs.CLOCK_NODE, NFBuiltinFuncs.CLOCK_CREF, LookupState.FUNC());
   end match;
 
   if not listEmpty(subs) then
@@ -718,12 +762,14 @@ function lookupSimpleCref
   input String name;
   input list<Absyn.Subscript> subs;
   input InstNode scope;
+  input InstContext.Type context;
   output InstNode node;
   output ComponentRef cref;
   output InstNode foundScope = scope;
   output LookupState state;
 protected
   Boolean is_import, require_builtin = false;
+  Boolean loaded = false;
 algorithm
   try
     (node, cref, state) := lookupSimpleBuiltinCref(name, subs);
@@ -767,8 +813,25 @@ algorithm
           foundScope := InstNode.topScope(InstNode.parentScope(foundScope));
           require_builtin := true;
         else
-          // Look in the next enclosing scope.
-          foundScope := InstNode.parentScope(foundScope);
+          if InstNode.isTopScope(foundScope) then
+            // If the name couldn't be found in any scope...
+            if InstContext.inAnnotation(context) then
+              // If we're in an annotation, check in the special scope where
+              // annotation classes are defined.
+              foundScope := InstNode.annotationScope(foundScope);
+            elseif not loaded then
+              // If we haven't already tried, try to load a library with that
+              // name and then try to look it up in the top scope again.
+              loaded := true;
+              loadLibrary(name, foundScope);
+            else
+              // Nothing more to try, just fail.
+              fail();
+            end if;
+          else
+            // Look in the next enclosing scope.
+            foundScope := InstNode.parentScope(foundScope);
+          end if;
         end if;
       end try;
     end for;
@@ -854,7 +917,7 @@ algorithm
   elseif InstNode.isGeneratedInner(scope) and Component.isDefinition(InstNode.component(scope)) then
     // The scope is a generated inner component that hasn't been instantiated,
     // it needs to be instantiated to continue lookup.
-    Inst.instComponent(scope, NFComponent.DEFAULT_ATTR, Modifier.NOMOD(), true, 0, NONE(), NFInstContext.CLASS);
+    Inst.instComponent(scope, NFAttributes.DEFAULT_ATTR, Modifier.NOMOD(), true, 0, NFInstContext.CLASS);
   end if;
 
   name := AbsynUtil.crefFirstIdent(cref);
@@ -1015,6 +1078,69 @@ algorithm
           fail();
   end match;
 end makeInnerNode;
+
+function loadLibrary
+  "Tries to load the default version of a library and add it to the top scope."
+  input String name;
+  input InstNode scope;
+protected
+  String version;
+algorithm
+  ErrorExt.setCheckpoint(getInstanceName());
+
+  try
+    version := loadLibrary_work(name, scope);
+    Error.addMessage(Error.NOTIFY_IMPLICIT_LOAD, {name, version});
+    System.loadModelCallBack(name);
+    ErrorExt.delCheckpoint(getInstanceName());
+  else
+    ErrorExt.rollBack(getInstanceName());
+  end try;
+end loadLibrary;
+
+function loadLibrary_work
+  input String name;
+  input InstNode scope;
+  output String version = "(default)";
+protected
+  String modelica_path, cls_name;
+  Absyn.Program aprog;
+  SCode.Element scls;
+  Class cls;
+  InstNode lib_node;
+  list<InstNode> new_libs = {};
+algorithm
+  // Try to load the library.
+  modelica_path := Settings.getModelicaPath(Testsuite.isRunning());
+  (aprog, true) := BackendInterface.appendLibrary(Absyn.Path.IDENT(name), modelica_path);
+
+  // Multiple libraries might have been loaded due to uses-annotations.
+  // Create nodes for the ones not yet defined in the top scope.
+  for c in aprog.classes loop
+    try
+      lookupLocalSimpleName(AbsynUtil.getClassName(c), scope);
+    else
+      scls := AbsynToSCode.translateClass(c);
+      lib_node := InstNode.new(scls, scope);
+      new_libs := lib_node :: new_libs;
+
+      // If this is the library we were looking for, try to find out which
+      // version it is so we can tell the user.
+      if name == SCodeUtil.getElementName(scls) then
+        try
+          Absyn.Exp.STRING(value = version) :=
+            SCodeUtil.getElementNamedAnnotation(scls, "version");
+        else
+        end try;
+      end if;
+    end try;
+  end for;
+
+  // Append the new libraries to the scope.
+  cls := InstNode.getClass(scope);
+  cls := Class.classTreeApply(cls, function ClassTree.appendClasses(clsNodes = new_libs));
+  InstNode.updateClass(cls, scope);
+end loadLibrary_work;
 
 annotation(__OpenModelica_Interface="frontend");
 end NFLookup;
