@@ -91,28 +91,28 @@ algorithm
   print("input: " + Expression.toString(exp) + "\n");
   (egraph, baseId) := EGraph.newFromExp(exp, EGraph.new());
 
-  ruleApplier := RuleApplier.RULEAPPLIER({});
+  ruleApplier := RuleApplier.RULE_APPLIER({});
   ruleApplier := RuleApplier.addRules(ruleApplier,
-   {{"(+ ?a 0)", "?a", "neutral-add"},
-    {"(* ?a 1)", "?a","neutral-mul"},
-    {"(+ ?a (- ?a))", "0", "inv-add"},
-    {"(* ?a (/ ?a))", "1", "inv-mul"},
-    {"(+ ?a ?b)", "(+ ?b ?a)", "comm-add"},
-    {"(* ?a ?b)", "(* ?b ?a)", "comm-mul"},
-    {"(+ ?a (+ ?b ?c))", "(+ (+ ?a ?b) ?c))", "assoc-add"},
-    {"(+ ?a ?a)","(* 2 ?a)", "a+a->2a"},
-    {"(* 2 ?a)", "(+ ?a ?a)", "2*a->a+a"},
-    {"(+ ?a (* ?b ?a))","(* (+ ?b 1) ?a)", "a + b*a-> (b+1)a"},
-    {"(+ (* ?c ?a) (* ?b ?a))","(* (+ ?b ?c) ?a)", "distrib1"},
-    {"(* (+ ?b ?c) ?a)","(+ (* ?c ?a) (* ?b ?a))", "distrib2"},
-    {"(* ?a (* ?b ?c))", "(* (* ?a ?b) ?c))", "assoc-mul"},
-    {"(* 0 ?a)", "0", "0-mul"},
-    {"(* ?a ?a)","(^ ?a 2)", "xx->x^2"},
-    {"(^ ?a 0)","1", "pow-0"},
-    {"(^ ?a 1)","?a", "pow-1"},
-    {"(* (^ ?a ?b) (^ ?a ?c))","(^ ?a (+ ?b ?c))", "pow-rule1"},
-    {"(/ (^ ?a ?c))","(^ ?a (- ?c))", "pow-rule2"},
-    {"(- ?a))", "(* -1 ?a)", "uminus=-1"}});
+   {("(+ ?a 0)", "?a", "neutral-add"),
+    ("(* ?a 1)", "?a", "neutral-mul"),
+    ("(+ ?a (- ?a))", "0", "inv-add"),
+    ("(* ?a (/ ?a))", "1", "inv-mul"),
+    ("(+ ?a ?b)", "(+ ?b ?a)", "comm-add"),
+    ("(* ?a ?b)", "(* ?b ?a)", "comm-mul"),
+    ("(+ ?a (+ ?b ?c))", "(+ (+ ?a ?b) ?c))", "assoc-add"),
+    ("(+ ?a ?a)", "(* 2 ?a)", "a+a->2a"),
+    ("(* 2 ?a)", "(+ ?a ?a)", "2*a->a+a"),
+    ("(+ ?a (* ?b ?a))", "(* (+ ?b 1) ?a)", "a + b*a-> (b+1)a"),
+    ("(+ (* ?c ?a) (* ?b ?a))", "(* (+ ?b ?c) ?a)", "distrib1"),
+    ("(* (+ ?b ?c) ?a)", "(+ (* ?c ?a) (* ?b ?a))", "distrib2"),
+    ("(* ?a (* ?b ?c))", "(* (* ?a ?b) ?c))", "assoc-mul"),
+    ("(* 0 ?a)", "0", "0-mul"),
+    ("(* ?a ?a)", "(^ ?a 2)", "xx->x^2"),
+    ("(^ ?a 0)", "1", "pow-0"),
+    ("(^ ?a 1)", "?a", "pow-1"),
+    ("(* (^ ?a ?b) (^ ?a ?c))", "(^ ?a (+ ?b ?c))", "pow-rule1"),
+    ("(/ (^ ?a ?c))", "(^ ?a (- ?c))", "pow-rule2"),
+    ("(- ?a)", "(* -1 ?a)", "uminus=-1")});
 
   saturated := false;
   counter := 0;
