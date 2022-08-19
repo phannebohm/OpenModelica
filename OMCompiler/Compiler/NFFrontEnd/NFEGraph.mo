@@ -1,7 +1,7 @@
 /*
  * This file is part of OpenModelica.
  *
- * Copyright (c) 1998-CurrentYear, Linköping University,
+ * Copyright (c) 1998-2022, Linköping University,
  * Department of Computer and Information Science,
  * SE-58183 Linköping, Sweden.
  *
@@ -274,6 +274,7 @@ public
     end find;
 
     function union
+    "Given 2 ids, unions the classes making root1 the leader of root2"
       input Integer index1;
       input Integer index2;
       input output UnionFind unionfind;
@@ -282,11 +283,7 @@ public
     algorithm
       root1 := find(unionfind, index1);
       root2 := find(unionfind, index2);
-      if root1 < root2 then
-        unionfind.nodes[root2] := root1;
-      elseif root1 > root2 then
-        unionfind.nodes[root1] := root2;
-      end if;
+      unionfind.nodes[root2] := root1;
     end union;
   end UnionFind;
 
@@ -299,7 +296,6 @@ public
       UnionFind unionfind;
       UnorderedMap<EClassId,EClass> eclasses;
       list<EClassId> worklist;
-      list<EClassId> deletelist; // unneeded
     end EGRAPH;
 
     function new
@@ -309,8 +305,7 @@ public
         hashcons   = UnorderedMap.new<EClassId>(ENode.hash, ENode.isEqual),
         unionfind  = UnionFind.new(),
         eclasses   = UnorderedMap.new<EClass>(intMod,intEq),
-        worklist   = {},
-        deletelist = {}
+        worklist   = {}
       );
     end new;
 
@@ -461,6 +456,7 @@ public
     algorithm
       try
         SOME(id) := UnorderedMap.get(node, graph.hashcons);
+        id := EGraph.find(graph, id);
       else
         (temp, id) := UnionFind.make(graph.unionfind);
         graph.unionfind := temp;
@@ -473,7 +469,6 @@ public
           child_id := EGraph.find(graph,child_id);
           child_class := UnorderedMap.getSafe(child_id,graph.eclasses);
           child_class.parents := (node,id) :: child_class.parents;
-          UnorderedMap.add(child_id,child_class,graph.eclasses);
         end for;
         // analysis part
         if isSome(optnum) then
@@ -498,7 +493,7 @@ public
       input output EGraph graph;
       output Boolean changed;
     protected
-      EClassId new_id1,new_id2, classId;
+      EClassId new_id1,new_id2;
       EClass class1,class2;
       UnionFind temp;
       Option<Real> num_new;
@@ -524,17 +519,16 @@ public
         end match;
         // end of analysis part
         class1.parents := listAppend(class1.parents, class2.parents);
-        for classId in UnorderedSet.toList(class2.nodes) loop
-          UnorderedSet.add(classId, class1.nodes);    // ??
+        for node in UnorderedSet.toList(class2.nodes) loop
+          UnorderedSet.add(node, class1.nodes);
         end for;
         class1.num := num_new;
-        UnorderedMap.add(new_id1, class1, graph.eclasses);
         graph.unionfind := temp;
         graph.worklist :=  new_id1 :: graph.worklist;
-        graph.deletelist := id2 :: new_id2 :: graph.deletelist;
+        UnorderedMap.remove(new_id2, graph.eclasses);
       end if;
     end union;
-
+    // NEXT UP: Check all rebuilding functions + "modify"
     function canonicalize
       "new children of an ENode will become the root elements of the old children"
       input EGraph graph;
@@ -558,13 +552,6 @@ public
       end for;
       graph := UnorderedSet.fold(todo, EGraph.repair, graph);
       graph.worklist := {};
-
-      for eclassid in graph.deletelist loop
-        if eclassid <> EGraph.find(graph, eclassid) then
-          UnorderedMap.remove(eclassid, graph.eclasses);
-        end if;
-      end for;
-      graph.deletelist := {};
     end rebuild;
 
     function repair
