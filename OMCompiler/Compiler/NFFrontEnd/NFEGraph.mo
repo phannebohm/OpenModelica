@@ -193,8 +193,8 @@ public
           ComponentRef cref;
         case NUM(num)              then stringHashDjb2Mod(realString(num), mod);
         case SYMBOL(cref)          then ComponentRef.hash(cref, mod);
-        case UNARY(id1, uop)       then intMod(id1 * 10 + 1000 * hashUnaryOp(uop) + 1, mod);
-        case BINARY(id1, id2, bop) then intMod(100 + id1 * 10 + id2 + 1000 * hashBinaryOp(bop) + 2, mod);
+        case UNARY(id1, uop)       then intMod(id1 * 3 + 7 * hashUnaryOp(uop) + 1, mod);
+        case BINARY(id1, id2, bop) then intMod(div((id1 + id2) * (id1 + id2 + 1), 2) + id1 + hashBinaryOp(bop), mod);
       end match;
     end hash;
 
@@ -222,10 +222,9 @@ public
         case (NUM(),    {})         then node;
         case (SYMBOL(), {})         then node;
         case (UNARY(),  {id1})      then UNARY(id1, node.op);
+        case (BINARY(), {id1})      then BINARY(id1, id1, node.op);
         case (BINARY(), {id1, id2}) then BINARY(id1, id2, node.op);
-        else algorithm
-          Error.addInternalError(getInstanceName() + " failed.", sourceInfo());
-        then fail();
+        else node;
       end match;
     end make;
   end ENode;
@@ -267,10 +266,13 @@ public
     function find
       input UnionFind unionfind;
       input output Integer index;
+    protected
+      Integer i=index;
     algorithm
       while index <> unionfind.nodes[index] loop
         index := unionfind.nodes[index];
       end while;
+      unionfind.nodes[i] := index;
     end find;
 
     function union
@@ -447,35 +449,41 @@ public
       input output EGraph graph;
       output EClassId id;
     protected
+      ENode nodeCanon;
       UnionFind temp;
       UnorderedSet<ENode> nodeSet;
       EClass child_class;
-      EClassId child_id, numid;
+      EClassId numid;
       Option<Real> optnum;
       Real num;
     algorithm
+      nodeCanon := EGraph.canonicalize(graph, node);
       try
-        SOME(id) := UnorderedMap.get(node, graph.hashcons);
-        id := EGraph.find(graph, id);
+        SOME(id) := UnorderedMap.get(nodeCanon, graph.hashcons);
+        id := find(graph, id);
       else
         (temp, id) := UnionFind.make(graph.unionfind);
         graph.unionfind := temp;
-        UnorderedMap.add(node, id, graph.hashcons);
-        optnum := EGraph.getNum(graph, node);
+        UnorderedMap.add(nodeCanon, id, graph.hashcons);
+        optnum := EGraph.getNum(graph, nodeCanon);
         nodeSet := UnorderedSet.new<ENode>(ENode.hash, ENode.isEqual);
-        UnorderedSet.add(node, nodeSet);
+        UnorderedSet.add(nodeCanon, nodeSet);
         UnorderedMap.add(id, ECLASS(nodeSet,{}, optnum), graph.eclasses);
-        for child_id in ENode.children(node) loop
+        for child_id in ENode.children(nodeCanon) loop
           child_id := EGraph.find(graph,child_id);
           child_class := UnorderedMap.getSafe(child_id,graph.eclasses);
-          child_class.parents := (node,id) :: child_class.parents;
+          child_class.parents := (nodeCanon,id) :: child_class.parents;
+          UnorderedMap.add(child_id, child_class, graph.eclasses);
         end for;
         // analysis part
+
         if isSome(optnum) then
           SOME(num) := optnum;
           (graph, numid) := EGraph.add(ENode.NUM(num), graph);
-          graph := EGraph.union(id, EGraph.find(graph,numid), graph);
+          //print("ANALYSIS UNION: " + intString(id) + "-> " + intString(EGraph.find(graph,numid)) + "\n");
+          (graph, _) := EGraph.union(id, numid, graph);
         end if;
+
       end try;
     end add;
 
@@ -493,18 +501,20 @@ public
       input output EGraph graph;
       output Boolean changed;
     protected
-      EClassId new_id1,new_id2;
-      EClass class1,class2;
+      EClassId newId1, newId2, classid;
+      EClass class1, class2;
       UnionFind temp;
-      Option<Real> num_new;
+      Option<Real> numNew;
+      ENode node;
     algorithm
-      (temp, new_id1, new_id2) := UnionFind.union(id1, id2, graph.unionfind);
-      changed := new_id1 <> new_id2;
+      newId1 := EGraph.find(graph, id1);
+      newId2 := EGraph.find(graph, id2);
+      changed := newId1 <> newId2;
       if changed then
-        class1 :=  UnorderedMap.getSafe(new_id1, graph.eclasses);
-        class2 :=  UnorderedMap.getSafe(new_id2, graph.eclasses);
+        class1 :=  UnorderedMap.getSafe(newId1, graph.eclasses);
+        class2 :=  UnorderedMap.getSafe(newId2, graph.eclasses);
         // short part for the analysis
-        num_new := match (class1.num, class2.num)
+        numNew := match (class1.num, class2.num)
           local
             Real num1, num2;
           case (NONE(), SOME(num2)) then SOME(num2);
@@ -518,17 +528,37 @@ public
           else NONE();
         end match;
         // end of analysis part
-        class1.parents := listAppend(class1.parents, class2.parents);
-        for node in UnorderedSet.toList(class2.nodes) loop
-          UnorderedSet.add(node, class1.nodes);
-        end for;
-        class1.num := num_new;
-        graph.unionfind := temp;
-        graph.worklist :=  new_id1 :: graph.worklist;
-        UnorderedMap.remove(new_id2, graph.eclasses);
+        if listLength(class1.parents) >= listLength(class2.parents) then
+          graph := unionOrdered(newId1, newId2, class1, class2, numNew, graph);
+        else
+          graph := unionOrdered(newId2, newId1, class2, class1, numNew, graph);
+        end if;
       end if;
     end union;
-    // NEXT UP: Check all rebuilding functions + "modify"
+
+    function unionOrdered
+    "part of EGraph.union, id1 and id2 need to be roots, |class1.nodes| >= |class2.nodes|"
+      input EClassId id1, id2;
+      input EClass class1, class2;
+      input Option<Real> numNew;
+      input output EGraph graph;
+    protected
+      UnionFind temp;
+      ENode node;
+      EClassId classid;
+    algorithm
+      (temp, _, _) := UnionFind.union(id1, id2, graph.unionfind);
+      class1.parents := listAppend(class1.parents, class2.parents);
+      for node in UnorderedSet.toList(class2.nodes) loop
+        UnorderedSet.add(node, class1.nodes);
+      end for;
+      class1.num := numNew;
+      graph.unionfind := temp;
+      graph.worklist :=  id1 :: graph.worklist;
+      UnorderedMap.remove(id2, graph.eclasses); // non root class is unneeded
+      UnorderedMap.add(id1, class1, graph.eclasses);
+    end unionOrdered;
+
     function canonicalize
       "new children of an ENode will become the root elements of the old children"
       input EGraph graph;
@@ -735,7 +765,7 @@ public
     bias := UnorderedMap.new<EClassId>(intMod,intEq);
     for cl in UnorderedMap.toList(egraph.eclasses) loop
       (classId, clazz) := cl;
-      classId := EGraph.find(egraph, classId);
+      //classId := EGraph.find(egraph, classId);
       biasValue := UnorderedMap.get(classId, bias);
       nodeId := match biasValue
         local
@@ -772,6 +802,52 @@ public
         else fail();    // multary not implemented yet.
       end match;
     end nodeGraphDump;
+
+    function checkInvariantsHashcons
+      input EGraph G;
+      output Boolean correct;
+    protected
+      list<tuple<EClassId, EClassId>> err;
+    algorithm
+      print("----------------------------\nINVARIANTSHASHCONS\n");
+      correct := true;
+      err := {};
+      for node in UnorderedMap.keyList(G.hashcons) loop
+        for childId in ENode.children(node) loop
+          if childId <> find(G, childId) then
+            correct := false;
+            err := (childId, find(G, childId)) :: err;
+            print(intString(childId) + " --> " + intString( find(G, childId)) + "\n");
+          end if;
+        end for;
+      end for;
+      print("ERRLISTLEN: " + intString(listLength(err)) + "\n");
+      print("----------------------------\n");
+    end checkInvariantsHashcons;
+
+    function checkInvariantsEClasses
+      input EGraph G;
+      output Boolean correct;
+    protected
+      list<tuple<EClassId, EClassId>> err;
+    algorithm
+      print("----------------------------\nINVARIANTSCLASSES\n");
+      correct := true;
+      err := {};
+      for eclass in UnorderedMap.valueList(G.eclasses) loop
+        for node in UnorderedSet.toList(eclass.nodes) loop
+          for childId in ENode.children(node) loop
+            if childId <> find(G, childId) then
+              correct := false;
+              err := (childId, find(G, childId)) :: err;
+              print(intString(childId) + " --> " + intString( find(G, childId)) + "\n");
+            end if;
+          end for;
+        end for;
+      end for;
+      print("ERRLISTLEN: " + intString(listLength(err)) + "\n");
+      print("----------------------------\n");
+    end checkInvariantsEClasses;
   end EGraph;
 
   uniontype Extractor
@@ -1185,7 +1261,6 @@ public
           end if;
         end for;
       end for;
-
       // 2nd phase: applying of the found patterns
       saturated := true;
       changed := false;
@@ -1201,6 +1276,7 @@ public
           saturated := saturated and (not changed);
         end for;
       end for;
+      // 3rd phase: rebuild the invariants of the egraph
       egraph := EGraph.rebuild(egraph);
     end matchApplyRules;
 

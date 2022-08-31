@@ -122,6 +122,16 @@ algorithm
   while not saturated and counter < sizestart loop
     (egraph, saturated) := RuleApplier.matchApplyRules(ruleApplier, egraph);
     EGraph.graphDump(baseId, egraph, false);
+    if EGraph.checkInvariantsHashcons(egraph) then
+      print("invariants: TRUE " + "\n");
+    else
+      print("invariants: FALSE " + "\n");
+    end if;
+    if EGraph.checkInvariantsEClasses(egraph) then
+      print("invariants: TRUE " + "\n");
+    else
+      print("invariants: FALSE " + "\n");
+    end if;
     counter := counter + 1;
   end while;
   //EGraph.printAll(baseId, egraph);
