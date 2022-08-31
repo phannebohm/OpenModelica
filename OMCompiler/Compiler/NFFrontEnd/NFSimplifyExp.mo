@@ -135,14 +135,14 @@ algorithm
     counter := counter + 1;
   end while;
   //EGraph.printAll(baseId, egraph);
-  if saturated then print("saturated! \n"); end if;
+  if saturated then print("saturated!\n"); end if;
   print("Iterations: " + intString(counter) + "\n");
   print("Size classes: " + intString(UnorderedMap.size(egraph.eclasses))+ "\n");
   extractor := Extractor.new(egraph);
   (extractor, dist) := Extractor.extract(baseId, extractor);
   print("Distance: " + intString(dist) + "\n");
   res := Extractor.build(baseId, extractor);
-  print("return: " + Expression.toString(res) + "\n" + "--------------- \n");
+  print("return: " + Expression.toString(res) + "\n" + "---------------\n");
 end simplifyEgraph;
 
 function simplify

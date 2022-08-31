@@ -779,10 +779,11 @@ public
     input Operator operator;
     output Integer n;
   algorithm
+    // TODO also use type information
     n := match operator.op
       case Op.ADD   then 0;
       case Op.MUL   then 1;
-      else -1;
+      else fail();
     end match;
   end neutralElement;
 
