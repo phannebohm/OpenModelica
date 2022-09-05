@@ -472,7 +472,7 @@ public
         UnorderedMap.add(id, ECLASS(nodeSet, {}, optnum), graph.eclasses);
         for child_id in ENode.children(nodeCanon) loop
           child_id := find(graph, child_id, "add_else");
-          child_class := UnorderedMap.getSafe(child_id, graph.eclasses);
+          child_class := UnorderedMap.getSafe(child_id, graph.eclasses, sourceInfo());
           child_class.parents := (nodeCanon, id) :: child_class.parents;
           UnorderedMap.add(child_id, child_class, graph.eclasses);
         end for;
@@ -511,8 +511,8 @@ public
       newId2 := EGraph.find(graph, id2, "union2");
       changed := newId1 <> newId2;
       if changed then
-        class1 :=  UnorderedMap.getSafe(newId1, graph.eclasses);
-        class2 :=  UnorderedMap.getSafe(newId2, graph.eclasses);
+        class1 :=  UnorderedMap.getSafe(newId1, graph.eclasses, sourceInfo());
+        class2 :=  UnorderedMap.getSafe(newId2, graph.eclasses, sourceInfo());
         // short part for the analysis
         numNew := match (class1.num, class2.num)
           local
@@ -587,10 +587,10 @@ public
       EClassId id;
       UnorderedMap<ENode,EClassId> new_parents;
     algorithm
-      elem := UnorderedMap.getSafe(eclassid, graph.eclasses);
+      elem := UnorderedMap.getSafe(eclassid, graph.eclasses, sourceInfo());
       for tup in elem.parents loop
         (node, id) := tup;
-        node_elem := UnorderedMap.getSafe(find(graph, id, "repair1"), graph.eclasses);
+        node_elem := UnorderedMap.getSafe(find(graph, id, "repair1"), graph.eclasses, sourceInfo());
         UnorderedSet.remove(node, node_elem.nodes);
         UnorderedMap.remove(node, graph.hashcons);
         node := canonicalize(graph, node);
@@ -598,7 +598,7 @@ public
         UnorderedSet.add(node, node_elem.nodes);
       end for;
       new_parents := UnorderedMap.new<EClassId>(ENode.hash, ENode.isEqual);
-      elem := UnorderedMap.getSafe(eclassid, graph.eclasses); // get it again in case it changed as its own parent?
+      elem := UnorderedMap.getSafe(eclassid, graph.eclasses, sourceInfo()); // get it again in case it changed as its own parent?
       for tup in elem.parents loop
         (node, id) := tup;
         node := canonicalize(graph, node);
@@ -630,8 +630,8 @@ public
         case ENode.BINARY(id1, id2, bop) algorithm
           id1 := find(egraph, id1, "getNum_binary1");
           id2 := find(egraph, id2, "getNUm_binary2");
-          eclass1 := UnorderedMap.getSafe(id1, egraph.eclasses);
-          eclass2 := UnorderedMap.getSafe(id2, egraph.eclasses);
+          eclass1 := UnorderedMap.getSafe(id1, egraph.eclasses, sourceInfo());
+          eclass2 := UnorderedMap.getSafe(id2, egraph.eclasses, sourceInfo());
           numtemp := match (eclass1.num, eclass2.num, bop)
             case (SOME(num1), SOME(num2), BinaryOp.ADD) then
               SOME(num1 + num2);
