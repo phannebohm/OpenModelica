@@ -123,14 +123,14 @@ algorithm
     (egraph, saturated) := RuleApplier.matchApplyRules(ruleApplier, egraph);
     EGraph.graphDump(baseId, egraph, false);
     if EGraph.checkInvariantsHashcons(egraph) then
-      print("invariants: TRUE " + "\n");
+      print("invariants: TRUE\n");
     else
-      print("invariants: FALSE " + "\n");
+      print("invariants: FALSE\n");
     end if;
     if EGraph.checkInvariantsEClasses(egraph) then
-      print("invariants: TRUE " + "\n");
+      print("invariants: TRUE\n");
     else
-      print("invariants: FALSE " + "\n");
+      print("invariants: FALSE\n");
     end if;
     counter := counter + 1;
   end while;

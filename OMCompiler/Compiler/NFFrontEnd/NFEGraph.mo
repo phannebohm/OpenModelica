@@ -180,6 +180,12 @@ public
       end match;
     end isEqual;
 
+    function isEqualPtr
+      input Pointer<ENode> node1;
+      input Pointer<ENode> node2;
+      output Boolean b = isEqual(Pointer.access(node1), Pointer.access(node2));
+    end isEqualPtr;
+
     function hash
       input ENode node;
       input Integer mod;
@@ -194,6 +200,12 @@ public
         case BINARY(id1, id2, _) then intMod(div((id1 + id2) * (id1 + id2 + 1), 2) + id1 + hashBinaryOp(node.op), mod);
       end match;
     end hash;
+
+    function hashPtr
+      input Pointer<ENode> node;
+      input Integer mod;
+      output Integer h = hash(Pointer.access(node), mod);
+    end hashPtr;
 
     function children
       "Returns a list of all unique child EClassIds of an ENode."
@@ -232,8 +244,8 @@ public
 
   public
     record ECLASS
-      UnorderedSet<ENode> nodes;
-      list<tuple<ENode, EClassId>> parents;
+      UnorderedSet<Pointer<ENode>> nodes;
+      list<tuple<Pointer<ENode>, EClassId>> parents;
       Option<Real> num;
       //Option<Expression> value;
     end ECLASS;
@@ -272,19 +284,19 @@ public
       input Integer index;
       input String origin "debug, origin of call";
       output Integer root = index;
-    //protected
-    //  Integer count = 0;
+    protected
+      Integer count = 0;
     algorithm
       // follow the path to the root
       while root <> unionfind.nodes[root] loop
         root := unionfind.nodes[root];
-        //count := count + 1;
+        count := count + 1;
       end while;
       // set to root for future calls so the paths don't grow so much.
       unionfind.nodes[index] := root;
       // DEBUG
-      //if count > 0 then
-      //  print("[find] " + intString(count) + " " + origin + "\n");
+      //if count > 0 and substring(origin, 1, 6) == "repair" then
+      //  print("[find] " + origin + ": " + intString(index) + " --> "+ intString(root) + " (" + intString(count) + " steps)\n");
       //end if;
     end find;
 
@@ -303,7 +315,7 @@ public
 
   public
     record EGRAPH
-      UnorderedMap<ENode, EClassId> hashcons "maps every ENode to its containing EClassId";
+      UnorderedMap<Pointer<ENode>, EClassId> hashcons "maps every ENode to its containing EClassId";
       UnionFind unionfind "forrest structure for equivalent EClasses";
       UnorderedMap<EClassId, EClass> eclasses;
       list<EClassId> worklist;
@@ -313,7 +325,7 @@ public
       output EGraph egraph;
     algorithm
       egraph := EGRAPH(
-        hashcons   = UnorderedMap.new<EClassId>(ENode.hash, ENode.isEqual),
+        hashcons   = UnorderedMap.new<EClassId>(ENode.hashPtr, ENode.isEqualPtr),
         unionfind  = UnionFind.new(),
         eclasses   = UnorderedMap.new<EClass>(intMod,intEq),
         worklist   = {}
@@ -450,30 +462,32 @@ public
       input output EGraph graph;
       output EClassId id;
     protected
-      ENode nodeCanon;
+      Pointer<ENode> node_ptr;
       UnionFind unionfind;
-      UnorderedSet<ENode> nodeSet;
+      UnorderedSet<Pointer<ENode>> nodeSet;
       EClass child_class;
       EClassId numid;
       Option<Real> optnum;
       Real num;
+      type ENodePointer = Pointer<ENode>;
     algorithm
-      nodeCanon := EGraph.canonicalize(graph, node);
+      node_ptr := Pointer.create(node);
+      EGraph.canonicalize(graph, node_ptr);
       try
-        SOME(id) := UnorderedMap.get(nodeCanon, graph.hashcons);
+        SOME(id) := UnorderedMap.get(node_ptr, graph.hashcons);
         id := find(graph, id, "add_try");
       else
         (unionfind, id) := UnionFind.make(graph.unionfind);
         graph.unionfind := unionfind;
-        UnorderedMap.add(nodeCanon, id, graph.hashcons);
-        optnum := getNum(graph, nodeCanon);
-        nodeSet := UnorderedSet.new<ENode>(ENode.hash, ENode.isEqual);
-        UnorderedSet.add(nodeCanon, nodeSet);
+        UnorderedMap.add(node_ptr, id, graph.hashcons);
+        optnum := getNum(graph, Pointer.access(node_ptr));
+        nodeSet := UnorderedSet.new<ENodePointer>(ENode.hashPtr, ENode.isEqualPtr);
+        UnorderedSet.add(node_ptr, nodeSet);
         UnorderedMap.add(id, ECLASS(nodeSet, {}, optnum), graph.eclasses);
-        for child_id in ENode.children(nodeCanon) loop
+        for child_id in ENode.children(Pointer.access(node_ptr)) loop
           child_id := find(graph, child_id, "add_else");
           child_class := UnorderedMap.getSafe(child_id, graph.eclasses, sourceInfo());
-          child_class.parents := (nodeCanon, id) :: child_class.parents;
+          child_class.parents := (node_ptr, id) :: child_class.parents;
           UnorderedMap.add(child_id, child_class, graph.eclasses);
         end for;
 
@@ -521,7 +535,7 @@ public
           case (SOME(num1), NONE()) then SOME(num1);
           case (SOME(num1), SOME(num2)) algorithm
             if num1 <> num2 then // error case
-              print("constants not equal error \n");
+              print("constants not equal error" + realString(num1) + " <> " + realString(num2) + "\n");
               fail();
             end if;
             then SOME(num1);
@@ -557,12 +571,12 @@ public
     function canonicalize
       "new children of an ENode will become the root elements of the old children"
       input EGraph graph;
-      input output ENode node;
+      input output Pointer<ENode> node;
     protected
-      list<EClassId> new_ch;
+      list<EClassId> children;
     algorithm
-      new_ch := list(find(graph, id, "canonicalize") for id in ENode.children(node));
-      node := ENode.make(node, new_ch);
+      children := list(find(graph, id, "canonicalize") for id in ENode.children(Pointer.access(node)));
+      Pointer.update(node, ENode.make(Pointer.access(node), children));
     end canonicalize;
 
     function rebuild
@@ -583,11 +597,11 @@ public
       input output EGraph graph;
     protected
       EClass elem, node_elem;
-      ENode node;
+      Pointer<ENode> node;
       EClassId id;
-      UnorderedMap<ENode,EClassId> new_parents;
+      UnorderedMap<Pointer<ENode>, EClassId> new_parents;
     algorithm
-      elem := UnorderedMap.getSafe(eclassid, graph.eclasses, sourceInfo());
+      elem := UnorderedMap.getSafe(find(graph, eclassid, "repair0"), graph.eclasses, sourceInfo());
       for tup in elem.parents loop
         (node, id) := tup;
         node_elem := UnorderedMap.getSafe(find(graph, id, "repair1"), graph.eclasses, sourceInfo());
@@ -597,15 +611,15 @@ public
         UnorderedMap.add(node, find(graph, id, "repair2"), graph.hashcons);
         UnorderedSet.add(node, node_elem.nodes);
       end for;
-      new_parents := UnorderedMap.new<EClassId>(ENode.hash, ENode.isEqual);
-      elem := UnorderedMap.getSafe(eclassid, graph.eclasses, sourceInfo()); // get it again in case it changed as its own parent?
+      new_parents := UnorderedMap.new<EClassId>(ENode.hashPtr, ENode.isEqualPtr);
+      elem := UnorderedMap.getSafe(find(graph, eclassid, "repair3"), graph.eclasses, sourceInfo()); // get it again in case it changed as its own parent?
       for tup in elem.parents loop
         (node, id) := tup;
         node := canonicalize(graph, node);
         if UnorderedMap.contains(node, new_parents) then
           _ := union(id, UnorderedMap.getOrFail(node, new_parents), graph);
         end if;
-        UnorderedMap.add(node, find(graph, id, "repair3"), new_parents);
+        UnorderedMap.add(node, find(graph, id, "repair4"), new_parents);
       end for;
       elem.parents := UnorderedMap.toList(new_parents);
       UnorderedMap.add(eclassid, elem, graph.eclasses);
@@ -689,7 +703,8 @@ public
       allstrings := {};
       root_id := find(egraph, id, "allExpressions");
       eclass := UnorderedMap.getOrFail(root_id, egraph.eclasses);
-      for node in UnorderedSet.toList(eclass.nodes) loop
+      for node_ptr in UnorderedSet.toList(eclass.nodes) loop
+        node := Pointer.access(node_ptr);
         b := match node
           local
             ComponentRef cref;
@@ -759,7 +774,7 @@ public
       end match;
       for node in UnorderedSet.toList(clazz.nodes) loop
         nodeId := nodeId + 1;
-        nodeStr := nodeGraphDump(node, egraph);
+        nodeStr := nodeGraphDump(Pointer.access(node), egraph);
         print(intString(classId) + "," + intString(nodeId) + "," + nodeStr + "\n");
       end for;
       UnorderedMap.add(classId, nodeId, bias);
@@ -774,15 +789,14 @@ public
       outStr := match node
         local
           Real x;
-          EClassId id1, id2;
-          String opStr;
           ComponentRef cref;
+          EClassId id1, id2;
           UnaryOp uop;
           BinaryOp bop;
-        case ENode.NUM(x) then (realString(x) + ",,");
-        case ENode.SYMBOL(cref) then (NFComponentRef.toString(cref) + ",,");
-        case ENode.UNARY(id1, uop) then (unaryOpToString(uop) + "," + intString(id1) + ",");
-        case ENode.BINARY(id1, id2, bop) then (binaryOpToString(bop) + "," + intString( id1) + ";" + intString(id2)  + ",");
+        case ENode.NUM(x)                then (realString(x) + ",,");
+        case ENode.SYMBOL(cref)          then (NFComponentRef.toString(cref) + ",,");
+        case ENode.UNARY(id1, uop)       then (unaryOpToString(uop) + "," + intString(id1) + ",");
+        case ENode.BINARY(id1, id2, bop) then (binaryOpToString(bop) + "," + intString(id1) + ";" + intString(id2) + ",");
         else fail();    // multary not implemented yet.
       end match;
     end nodeGraphDump;
@@ -798,7 +812,7 @@ public
       correct := true;
       err := {};
       for node in UnorderedMap.keyList(G.hashcons) loop
-        for childId in ENode.children(node) loop
+        for childId in ENode.children(Pointer.access(node)) loop
           rootId := find(G, childId, "checkInvariantsHashcons");
           if childId <> rootId then
             correct := false;
@@ -823,7 +837,7 @@ public
       err := {};
       for eclass in UnorderedMap.valueList(G.eclasses) loop
         for node in UnorderedSet.toList(eclass.nodes) loop
-          for childId in ENode.children(node) loop
+          for childId in ENode.children(Pointer.access(node)) loop
             rootId := find(G, childId, "checkInvariantsEClasses");
             if childId <> rootId then
               correct := false;
@@ -871,7 +885,7 @@ public
       (distance, extractor) := match UnorderedMap.get(root_id, extractor.dist)
         local
           Integer dist, child_dist, best_dist;
-          ENode best_node;
+          Pointer<ENode> best_node;
 
         case SOME(dist) then (dist, extractor);
 
@@ -885,7 +899,7 @@ public
           best_dist := System.intMaxLit();
           for node in UnorderedSet.toList(eclass.nodes) loop
             dist := 1; // TODO cost depending on the node kind
-            for class_child in ENode.children(node) loop
+            for class_child in ENode.children(Pointer.access(node)) loop
               (extractor, child_dist) := extract(class_child, extractor);
               dist := dist + child_dist;
             end for;
@@ -895,7 +909,7 @@ public
             end if;
           end for;
           UnorderedMap.add(root_id, best_dist, extractor.dist);
-          UnorderedMap.add(root_id, best_node, extractor.best_nodes);
+          UnorderedMap.add(root_id, Pointer.access(best_node), extractor.best_nodes);
         then (best_dist, extractor);
       end match;
     end extract;
@@ -908,8 +922,8 @@ public
       EClassId temp_start;
       ENode node;
     algorithm
-      temp_start := EGraph.find(extractor.egraph,start, "build");
-      node := UnorderedMap.getOrFail(temp_start,extractor.best_nodes);
+      temp_start := EGraph.find(extractor.egraph, start, "build");
+      node := UnorderedMap.getOrFail(temp_start, extractor.best_nodes);
       exp := match node
         local
           Real num;
@@ -1070,11 +1084,13 @@ public
     end hash;
 
     function matchPattern
-      input ENode node;
+      input Pointer<ENode> node_ptr;
       input EClassId id;
       input EGraph egraph;
       input Pattern pattern;
       output list<UnorderedMap<Integer, EClassId>> subs;
+    protected
+      ENode node = Pointer.access(node_ptr);
     algorithm
       subs := match (pattern, node)
         case (BINARY(), ENode.BINARY()) guard(pattern.op == node.op)
@@ -1097,11 +1113,13 @@ public
       EClassId root_id;
       UnorderedMap<Integer, EClassId> temp_map;
       list<UnorderedMap<Integer, EClassId>> temp_list, node_list;
+      ENode node;
     algorithm
       root_id := EGraph.find(egraph,id, "matchPatternRecurse");
       eclass := UnorderedMap.getOrFail(root_id,egraph.eclasses);
       subs_out := {};
-      for node in UnorderedSet.toList(eclass.nodes) loop
+      for node_ptr in UnorderedSet.toList(eclass.nodes) loop
+        node := Pointer.access(node_ptr);
         node_list := {};
         for map in subs_in loop
           node_list := UnorderedMap.copy(map) :: node_list;
@@ -1234,7 +1252,7 @@ public
       list<tuple<Rule, EClassId, list<UnorderedMap<Integer, EClassId>>>> subs;
       list<UnorderedMap<Integer, EClassId>> subs_part;
       EClassId exId, newId;
-      ENode node;
+      Pointer<ENode> node;
       Rule rule;
       Boolean changed;
       constant Boolean debug = false;
