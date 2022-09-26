@@ -561,7 +561,7 @@ public constant ErrorTypes.Message GUARD_EXPRESSION_TYPE_MISMATCH = ErrorTypes.M
 public constant ErrorTypes.Message FUNCTION_RETURNS_META_ARRAY = ErrorTypes.MESSAGE(243, ErrorTypes.TRANSLATION(), ErrorTypes.ERROR(),
   Gettext.gettext("User-defined function calls that return Array<...> are not supported: %s."));
 public constant ErrorTypes.Message ASSIGN_UNKNOWN_ERROR = ErrorTypes.MESSAGE(244, ErrorTypes.TRANSLATION(), ErrorTypes.ERROR(),
-  Gettext.gettext("Failed elaborate assignment for some unknown reason: %1 := %2. File a bug report and we will make sure this error gets a better message in the future."));
+  Gettext.gettext("Failed to elaborate assignment for some unknown reason: %1 := %2. File a bug report and we will make sure this error gets a better message in the future."));
 public constant ErrorTypes.Message WARNING_DEF_USE = ErrorTypes.MESSAGE(245, ErrorTypes.TRANSLATION(), ErrorTypes.WARNING(),
   Gettext.gettext("%s was used before it was defined (given a value). Additional such uses may exist for the variable, but some messages were suppressed."));
 public constant ErrorTypes.Message EXP_TYPE_MISMATCH = ErrorTypes.MESSAGE(246, ErrorTypes.TRANSLATION(), ErrorTypes.ERROR(),
@@ -877,6 +877,8 @@ public constant ErrorTypes.Message INVALID_SPECIALIZATION_FOR_BINDING_EQUATION =
   Gettext.gettext("Component ‘%s‘ may not have a binding equation due to class specialization ‘%s‘."));
 public constant ErrorTypes.Message INVALID_SPECIALIZATION_IN_ASSIGNMENT = ErrorTypes.MESSAGE(401, ErrorTypes.TRANSLATION(), ErrorTypes.ERROR(),
   Gettext.gettext("Component ‘%s‘ may not be assigned to due to class specialization ‘%s‘."));
+public constant ErrorTypes.Message NF_PDE_NOT_IMPLEMENTED = ErrorTypes.MESSAGE(402, ErrorTypes.TRANSLATION(), ErrorTypes.NOTIFICATION(),
+  Gettext.gettext("PDEModelica is not yet supported by the new front-end, using the old front-end instead."));
 
 public constant ErrorTypes.Message INITIALIZATION_NOT_FULLY_SPECIFIED = ErrorTypes.MESSAGE(496, ErrorTypes.TRANSLATION(), ErrorTypes.WARNING(),
   Gettext.gettext("The initial conditions are not fully specified. %s."));
@@ -1198,7 +1200,8 @@ public constant ErrorTypes.Message CONVERSION_MISSING_FROM_VERSION = ErrorTypes.
   Gettext.gettext("Conversion-annotation is missing version for from-conversion: %s."));
 public constant ErrorTypes.Message CONVERSION_UNKNOWN_ANNOTATION = ErrorTypes.MESSAGE(5049, ErrorTypes.SCRIPTING(), ErrorTypes.WARNING(),
   Gettext.gettext("Conversion-annotation contains unknown element: %s."));
-
+public constant ErrorTypes.Message CONVERSION_MISSING_NONE_FROM_VERSION = ErrorTypes.MESSAGE(5048, ErrorTypes.SCRIPTING(), ErrorTypes.WARNING(),
+  Gettext.gettext("Conversion-annotation is missing version for noneFromVersion: %s."));
 
 public constant ErrorTypes.Message COMPILER_ERROR = ErrorTypes.MESSAGE(5999, ErrorTypes.TRANSLATION(), ErrorTypes.ERROR(),
   Gettext.notrans("%s"));

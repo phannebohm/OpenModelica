@@ -51,14 +51,16 @@ public:
     ReplaceableComponent,
     ReplaceableClass
   };
-  Parameter(Element *pComponent, bool showStartAttribute, QString tab, QString groupBox);
+  Parameter(Element *pElement, bool showStartAttribute, QString tab, QString groupBox);
   Parameter(ModelInstance::Element *pElement, bool showStartAttribute, QString tab, QString groupBox);
-  Element* getComponent() {return mpComponent;}
-  ModelInstance::Element* getElement() {return mpElement;}
+  Element* getElement() {return mpElement;}
+  ModelInstance::Element* getModelInstanceElement() {return mpModelInstanceElement;}
   void setTab(QString tab) {mTab = tab;}
   QString getTab() {return mTab;}
   void setGroupBox(QString groupBox) {mGroupBox = groupBox;}
   QString getGroupBox() {return mGroupBox;}
+  void setGroupBoxDefined(bool groupBoxDefined) {mGroupBoxDefined = groupBoxDefined;}
+  bool isGroupBoxDefined() const {return mGroupBoxDefined;}
   void setShowStartAttribute(bool showStartAttribute) {mShowStartAttribute = showStartAttribute;}
   bool isShowStartAttribute() {return mShowStartAttribute;}
   void updateNameLabel();
@@ -89,10 +91,11 @@ public:
   QString getFixedState();
   void setEnabled(bool enable);
 private:
-  Element *mpComponent;
-  ModelInstance::Element *mpElement;
+  Element *mpElement;
+  ModelInstance::Element *mpModelInstanceElement;
   QString mTab;
   QString mGroupBox;
+  bool mGroupBoxDefined;
   bool mShowStartAttribute;
   Label *mpNameLabel;
   FixedCheckBox *mpFixedCheckBox;
@@ -193,8 +196,9 @@ private:
   void createTabsGroupBoxesAndParametersHelper(LibraryTreeItem *pLibraryTreeItem, bool useInsert = false);
   void createTabsGroupBoxesAndParameters(ModelInstance::Model *pModelInstance);
   void createTabsGroupBoxesAndParametersHelper(ModelInstance::Model *pModelInstance, bool useInsert = false);
-  void fetchComponentModifiers();
-  void fetchExtendsModifiers();
+  void fetchElementExtendsModifiers();
+  void fetchElementModifiers();
+  void fetchClassExtendsModifiers();
   Parameter* findParameter(LibraryTreeItem *pLibraryTreeItem, const QString &parameter, Qt::CaseSensitivity caseSensitivity = Qt::CaseSensitive) const;
   Parameter* findParameter(const QString &parameter, Qt::CaseSensitivity caseSensitivity = Qt::CaseSensitive) const;
 public slots:
@@ -252,11 +256,11 @@ class CompositeModelSubModelAttributes : public QDialog
 {
   Q_OBJECT
 public:
-  CompositeModelSubModelAttributes(Element *pComponent, QWidget *pParent = 0);
+  CompositeModelSubModelAttributes(Element *pElement, QWidget *pParent = 0);
   void setUpDialog();
   void initializeDialog();
 private:
-  Element *mpComponent;
+  Element *mpElement;
   Label *mpNameLabel;
   QLineEdit *mpNameTextBox;
   Label *mpSimulationToolLabel;

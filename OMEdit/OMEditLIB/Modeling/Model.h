@@ -50,6 +50,7 @@ namespace ModelInstance
     double x() const {return mValue[0];}
     double y() const {return mValue[1];}
 
+    bool operator==(const Point &point);
     Point& operator=(const Point &point) noexcept = default;
 private:
     double mValue[2];
@@ -133,8 +134,11 @@ private:
   public:
     Color();
     void deserialize(const QJsonArray &jsonArray);
+    void setColor(const QColor &color) {mColor = color;}
     QColor getColor() const {return mColor;}
-private:
+
+    bool operator==(const Color &color) const;
+  private:
     QColor mColor;
   };
 
@@ -181,14 +185,25 @@ private:
     void deserialize(const QJsonArray &jsonArray);
     void deserialize(const QJsonObject &jsonObject);
 
+    void addPoint(const QPointF &point);
     QList<Point> getPoints() const {return mPoints;}
+    void clearPoints() {mPoints.clear();}
+    void setColor(const QColor &color);
     Color getColor() const {return mColor;}
+    void setLinePattern(const QString &pattern) {mPattern = pattern;}
     QString getPattern() const {return mPattern;}
+    void setThickness(double thickness) {mThickness = thickness;}
     double getThickness() const {return mThickness;}
+    void setStartArrow(const QString &startArrow) {mArrow[0] = startArrow;}
     QString getStartArrow() const {return mArrow[0];}
+    void setEndArrow(const QString &endArrow) {mArrow[1] = endArrow;}
     QString getEndArrow() const {return mArrow[1];}
+    void setArrowSize(double arrowSize) {mArrowSize = arrowSize;}
     double getArrowSize() const {return mArrowSize;}
+    void setSmooth(const QString &smooth) {mSmooth = smooth;}
     QString getSmooth() const {return mSmooth;}
+
+    bool operator==(const Line &line) const;
   private:
     QList<Point> mPoints;
     Color mColor;
@@ -314,8 +329,11 @@ private:
     void setModelJson(const QJsonObject &modelJson) {mModelJson = modelJson;}
     QString getName() const {return mName;}
     QStringList getDims() const {return mDims;}
+    void setRestriction(const QString &restriction) {mRestriction = restriction;}
     QString getRestriction() const {return mRestriction;}
     bool isConnector() const;
+    bool isExpandableConnector() const;
+    bool isEnumeration() const;
     bool isPublic() const {return mPublic;}
     bool isFinal() const {return mFinal;}
     bool isInner() const {return mInner;}
@@ -336,6 +354,7 @@ private:
     QString getPreferredView() const {return mPreferredView;}
     bool isState() const {return mState;}
     QString getAccess() const {return mAccess;}
+    void addElement(Element *pElement) {mElements.append(pElement);}
     QList<Element *> getElements() const {return mElements;}
     QString getFileName() const {return mFileName;}
     int getLineStart() const {return mLineStart;}
@@ -344,6 +363,8 @@ private:
     int getColumnEnd() const {return mColumnEnd;}
     bool isReadonly() const {return mReadonly;}
     QList<Connection *> getConnections() const {return mConnections;}
+
+    bool isParameterConnectorSizing(const QString &parameter);
   private:
     void initialize();
 
@@ -499,11 +520,18 @@ private:
     void serialize(QJsonObject &jsonObject) const;
 
     Model *getParentModel() const {return mpParentModel;}
+    void setName(const QString &name) {mName = name;}
     QString getName() const {return mName;}
+    bool getCondition() const {return mCondition;}
+    void setType(const QString &type) {mType = type;}
     QString getType() const {return mType;}
+    void setModel(Model *pModel) {mpModel = pModel;}
     Model *getModel() const {return mpModel;}
     Modifier getModifier() const {return mModifier;}
-    QString getDimensions() const {return mDims.join(", ");}
+    QStringList getAbsynDimensions() const {return mAbsynDims;}
+    QString getAbsynDimensionsString() const {return mAbsynDims.join(", ");}
+    QStringList getTypedDimensions() const {return mTypedDims;}
+    bool isArray() const {return !mTypedDims.isEmpty();}
     bool isPublic() const {return mPublic;}
     bool isFinal() const {return mFinal;}
     bool isInner() const {return mInner;}
@@ -522,10 +550,12 @@ private:
   private:
     Model *mpParentModel;
     QString mName;
+    bool mCondition;
     QString mType;
     Model *mpModel;
     Modifier mModifier;
-    QStringList mDims;
+    QStringList mAbsynDims;
+    QStringList mTypedDims;
     bool mPublic;
     bool mFinal;
     bool mInner;
@@ -543,6 +573,18 @@ private:
     Choices mChoices;
   };
 
+  class Part
+  {
+  public:
+    Part();
+    void deserialize(const QJsonObject &jsonObject);
+
+    QString getName() const;
+  private:
+    QString mName;
+    QStringList mSubScripts;
+  };
+
   class Connector
   {
   public:
@@ -550,10 +592,10 @@ private:
     void deserialize(const QJsonObject &jsonObject);
 
     QString getName() const;
-    QStringList getNameParts() const {return mParts;}
+    QStringList getNameParts() const;
   private:
     QString mKind;
-    QStringList mParts;
+    QList<Part> mParts;
   };
 
   class Connection

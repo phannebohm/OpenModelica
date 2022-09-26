@@ -104,26 +104,6 @@ private:
   GraphicsView *mpGraphicsView;
 };
 
-class AddElementCommand : public UndoCommand
-{
-public:
-  AddElementCommand(ModelInstance::Element *pElement, bool inherited, bool addObject, GraphicsView *pGraphicsView, UndoCommand *pParent = 0);
-  void redoInternal();
-  void undo();
-  static void createElements(Element **pIconElement, GraphicsView *pIconGraphicsView, Element **pDiagramElement, GraphicsView *pDiagramGraphicsView,
-                             ModelInstance::Element *pElement, bool inherited);
-  static void addElementToView(Element *pIconElement, GraphicsView *pIconGraphicsView, Element *pDiagramElement, GraphicsView *pDiagramGraphicsView,
-                               ModelInstance::Element *pElement);
-private:
-  ModelInstance::Element *mpElement;
-  bool mAddObject;
-  Element *mpIconElement;
-  Element *mpDiagramElement;
-  GraphicsView *mpIconGraphicsView;
-  GraphicsView *mpDiagramGraphicsView;
-  GraphicsView *mpGraphicsView;
-};
-
 class UpdateComponentTransformationsCommand : public UndoCommand
 {
 public:
@@ -139,10 +119,10 @@ private:
   bool mMoveConnectorsTogether;
 };
 
-class UpdateComponentAttributesCommand : public UndoCommand
+class UpdateElementAttributesCommand : public UndoCommand
 {
 public:
-  UpdateComponentAttributesCommand(Element *pComponent, const ElementInfo &oldComponentInfo, const ElementInfo &newComponentInfo, UndoCommand *pParent = 0);
+  UpdateElementAttributesCommand(Element *pComponent, const ElementInfo &oldComponentInfo, const ElementInfo &newComponentInfo, UndoCommand *pParent = 0);
   void redoInternal();
   void undo();
   static void updateComponentAttributes(Element *pComponent, const ElementInfo &componentInfo);
@@ -153,10 +133,10 @@ private:
   ElementInfo mNewComponentInfo;
 };
 
-class UpdateComponentParametersCommand : public UndoCommand
+class UpdateElementParametersCommand : public UndoCommand
 {
 public:
-  UpdateComponentParametersCommand(Element *pComponent, QMap<QString, QString> oldComponentModifiersMap,
+  UpdateElementParametersCommand(Element *pComponent, QMap<QString, QString> oldComponentModifiersMap,
                                    QMap<QString, QString> oldComponentExtendsModifiersMap, QMap<QString, QString> newComponentModifiersMap,
                                    QMap<QString, QString> newComponentExtendsModifiersMap, UndoCommand *pParent = 0);
   void redoInternal();
@@ -449,35 +429,16 @@ private:
 class OMCUndoCommand : public UndoCommand
 {
 public:
-  OMCUndoCommand(LibraryTreeItem *pLibraryTreeItem, int oldASTID, const QJsonObject &oldModelInstanceJson, const QString &commandText, UndoCommand *pParent = 0);
+  OMCUndoCommand(LibraryTreeItem *pLibraryTreeItem, const ModelInfo &oldModelInfo, const ModelInfo &newModelInfo, const QString &commandText, UndoCommand *pParent = 0);
   void redoInternal();
   void undo();
 private:
   LibraryTreeItem *mpLibraryTreeItem;
-  QJsonObject mOldModelInstanceJson;
-  QJsonObject mNewModelInstanceJson;
-  int mOldASTID;
-  int mNewASTID;
-  bool mUndoDoneOnce;
-};
-
-class OMCUndoCommand1 : public UndoCommand
-{
-public:
-  OMCUndoCommand1(LibraryTreeItem *pLibraryTreeItem, Element *pElement, const QString &oldModelText, const QString &newModelText,
-                  const QString &commandText, UndoCommand *pParent = 0);
-  void redoInternal();
-  void undo();
-private:
-  LibraryTreeItem *mpLibraryTreeItem;
-  Element *mpElement;
-  QJsonObject mOldModelInstanceJson;
-  QJsonObject mNewModelInstanceJson;
   QString mOldModelText;
+  ModelInfo mOldModelInfo;
   QString mNewModelText;
+  ModelInfo mNewModelInfo;
   bool mUndoDoneOnce;
-
-  void updateElementWithModelInstance();
 };
 
 #endif // COMMANDS_H

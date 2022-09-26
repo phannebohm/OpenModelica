@@ -85,7 +85,6 @@ import Expression;
 import ExpressionDump;
 import FBuiltin;
 import FGraph;
-import FGraphDump;
 import Figaro;
 import FindZeroCrossings;
 import FInst;
@@ -146,7 +145,7 @@ protected constant DAE.Type simulationResultType_rtest = DAE.T_COMPLEX(ClassInf.
   DAE.TYPES_VAR("resultFile",DAE.dummyAttrVar,DAE.T_STRING_DEFAULT,DAE.UNBOUND(),false,NONE()),
   DAE.TYPES_VAR("simulationOptions",DAE.dummyAttrVar,DAE.T_STRING_DEFAULT,DAE.UNBOUND(),false,NONE()),
   DAE.TYPES_VAR("messages",DAE.dummyAttrVar,DAE.T_STRING_DEFAULT,DAE.UNBOUND(),false,NONE())
-  },NONE());
+  },NONE(), false);
 
 protected constant DAE.Type simulationResultType_full = DAE.T_COMPLEX(ClassInf.RECORD(Absyn.IDENT("SimulationResult")),{
   DAE.TYPES_VAR("resultFile",DAE.dummyAttrVar,DAE.T_STRING_DEFAULT,DAE.UNBOUND(),false,NONE()),
@@ -159,13 +158,13 @@ protected constant DAE.Type simulationResultType_full = DAE.T_COMPLEX(ClassInf.R
   DAE.TYPES_VAR("timeCompile",DAE.dummyAttrVar,DAE.T_REAL_DEFAULT,DAE.UNBOUND(),false,NONE()),
   DAE.TYPES_VAR("timeSimulation",DAE.dummyAttrVar,DAE.T_REAL_DEFAULT,DAE.UNBOUND(),false,NONE()),
   DAE.TYPES_VAR("timeTotal",DAE.dummyAttrVar,DAE.T_REAL_DEFAULT,DAE.UNBOUND(),false,NONE())
-  },NONE());
+  },NONE(), false);
 
 protected constant DAE.Type simulationResultType_drModelica = DAE.T_COMPLEX(ClassInf.RECORD(Absyn.IDENT("SimulationResult")),{
   DAE.TYPES_VAR("messages",DAE.dummyAttrVar,DAE.T_STRING_DEFAULT,DAE.UNBOUND(),false,NONE()),
   DAE.TYPES_VAR("flatteningTime",DAE.dummyAttrVar,DAE.T_REAL_DEFAULT,DAE.UNBOUND(),false,NONE()),
   DAE.TYPES_VAR("simulationTime",DAE.dummyAttrVar,DAE.T_REAL_DEFAULT,DAE.UNBOUND(),false,NONE())
-  },NONE());
+  },NONE(), false);
 
 //these are in reversed order than above
 protected constant list<tuple<String,Values.Value>> zeroAdditionalSimulationResultValues =
@@ -1119,11 +1118,13 @@ algorithm
             fail();
           end try;
           if not StringUtil.equalIgnoreSpace(s3, s4) then
+            System.writeFile("SanityCheckFailBefore.mo", s3);
+            System.writeFile("SanityCheckFailAfter.mo", s4);
             if b then
-              Error.addInternalError("After merging the strings, the semantics changed for some reason. Will return the empty string:\ns1:\n"+s1+"\ns2:\n"+s2+"\ns3:\n"+s3+"\ns4:\n"+s4+"\ns5:\n"+s5+"\nparseTree2:"+SimpleModelicaParser.parseTreeStr(parseTree2), sourceInfo());
+              Error.addInternalError("After merging the strings, the semantics changed for some reason (see generated files SanityCheckFailBefore.mo SanityCheckFailAfter.mo). Will return the empty string:\ns1:\n"+s1+"\ns2:\n"+s2+"\ns3:\n"+s3+"\ns4:\n"+s4+"\ns5:\n"+s5+"\nparseTree2:"+SimpleModelicaParser.parseTreeStr(parseTree2), sourceInfo());
               fail();
             else
-              Error.addInternalError("After merging the strings, the semantics changed for some reason (will simply return s2):\ns1:\n"+s1+"\ns2:\n"+s2+"\ns3:\n"+s3+"\ns4:\n"+s4+"\ns5:\n"+s5, sourceInfo());
+              Error.addInternalError("After merging the strings, the semantics changed for some reason (see generated files SanityCheckFailBefore.mo SanityCheckFailAfter.mo). Will return s2:\ns1:\n"+s1+"\ns2:\n"+s2+"\ns3:\n"+s3+"\ns4:\n"+s4+"\ns5:\n"+s5, sourceInfo());
             end if;
             sanityCheckFailed := true;
           end if;
@@ -3270,91 +3271,76 @@ algorithm
 end runFrontEndLoadProgram;
 
 protected function runFrontEndWork
-  input FCore.Cache inCache;
-  input FCore.Graph inEnv;
+  input output FCore.Cache cache;
+  input output FCore.Graph env;
   input Absyn.Path className;
   input Boolean relaxedFrontEnd "Do not check for illegal simulation models, so we allow instantation of packages, etc";
   input Boolean dumpFlat;
-  output FCore.Cache cache;
-  output FCore.Graph env;
-  output DAE.DAElist dae;
-  output String flatString = "";
+        output DAE.DAElist dae;
+        output String flatString = "";
 protected
   Integer numError = Error.getNumErrorMessages();
-  Absyn.Restriction restriction;
-  Absyn.Program p = SymbolTable.getAbsyn();
+  Boolean graph_inst, nf_inst, nf_inst_actual;
+  SCode.Program scodeP;
+  DAE.FunctionTree funcs;
+  NFFlatModel flat_model;
+  NFFlatten.FunctionTree nf_funcs;
 algorithm
-  (cache,env,dae) := matchcontinue (inCache,inEnv,className)
-    local
-      Absyn.Class absynClass;
-      String str,re;
-      SCode.Program scodeP;
-      DAE.FunctionTree funcs;
-      NFFlatModel flat_model;
-      NFFlatten.FunctionTree nf_funcs;
+  graph_inst := Flags.isSet(Flags.GRAPH_INST);
+  nf_inst := Flags.isSet(Flags.SCODE_INST);
+  nf_inst_actual := nf_inst;
 
-    case (_, _, _)
+  // PDEModelica is not yet supported by the new frontend, switch to the old one
+  // if `-g=PDEModelica` is set.
+  if nf_inst and Flags.getConfigEnum(Flags.GRAMMAR) == Flags.PDEMODELICA then
+    nf_inst := false;
+    FlagsUtil.set(Flags.SCODE_INST, false);
+    Error.addMessage(Error.NF_PDE_NOT_IMPLEMENTED, {});
+  end if;
+
+  (cache,env,dae) := matchcontinue (graph_inst, nf_inst)
+    case (false, true)
       algorithm
-        false := Flags.isSet(Flags.GRAPH_INST);
-        true := Flags.isSet(Flags.SCODE_INST);
-
         (flat_model, nf_funcs, flatString) := runFrontEndWorkNF(className, dumpFlat);
         (dae, funcs) := NFConvertDAE.convert(flat_model, nf_funcs);
 
         cache := FCore.emptyCache();
         FCore.setCachedFunctionTree(cache, funcs);
         env := FGraph.new("graph", FCore.dummyTopModel);
-      then (cache, env, dae);
+      then
+        (cache, env, dae);
 
-   case (cache,env,_)
-      equation
-        true = Flags.isSet(Flags.GRAPH_INST);
-        false = Flags.isSet(Flags.SCODE_INST);
-
+   case (true, false)
+      algorithm
         System.realtimeTick(ClockIndexes.RT_CLOCK_FINST);
-        dae = FInst.instPath(className, SymbolTable.getSCode());
-      then (cache,env,dae);
+        dae := FInst.instPath(className, SymbolTable.getSCode());
+      then
+        (cache,env,dae);
 
-    case (cache,env,_)
-      equation
-        false = Flags.isSet(Flags.GRAPH_INST);
-        false = Flags.isSet(Flags.SCODE_INST);
-
-        //System.stopTimer();
-        //print("\nExists+Dependency: " + realString(System.getTimerIntervalTime()));
-
-        //System.startTimer();
-        //print("\nAbsyn->SCode");
-        scodeP = SymbolTable.getSCode();
-
+    case (false, false)
+      algorithm
+        scodeP := SymbolTable.getSCode();
         ExecStat.execStat("FrontEnd - Absyn->SCode");
 
-        //System.stopTimer();
-        //print("\nAbsyn->SCode: " + realString(System.getTimerIntervalTime()));
-
-        //System.startTimer();
-        //print("\nInst.instantiateClass");
-        (cache,env,_,dae) = Inst.instantiateClass(cache,InnerOuter.emptyInstHierarchy,scodeP,className,true,relaxedFrontEnd);
-
-        dae = DAEUtil.mergeAlgorithmSections(dae);
-
-        //FGraphDump.dumpGraph(env, "F:\\dev\\" + AbsynUtil.pathString(className) + ".graph.graphml");
-
-        //System.stopTimer();
-        //print("\nInst.instantiateClass: " + realString(System.getTimerIntervalTime()));
+        (cache,env,_,dae) := Inst.instantiateClass(cache,InnerOuter.emptyInstHierarchy,scodeP,className,true,relaxedFrontEnd);
+        dae := DAEUtil.mergeAlgorithmSections(dae);
 
         // adrpo: do not add it to the instantiated classes, it just consumes memory for nothing.
         DAEUtil.getFunctionList(FCore.getFunctionTree(cache),failOnError=true); // Make sure that the functions are valid before returning success
       then (cache,env,dae);
 
-    else
-      equation
-        str = AbsynUtil.pathString(className);
-        true = Error.getNumErrorMessages() == numError;
-        str = "Instantiation of " + str + " failed with no error message.";
-        Error.addMessage(Error.INTERNAL_ERROR, {str});
-      then fail();
+    case (_, _)
+      guard Error.getNumErrorMessages() == numError
+      algorithm
+        Error.addMessage(Error.INTERNAL_ERROR,
+          {"Instantiation of " + AbsynUtil.pathString(className) + " failed with no error message."});
+        FlagsUtil.set(Flags.SCODE_INST, nf_inst_actual);
+      then
+        fail();
   end matchcontinue;
+
+  // Switch back to the new frontend in case we changed it at the beginning of the function.
+  FlagsUtil.set(Flags.SCODE_INST, nf_inst_actual);
 end runFrontEndWork;
 
 public function runFrontEndWorkNF
@@ -3372,7 +3358,7 @@ algorithm
   (_, builtin_p) := FBuiltin.getInitialFunctions();
   scode_p := SymbolTable.getSCode();
 
-  if not Flags.isConfigFlagSet(Flags.OBFUSCATE, "none") then
+  if not Flags.getConfigString(Flags.OBFUSCATE) == "none" then
     (scode_p, cls_name, _, _, obfuscate_map) := Obfuscate.obfuscateProgram(scode_p, cls_name);
   end if;
 
@@ -3394,7 +3380,7 @@ algorithm
     fail();
   end try;
 
-  if Flags.isConfigFlagSet(Flags.OBFUSCATE, "protected") then
+  if Flags.getConfigString(Flags.OBFUSCATE) == "protected" then
     flatModel := FlatModel.deobfuscatePublicVars(flatModel, obfuscate_map);
   end if;
 end runFrontEndWorkNF;
@@ -7642,7 +7628,7 @@ protected
   Integer sl,sc,el,ec;
   Absyn.Path classPath;
 algorithm
-  Absyn.CLASS(name,partialPrefix,finalPrefix,encapsulatedPrefix,restr,cdef,SOURCEINFO(file,isReadOnly,sl,sc,el,ec,_)) := InteractiveUtil.getPathedClassInProgram(path, p);
+  Absyn.CLASS(name,partialPrefix,finalPrefix,encapsulatedPrefix,restr,cdef,_,_,SOURCEINFO(file,isReadOnly,sl,sc,el,ec,_)) := InteractiveUtil.getPathedClassInProgram(path, p);
   res := Dump.unparseRestrictionStr(restr);
   cmt := getClassComment(cdef);
   file := Testsuite.friendly(file);
@@ -8148,25 +8134,25 @@ algorithm
       list<Absyn.NamedArg> classAttrs;
       list<Absyn.Annotation> ann;
     /* a class with parts */
-    case (Absyn.CLASS(name = i,partialPrefix = p,finalPrefix = f,encapsulatedPrefix = e,restriction = r,
+    case (outClass as Absyn.CLASS(name = i,partialPrefix = p,finalPrefix = f,encapsulatedPrefix = e,restriction = r,
                       body = Absyn.PARTS(typeVars = typeVars,classAttrs = classAttrs,classParts = parts,ann=ann,comment = cmt),
                       info = file_info), state_)
       equation
         eqlst = InteractiveUtil.getEquationList(parts);
         eqlst_1 = deleteInitialStateInEqlist(eqlst, state_);
         parts2 = InteractiveUtil.replaceEquationList(parts, eqlst_1);
-      then
-        Absyn.CLASS(i,p,f,e,r,Absyn.PARTS(typeVars,classAttrs,parts2,ann,cmt),file_info);
+        outClass.body = Absyn.PARTS(typeVars,classAttrs,parts2,ann,cmt);
+      then outClass;
     /* an extended class with parts: model extends M end M;  */
-    case (Absyn.CLASS(name = i,partialPrefix = p,finalPrefix = f,encapsulatedPrefix = e,restriction = r,
+    case (outClass as Absyn.CLASS(name = i,partialPrefix = p,finalPrefix = f,encapsulatedPrefix = e,restriction = r,
                       body = Absyn.CLASS_EXTENDS(baseClassName = bcname,modifications=modif,parts = parts,ann = ann,comment = cmt)
                       ,info = file_info), state_)
       equation
         eqlst = InteractiveUtil.getEquationList(parts);
         eqlst_1 = deleteInitialStateInEqlist(eqlst, state_);
         parts2 = InteractiveUtil.replaceEquationList(parts, eqlst_1);
-      then
-        Absyn.CLASS(i,p,f,e,r,Absyn.CLASS_EXTENDS(bcname,modif,cmt,parts2,ann),file_info);
+        outClass.body = Absyn.CLASS_EXTENDS(bcname,modif,cmt,parts2,ann);
+      then outClass;
   end match;
 end deleteInitialStateInClass;
 

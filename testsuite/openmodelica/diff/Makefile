@@ -7,13 +7,19 @@ AddComment.mos \
 AddComponent.mos \
 AddComponent2.mos \
 AddDeleteComponent.mos \
+Air.mos \
 ChangeSourceFile.mos \
+ClosedDoors.mos \
 LargeFileChange.mos \
+LimPID.mos \
 ListFile.mos \
 MoveComment.mos \
 MoveComponent.mos \
 MoveConnection.mos \
+multipoleFluidTemperature.mos \
+Pipe.mos \
 removeComponentModifiers.mos \
+RLC.mos \
 SimilarNamesAnnotation.mos \
 SubExpParenthesis.mos \
 Tables.mos \
@@ -25,6 +31,7 @@ ticket4153.mos \
 ticket4368.mos \
 ticket5360.mos \
 ticket5949.mos \
+TwoWayFlowElementBuoyancy.mos \
 UTF8.mos \
 ticket4781.mos
 

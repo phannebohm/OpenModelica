@@ -60,6 +60,11 @@ namespace ModelInstance
     }
   }
 
+  bool Point::operator==(const Point &point)
+  {
+    return (qFuzzyCompare(point.x(), this->x()) && qFuzzyCompare(point.y(), this->y()));
+  }
+
   Extent::Extent() = default;
 
   Extent::Extent(const Point &extent1, const Point extent2)
@@ -253,10 +258,15 @@ namespace ModelInstance
     }
   }
 
+  bool Color::operator==(const Color &color) const
+  {
+    return (color.getColor() == this->getColor());
+  }
+
   FilledShape::FilledShape()
   {
-    mPattern = "LinePattern::Solid";
-    mFillPattern = "FillPattern::None";
+    mPattern = "LinePattern.Solid";
+    mFillPattern = "FillPattern.None";
     mLineThickness = 0.25;
   }
 
@@ -315,7 +325,7 @@ namespace ModelInstance
   Line::Line()
   {
     mPoints.clear();
-    mPattern = "LinePattern::Solid";
+    mPattern = "LinePattern.Solid";
     mThickness = 0.25;
     mArrow[0] = "Arrow.None";
     mArrow[1] = "Arrow.None";
@@ -405,6 +415,28 @@ namespace ModelInstance
         mSmooth = smooth.value("name").toString();
       }
     }
+  }
+
+  void Line::addPoint(const QPointF &point)
+  {
+    mPoints.append(Point(point.x(), point.y()));
+  }
+
+  void Line::setColor(const QColor &color)
+  {
+    mColor.setColor(color);
+  }
+
+  bool Line::operator==(const Line &line) const
+  {
+    return (line.getPoints() == this->getPoints()) &&
+        (line.getColor() == this->getColor()) &&
+        (line.getPattern() == this->getPattern()) &&
+        (line.getThickness() == this->getThickness()) &&
+        (line.getStartArrow() == this->getStartArrow()) &&
+        (line.getEndArrow() == this->getEndArrow()) &&
+        (line.getArrowSize() == this->getArrowSize()) &&
+        (line.getSmooth() == this->getSmooth());
   }
 
   Polygon::Polygon()
@@ -843,8 +875,28 @@ namespace ModelInstance
 
   bool Model::isConnector() const
   {
-    if ((mRestriction.compare(QStringLiteral("expandable connector")) == 0) || (mRestriction.compare(QStringLiteral("connector")) == 0)) {
+    if (isExpandableConnector() || (mRestriction.compare(QStringLiteral("connector")) == 0)) {
       return true;
+    }
+    return false;
+  }
+
+  bool Model::isExpandableConnector() const
+  {
+    return (mRestriction.compare(QStringLiteral("expandable connector")) == 0);
+  }
+
+  bool Model::isEnumeration() const
+  {
+    return (mRestriction.compare(QStringLiteral("enumeration")) == 0);
+  }
+
+  bool Model::isParameterConnectorSizing(const QString &parameter)
+  {
+    foreach (auto pModelElement, mElements) {
+      if (pModelElement->getName().compare(parameter) == 0) {
+        return pModelElement->getDialogAnnotation().isConnectorSizing();
+      }
     }
     return false;
   }
@@ -1070,12 +1122,14 @@ namespace ModelInstance
   void Element::initialize()
   {
     mName = "";
+    mCondition = true;
     mType = "";
     if (mpModel) {
       delete mpModel;
     }
     mpModel = 0;
-    mDims.clear();
+    mAbsynDims.clear();
+    mTypedDims.clear();
     mPublic = true;
     mFinal = false;
     mInner = false;
@@ -1095,6 +1149,10 @@ namespace ModelInstance
       mName = jsonObject.value("name").toString();
     }
 
+    if (jsonObject.contains("condition")) {
+      mCondition = jsonObject.value("condition").toBool();
+    }
+
     if (jsonObject.contains("type")) {
       if (jsonObject.value("type").isString()) {
         mType = jsonObject.value("type").toString();
@@ -1112,9 +1170,16 @@ namespace ModelInstance
       QJsonObject dims = jsonObject.value("dims").toObject();
 
       if (dims.contains("absyn")) {
-        QJsonArray dimsAbsynArray = dims.value("absyn").toArray();
-        foreach (auto dim, dimsAbsynArray) {
-          mDims.append(dim.toString());
+        QJsonArray absynDimsArray = dims.value("absyn").toArray();
+        foreach (auto absynDim, absynDimsArray) {
+          mAbsynDims.append(absynDim.toString());
+        }
+      }
+
+      if (dims.contains("typed")) {
+        QJsonArray typedDimsArray = dims.value("typed").toArray();
+        foreach (auto typedDim, typedDimsArray) {
+          mTypedDims.append(typedDim.toString());
         }
       }
     }
@@ -1186,6 +1251,35 @@ namespace ModelInstance
     }
   }
 
+  Part::Part()
+  {
+    mName = "";
+    mSubScripts.clear();
+  }
+
+  void Part::deserialize(const QJsonObject &jsonObject)
+  {
+    if (jsonObject.contains("name")) {
+      mName = jsonObject.value("name").toString();
+    }
+
+    if (jsonObject.contains("subscripts")) {
+      QJsonArray subscripts = jsonObject.value("subscripts").toArray();
+      foreach (QJsonValue subscript, subscripts) {
+        mSubScripts.append(QString::number(subscript.toInt()));
+      }
+    }
+  }
+
+  QString Part::getName() const
+  {
+    if (mSubScripts.isEmpty()) {
+      return mName;
+    } else {
+      return QString("%1[%2]").arg(mName, mSubScripts.join(","));
+    }
+  }
+
   Connector::Connector()
   {
     mKind = "";
@@ -1201,21 +1295,25 @@ namespace ModelInstance
     if (jsonObject.contains("parts")) {
       QJsonArray parts = jsonObject.value("parts").toArray();
       foreach (QJsonValue part, parts) {
-        QJsonObject partObject = part.toObject();
-        if (partObject.contains("name")) {
-          mParts.append(partObject.value("name").toString());
-        }
+        Part partObject;
+        partObject.deserialize(part.toObject());
+        mParts.append(partObject);
       }
     }
   }
 
   QString Connector::getName() const
   {
-    if (mParts.isEmpty()) {
-      return "";
-    } else {
-      return mParts.join(".");
+    return getNameParts().join(".");
+  }
+
+  QStringList Connector::getNameParts() const
+  {
+    QStringList parts;
+    foreach (auto part, mParts) {
+      parts.append(part.getName());
     }
+    return parts;
   }
 
   Connection::Connection()

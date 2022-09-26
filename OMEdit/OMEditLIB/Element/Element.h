@@ -196,7 +196,7 @@ public:
     Port  /* Port Element. */
   };
 
-  Element(ModelInstance::Element *pModelElement, bool inherited, GraphicsView *pGraphicsView);
+  Element(ModelInstance::Element *pModelElement, bool inherited, GraphicsView *pGraphicsView, bool createTransformation, QPointF position);
   Element(ModelInstance::Model *pModel, Element *pParentElement);
   Element(ModelInstance::Element *pModelElement, Element *pParentElement, Element *pRootParentElement);
 
@@ -207,7 +207,6 @@ public:
   // used for interface point
   Element(ElementInfo *pElementInfo, Element *pParentElement);
   bool isInheritedElement() {return mIsInheritedElement;}
-  bool isInheritedComponent() {return isInheritedElement();}
   bool hasShapeAnnotation(Element *pElement);
   bool hasNonExistingClass();
   QRectF boundingRect() const override;
@@ -221,9 +220,9 @@ public:
   QString getClassName() const;
   QString getComment() const;
   GraphicsView* getGraphicsView() {return mpGraphicsView;}
-  Element *getReferenceComponent() {return mpReferenceComponent;}
-  Element* getParentComponent() {return mpParentComponent;}
-  Element* getRootParentComponent();
+  Element *getReferenceElement() {return mpReferenceElement;}
+  Element* getParentElement() {return mpParentElement;}
+  Element* getRootParentElement();
   ElementType getElementType() {return mElementType;}
   QString getTransformationString() {return mTransformationString;}
   void setDialogAnnotation(QStringList dialogAnnotation) {mDialogAnnotation = dialogAnnotation;}
@@ -245,11 +244,9 @@ public:
   QAction* getSubModelAttributesAction() {return mpSubModelAttributesAction;}
   QAction* getElementPropertiesAction() {return mpElementPropertiesAction;}
   ElementInfo* getElementInfo() {return mpElementInfo;}
-  ElementInfo* getComponentInfo() {return mpElementInfo;}
   QList<ShapeAnnotation*> getShapesList() {return mShapesList;}
   QList<Element*> getInheritedElementsList() {return mInheritedElementsList;}
   QList<Element*> getElementsList() {return mElementsList;}
-  QList<Element*> getComponentsList() {return mElementsList;}
   void setOldScenePosition(QPointF oldScenePosition) {mOldScenePosition = oldScenePosition;}
   QPointF getOldScenePosition() {return mOldScenePosition;}
   void setOldPosition(QPointF oldPosition) {mOldPosition = oldPosition;}
@@ -263,8 +260,12 @@ public:
   QString getTransformationExtent();
   bool isExpandableConnector() const;
   bool isArray() const;
+  QStringList getAbsynArrayIndexes() const;
+  QStringList getTypedArrayIndexes() const;
   int getArrayIndexAsNumber(bool *ok = 0) const;
   bool isConnectorSizing();
+  bool isParameterConnectorSizing(const QString &parameter);
+  static bool isParameterConnectorSizing(ModelInstance::Model *pModel, QString parameter);
   static bool isParameterConnectorSizing(Element *pElement, QString parameter);
   void createClassElements();
   void applyRotation(qreal angle);
@@ -301,15 +302,18 @@ public:
   bool isInBus() {return mpBusComponent != 0;}
   void setBusComponent(Element *pBusComponent);
   Element* getBusComponent() {return mpBusComponent;}
-  Element* getElementByName(const QString &componentName);
+  Element* getElementByName(const QString &elementName);
+  static ModelInstance::Element* getModelElementByName(ModelInstance::Model *pModel, const QString &elementName);
 
   Transformation mTransformation;
   Transformation mOldTransformation;
 private:
   ModelInstance::Element *mpModelElement;
   ModelInstance::Model *mpModel;
-  Element *mpReferenceComponent;
-  Element *mpParentComponent;
+  QString mName;
+  QString mClassName;
+  Element *mpReferenceElement;
+  Element *mpParentElement;
   LibraryTreeItem *mpLibraryTreeItem;
   ElementInfo *mpElementInfo;
   GraphicsView *mpGraphicsView;
@@ -370,7 +374,6 @@ private:
   void showResizerItems();
   void hideResizerItems();
   void getScale(qreal *sx, qreal *sy);
-  void setOriginAndExtents();
   void updateConnections();
   QString getParameterDisplayStringFromExtendsModifiers(QString parameterName);
   QString getParameterDisplayStringFromExtendsParameters(QString parameterName, QString modifierString);
