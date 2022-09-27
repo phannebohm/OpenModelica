@@ -292,7 +292,7 @@ public
         root := unionfind.nodes[root];
         count := count + 1;
       end while;
-      // set to root for future calls so the paths don't grow so much.
+      // set to root for future calls so the trees don't grow so deep.
       unionfind.nodes[index] := root;
       // DEBUG
       //if count > 0 and substring(origin, 1, 6) == "repair" then
@@ -364,7 +364,7 @@ public
           (graph, id2) := newFromExp(exp2, graph);
         then add(ENode.BINARY(id1, id2, BinaryOp.POW), graph);
         else algorithm
-          Error.addInternalError(getInstanceName() + " failed.", sourceInfo());
+          Error.addInternalError(getInstanceName() + " failed for:\n" + Expression.toString(exp1) + "\n" + Operator.toDebugString(op) + "\n" + Expression.toString(exp2), sourceInfo());
         then fail();
       end match;
     end binaryByOperator;
@@ -381,7 +381,9 @@ public
         case Op.UMINUS algorithm
           (graph, tmpId) := newFromExp(exp, graph);
         then add(ENode.UNARY(tmpId, UnaryOp.UMINUS), graph);
-        else fail();
+        else algorithm
+          Error.addInternalError(getInstanceName() + " failed for:\n" + Operator.toDebugString(op) + "\n" + Expression.toString(exp), sourceInfo());
+        then fail();
       end match;
     end unaryByOperator;
 
@@ -606,7 +608,6 @@ public
         (node, id) := tup;
         node_elem := UnorderedMap.getSafe(find(graph, id, "repair1"), graph.eclasses, sourceInfo());
         UnorderedSet.remove(node, node_elem.nodes);
-        UnorderedMap.remove(node, graph.hashcons);
         node := canonicalize(graph, node);
         UnorderedMap.add(node, find(graph, id, "repair2"), graph.hashcons);
         UnorderedSet.add(node, node_elem.nodes);
