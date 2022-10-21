@@ -99,7 +99,6 @@ private:
     void reset();
     bool isComplete() const;
     void deserialize(const QJsonObject &jsonObject);
-    void serialize(QJsonObject &jsonObject) const;
 
     CoordinateSystem& operator=(const CoordinateSystem &coOrdinateSystem) noexcept = default;
   private:
@@ -304,19 +303,45 @@ private:
     IconDiagramAnnotation();
     ~IconDiagramAnnotation();
     void deserialize(const QJsonObject &jsonObject);
-    void serialize(QJsonObject &jsonObject) const;
     CoordinateSystem getCoordinateSystem() {return mCoordinateSystem;}
+    CoordinateSystem getMergedCoordinateSystem() {return mMergedCoOrdinateSystem;}
     QList<Shape*> getGraphics() const {return mGraphics;}
     bool isGraphicsEmpty() const {return mGraphics.isEmpty();}
 
     CoordinateSystem mCoordinateSystem;
+    CoordinateSystem mMergedCoOrdinateSystem;
     QList<Shape*> mGraphics;
 
+  };
+
+  class Modifier
+  {
+  public:
+    Modifier();
+    void deserialize(const QJsonValue &jsonValue);
+
+    QString getName() const {return mName;}
+    void setName(const QString &name) {mName = name;}
+    QString getValue() const {return mValue;}
+    QList<Modifier> getModifiers() const {return mModifiers;}
+    bool isFinal() const {return mFinal;}
+    bool isEach() const {return mEach;}
+    QString getModifierValue(QStringList qualifiedModifierName);
+  private:
+    QString mName;
+    QString mValue;
+    bool mFinal;
+    bool mEach;
+    QList<Modifier> mModifiers;
+
+    static QString getModifierValue(const Modifier &modifier, const QString &modifierName, QStringList qualifiedModifierName);
   };
 
   class Extend;
   class Element;
   class Connection;
+  class Transition;
+  class InitialState;
   class Model
   {
   public:
@@ -324,16 +349,16 @@ private:
     Model(const QJsonObject &jsonObject);
     virtual ~Model();
     void deserialize();
-    void serialize(QJsonObject &jsonObject) const;
     QJsonObject getModelJson() const {return mModelJson;}
     void setModelJson(const QJsonObject &modelJson) {mModelJson = modelJson;}
     QString getName() const {return mName;}
     QStringList getDims() const {return mDims;}
-    void setRestriction(const QString &restriction) {mRestriction = restriction;}
     QString getRestriction() const {return mRestriction;}
+    Modifier getModifier() const {return mModifier;}
     bool isConnector() const;
     bool isExpandableConnector() const;
     bool isEnumeration() const;
+    bool isType() const;
     bool isPublic() const {return mPublic;}
     bool isFinal() const {return mFinal;}
     bool isInner() const {return mInner;}
@@ -346,6 +371,7 @@ private:
     QString getComment() const {return mComment;}
     IconDiagramAnnotation *getIconAnnotation() const {return mpIconAnnotation;}
     IconDiagramAnnotation *getDiagramAnnotation() const {return mpDiagramAnnotation;}
+    void readCoordinateSystemFromExtendsClass(bool isIcon);
     bool isDocumentationClass() const {return mDocumentationClass;}
     QString getVersion() const {return mVersion;}
     QString getVersionDate() const {return mVersionDate;}
@@ -363,6 +389,8 @@ private:
     int getColumnEnd() const {return mColumnEnd;}
     bool isReadonly() const {return mReadonly;}
     QList<Connection *> getConnections() const {return mConnections;}
+    QList<Transition *> getTransitions() const {return mTransitions;}
+    QList<InitialState *> getInitialStates() const {return mInitialStates;}
 
     bool isParameterConnectorSizing(const QString &parameter);
   private:
@@ -372,6 +400,7 @@ private:
     QString mName;
     QStringList mDims;
     QString mRestriction;
+    Modifier mModifier;
     bool mPublic;
     bool mFinal;
     bool mInner;
@@ -400,6 +429,8 @@ private:
     int mColumnEnd;
     bool mReadonly;
     QList<Connection*> mConnections;
+    QList<Transition*> mTransitions;
+    QList<InitialState*> mInitialStates;
   };
 
   class Transformation
@@ -407,7 +438,6 @@ private:
   public:
     Transformation();
     void deserialize(const QJsonObject &jsonObject);
-    void serialize(QJsonObject &jsonObject) const;
     Point getOrigin() const {return mOrigin;}
     Extent getExtent() const {return mExtent;}
     double getRotation() const {return mRotation;}
@@ -422,7 +452,6 @@ private:
   public:
     PlacementAnnotation();
     void deserialize(const QJsonObject &jsonObject);
-    void serialize(QJsonObject &jsonObject) const;
     bool getVisible() const {return mVisible;}
     Transformation getTransformation() const {return mTransformation;}
     bool getIconVisible() const {return mIconVisible;}
@@ -439,7 +468,6 @@ private:
   public:
     Selector();
     void deserialize(const QJsonObject &jsonObject);
-    void serialize(QJsonObject &jsonObject) const;
     QString getFilter() const {return mFilter;}
     QString getCaption() const {return mCaption;}
   private:
@@ -452,7 +480,6 @@ private:
   public:
     DialogAnnotation();
     void deserialize(const QJsonObject &jsonObject);
-    void serialize(QJsonObject &jsonObject) const;
     QString getTab() const {return mTab;}
     QString getGroup() const {return mGroup;}
     bool isEnabled() const {return mEnable;}
@@ -476,33 +503,11 @@ private:
     bool mConnectorSizing;
   };
 
-  class Modifier
-  {
-  public:
-    Modifier();
-    void deserialize(const QJsonValue &jsonValue);
-    void serialize(QJsonObject &jsonObject) const;
-
-    QString getName() const {return mName;}
-    void setName(const QString &name) {mName = name;}
-    QString getValue() const {return mValue;}
-    QList<Modifier> getModifiers() const {return mModifiers;}
-    bool isFinal() const {return mFinal;}
-    bool isEach() const {return mEach;}
-  private:
-    QString mName;
-    QString mValue;
-    bool mFinal;
-    bool mEach;
-    QList<Modifier> mModifiers;
-  };
-
   class Choices
   {
   public:
     Choices();
     void deserialize(const QJsonObject &jsonObject);
-    void serialize(QJsonObject &jsonObject) const;
     bool isCheckBox() const {return mCheckBox;}
     bool isDymolaCheckBox() const {return mDymolaCheckBox;}
   private:
@@ -517,7 +522,6 @@ private:
     ~Element();
     void initialize();
     void deserialize(const QJsonObject &jsonObject);
-    void serialize(QJsonObject &jsonObject) const;
 
     Model *getParentModel() const {return mpParentModel;}
     void setName(const QString &name) {mName = name;}
@@ -528,6 +532,7 @@ private:
     void setModel(Model *pModel) {mpModel = pModel;}
     Model *getModel() const {return mpModel;}
     Modifier getModifier() const {return mModifier;}
+    QString getModifierValueFromType(QStringList modifierName);
     QStringList getAbsynDimensions() const {return mAbsynDims;}
     QString getAbsynDimensionsString() const {return mAbsynDims.join(", ");}
     QStringList getTypedDimensions() const {return mTypedDims;}
@@ -566,11 +571,14 @@ private:
     QString mVariability;
     QString mDirection;
     QString mComment;
+    bool mChoicesAllMatching;
     PlacementAnnotation mPlacementAnnotation;
     bool mHasDialogAnnotation;
     DialogAnnotation mDialogAnnotation;
     bool mEvaluate;
     Choices mChoices;
+
+    static QString getModifierValueFromInheritedType(Model *pModel, QStringList modifierName);
   };
 
   class Part
@@ -604,17 +612,59 @@ private:
     Connection();
     ~Connection();
     void deserialize(const QJsonObject &jsonObject);
-    void serialize(QJsonObject &jsonObject) const;
 
     Connector *getStartConnector() const {return mpStartConnector;}
     Connector *getEndConnector() const {return mpEndConnector;}
     Line *getLine() const {return mpLine;}
     Text *getText() const {return mpText;}
+    QString toString() const;
   private:
     Connector *mpStartConnector;
     Connector *mpEndConnector;
     Line *mpLine;
     Text *mpText;
+  };
+
+  class Transition
+  {
+  public:
+    Transition();
+    void deserialize(const QJsonObject &jsonObject);
+
+    Connector *getStartConnector() const {return mpStartConnector;}
+    Connector *getEndConnector() const {return mpEndConnector;}
+    bool getCondition() const {return mCondition;}
+    bool getImmediate() const {return mImmediate;}
+    bool getReset() const {return mReset;}
+    bool getSynchronize() const {return mSynchronize;}
+    int getPriority() const {return mPriority;}
+    Line *getLine() const {return mpLine;}
+    Text *getText() const {return mpText;}
+    QString toString() const;
+  private:
+    Connector *mpStartConnector;
+    Connector *mpEndConnector;
+    bool mCondition;
+    bool mImmediate;
+    bool mReset;
+    bool mSynchronize;
+    int mPriority;
+    Line *mpLine;
+    Text *mpText;
+  };
+
+  class InitialState
+  {
+  public:
+    InitialState();
+    void deserialize(const QJsonObject &jsonObject);
+
+    Connector *getStartConnector() const {return mpStartConnector;}
+    Line *getLine() const {return mpLine;}
+    QString toString() const;
+  private:
+    Connector *mpStartConnector;
+    Line *mpLine;
   };
 
   class Extend : public Model
@@ -623,11 +673,10 @@ private:
     Extend();
     ~Extend();
     void deserialize(const QJsonObject &jsonObject);
-    void serialize(QJsonObject &jsonObject) const;
 
-    Modifier getModifier() const {return mModifier;}
+    Modifier getExtendsModifier() const {return mExtendsModifier;}
   private:
-    Modifier mModifier;
+    Modifier mExtendsModifier;
   };
 
 }

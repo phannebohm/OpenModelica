@@ -35,6 +35,7 @@
 #include <iostream>
 #include "TextAnnotation.h"
 #include "Modeling/Commands.h"
+#include "Options/OptionsDialog.h"
 
 /*!
  * \class TextAnnotation
@@ -142,6 +143,31 @@ TextAnnotation::TextAnnotation(QString annotation, LineAnnotation *pLineAnnotati
   FilledShape::setDefaults();
   ShapeAnnotation::setDefaults();
   parseShapeAnnotation(annotation);
+  updateTextString();
+  /* From Modelica Spec 33revision1,
+   * The extent of the Text is interpreted relative to either the first point of the Line, in the case of immediate=false,
+   * or the last point (immediate=true).
+   */
+  if (pLineAnnotation->getPoints().size() > 0) {
+    if (pLineAnnotation->getImmediate()) {
+      setPos(pLineAnnotation->getPoints().last());
+    } else {
+      setPos(pLineAnnotation->getPoints().first());
+    }
+  }
+}
+
+TextAnnotation::TextAnnotation(ModelInstance::Text *pText, LineAnnotation *pLineAnnotation)
+  : ShapeAnnotation(pLineAnnotation)
+{
+  mpElement = 0;
+  mpOriginItem = 0;
+  mpText = pText;
+  // set the default values
+  GraphicItem::setDefaults();
+  FilledShape::setDefaults();
+  ShapeAnnotation::setDefaults();
+  parseShapeAnnotation();
   updateTextString();
   /* From Modelica Spec 33revision1,
    * The extent of the Text is interpreted relative to either the first point of the Line, in the case of immediate=false,
@@ -311,7 +337,7 @@ void TextAnnotation::paint(QPainter *painter, const QStyleOptionGraphicsItem *op
   Q_UNUSED(widget);
   //! @note We don't show text annotation that contains % for Library Icons or if it is too long.
   if (mpGraphicsView && mpGraphicsView->isRenderingLibraryPixmap()) {
-    if (mTextString.contains("%") || mTextString.length() > maxTextLengthToShowOnLibraryIcon) {
+    if (mTextString.contains("%") || mTextString.length() > OptionsDialog::instance()->getGeneralSettingsPage()->getLibraryIconTextLengthSpinBox()->value()) {
       return;
     }
   } else if (mpElement && mpElement->getGraphicsView()->isRenderingLibraryPixmap()) {
@@ -320,8 +346,9 @@ void TextAnnotation::paint(QPainter *painter, const QStyleOptionGraphicsItem *op
   if (mVisible) {
     // state machine visualization
     // text annotation on a element
-    if (mpElement && mpElement->getLibraryTreeItem() && mpElement->getLibraryTreeItem()->isState()
-        && mpElement->getGraphicsView()->isVisualizationView()) {
+    if (mpElement && mpElement->getGraphicsView()->isVisualizationView()
+        && ((mpElement->getGraphicsView()->getModelWidget()->isNewApi() && mpElement->getModel() && mpElement->getModel()->isState())
+            || (mpElement->getLibraryTreeItem() && mpElement->getLibraryTreeItem()->isState()))) {
       if (mpElement->isActiveState()) {
         painter->setOpacity(1.0);
       } else {
@@ -575,7 +602,14 @@ void TextAnnotation::updateTextStringHelper(QRegExp regExp)
           QString displayUnit = mpElement->getRootParentElement()->getParameterModifierValue(variable, "displayUnit");
           if (MainWindow::instance()->isNewApi()) {
             ModelInstance::Element* pModelElement = Element::getModelElementByName(mpElement->getRootParentElement()->getModel(), variable);
-            //! @todo Fix this once we actually have SI.Resistance as type of Element instead of Real. See issue #9374.
+            if (pModelElement) {
+              if (displayUnit.isEmpty()) {
+                displayUnit = pModelElement->getModifierValueFromType(QStringList() << "displayUnit");
+              }
+              if (unit.isEmpty()) {
+                unit = pModelElement->getModifierValueFromType(QStringList() << "unit");
+              }
+            }
           } else {
             Element *pElement = mpElement->getRootParentElement()->getElementByName(variable);
             if (pElement) {
@@ -585,11 +619,11 @@ void TextAnnotation::updateTextStringHelper(QRegExp regExp)
               if (unit.isEmpty()) {
                 unit = pElement->getDerivedClassModifierValue("unit");
               }
-              // if display unit is still empty then use unit
-              if (displayUnit.isEmpty()) {
-                displayUnit = unit;
-              }
             }
+          }
+          // if display unit is still empty then use unit
+          if (displayUnit.isEmpty()) {
+            displayUnit = unit;
           }
           // do not do any conversion if unit or displayUnit is empty of if both are 1!
           if (displayUnit.isEmpty() || unit.isEmpty() || (displayUnit.compare("1") == 0 && unit.compare("1") == 0)) {

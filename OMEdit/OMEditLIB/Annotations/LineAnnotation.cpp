@@ -221,7 +221,7 @@ LineAnnotation::LineAnnotation(LineAnnotation::LineType lineType, Element *pStar
      */
     mLineColor = QColor(175, 175, 175);
     mSmooth = StringHandler::SmoothBezier;
-    QString textShape = "true, {0.0, 0.0}, 0, {95, 95, 95}, {0, 0, 0}, LinePattern.Solid, FillPattern.None, 0.25, {{-4, 4}, {-4, 10}}, \"%condition\", 10, {TextStyle.Bold}, TextAlignment.Right";
+    QString textShape = "true, {0.0, 0.0}, 0, {95, 95, 95}, {0, 0, 0}, LinePattern.Solid, FillPattern.None, 0.25, {{-4, 4}, {-4, 10}}, \"%condition\", 10, {-1, -1, -1}, "", {TextStyle.Bold}, TextAlignment.Right";
     mpTextAnnotation = new TextAnnotation(textShape, this);
   }
   // set the graphics view
@@ -383,6 +383,54 @@ LineAnnotation::LineAnnotation(QString annotation, QString text, Element *pStart
   mpGraphicsView->addItem(this);
 }
 
+LineAnnotation::LineAnnotation(ModelInstance::Transition *pTransition, Element *pStartComponent, Element *pEndComponent, bool inherited, GraphicsView *pGraphicsView)
+  : ShapeAnnotation(inherited, pGraphicsView, 0, 0)
+{
+  mpOriginItem = 0;
+  setFlag(QGraphicsItem::ItemIsSelectable);
+  mLineType = LineAnnotation::TransitionType;
+  setZValue(1000);
+  mpLine = pTransition->getLine();
+  // set the default values
+  GraphicItem::setDefaults();
+  ShapeAnnotation::setDefaults();
+  // set the start component
+  setStartElement(pStartComponent);
+  setStartElementName(pTransition->getStartConnector()->getName());
+  // set the end component
+  setEndElement(pEndComponent);
+  setEndElementName(pTransition->getEndConnector()->getName());
+  mStartAndEndElementsSelected = false;
+  setCondition(pTransition->getCondition() ? "true" : "false");
+  setImmediate(pTransition->getImmediate());
+  setReset(pTransition->getReset());
+  setSynchronize(pTransition->getSynchronize());
+  setPriority(pTransition->getPriority());
+  setOldAnnotation("");
+  setDelay("");
+  setZf("");
+  setZfr("");
+  setAlpha("");
+  setOMSConnectionType(oms_connection_single);
+  setActiveState(false);
+  parseShapeAnnotation();
+  /* make the points relative to origin */
+  QList<QPointF> points;
+  for (int i = 0 ; i < mPoints.size() ; i++) {
+    QPointF point = mOrigin + mPoints[i];
+    points.append(point);
+  }
+  mPoints = points;
+  mOrigin = QPointF(0, 0);
+  if (pTransition->getText()) {
+    mpTextAnnotation = new TextAnnotation(pTransition->getText(), this);
+  } else {
+    mpTextAnnotation = 0;
+  }
+  // set the graphics view
+  mpGraphicsView->addItem(this);
+}
+
 LineAnnotation::LineAnnotation(QString annotation, Element *pComponent, GraphicsView *pGraphicsView)
   : ShapeAnnotation(false, pGraphicsView, 0, 0)
 {
@@ -414,6 +462,50 @@ LineAnnotation::LineAnnotation(QString annotation, Element *pComponent, Graphics
   setOMSConnectionType(oms_connection_single);
   setActiveState(false);
   parseShapeAnnotation(annotation);
+  /* make the points relative to origin */
+  QList<QPointF> points;
+  for (int i = 0 ; i < mPoints.size() ; i++) {
+    QPointF point = mOrigin + mPoints[i];
+    points.append(point);
+  }
+  mPoints = points;
+  mOrigin = QPointF(0, 0);
+  // set the graphics view
+  mpGraphicsView->addItem(this);
+}
+
+LineAnnotation::LineAnnotation(ModelInstance::InitialState *pInitialState, Element *pComponent, bool inherited, GraphicsView *pGraphicsView)
+  : ShapeAnnotation(inherited, pGraphicsView, 0, 0)
+{
+  mpOriginItem = 0;
+  setFlag(QGraphicsItem::ItemIsSelectable);
+  mLineType = LineAnnotation::InitialStateType;
+  setZValue(1000);
+  mpLine = pInitialState->getLine();
+  // set the default values
+  GraphicItem::setDefaults();
+  ShapeAnnotation::setDefaults();
+  // set the start component
+  setStartElement(pComponent);
+  setStartElementName(pInitialState->getStartConnector()->getName());
+  // set the end component
+  setEndElement(0);
+  setEndElementName("");
+  mStartAndEndElementsSelected = false;
+  setCondition("");
+  setImmediate(true);
+  setReset(true);
+  setSynchronize(false);
+  setPriority(1);
+  mpTextAnnotation = 0;
+  setOldAnnotation("");
+  setDelay("");
+  setZf("");
+  setZfr("");
+  setAlpha("");
+  setOMSConnectionType(oms_connection_single);
+  setActiveState(false);
+  parseShapeAnnotation();
   /* make the points relative to origin */
   QList<QPointF> points;
   for (int i = 0 ; i < mPoints.size() ; i++) {
@@ -1239,6 +1331,8 @@ void LineAnnotation::updateToolTip()
                .arg(getReset() ? "true" : "false")
                .arg(getSynchronize() ? "true" : "false")
                .arg(getPriority()));
+  } else if (mLineType == LineAnnotation::InitialStateType) {
+    setToolTip(QString("<b>initialState</b>(%1)").arg(getStartElementName()));
   }
 }
 
@@ -2234,24 +2328,24 @@ QString CreateConnectionDialog::getElementConnectionName(GraphicsView *pGraphics
         elementName += QString("[%1]").arg(elementIndexes.join(","));
       }
     } else if (pElement1->isConnectorSizing()) {  // If the element1 is a connectorSizing then use the element2 to find the connectorSizing value.
-//      int numberOfElementConnections = pGraphicsView->numberOfElementConnections(pElement1);
-//      if (pElement2->isExpandableConnector()) {
-//        elementName += QString("[%1]").arg(++numberOfElementConnections);
-//      } else if (pElement2->getParentElement() && pRootElement2->isArray() && !pRootElement2->isConnectorSizing()) {
-//        if (pRootElementSpinBox2->value() > 0 || pRootElement2->getArrayIndexAsNumber() == 0) {
-//          elementName += QString("[%1]").arg(++numberOfElementConnections);
-//        } else {
-//          int endConnectionIndex = numberOfElementConnections + pRootElement2->getArrayIndexAsNumber();
-//          elementName += QString("[%1:%2]").arg(++numberOfElementConnections).arg(endConnectionIndex);
-//        }
-//      } else if (pElement2->isArray() && !pElement2->isConnectorSizing()) {
-//        if (pElementSpinBox2->value() > 0 || pElement2->getArrayIndexAsNumber() == 0) {
-//          elementName += QString("[%1]").arg(++numberOfElementConnections);
-//        } else {
-//          int endConnectionIndex = numberOfElementConnections + pElement2->getArrayIndexAsNumber();
-//          elementName += QString("[%1:%2]").arg(++numberOfElementConnections).arg(endConnectionIndex);
-//        }
-//      }
+      int numberOfElementConnections = pGraphicsView->numberOfElementConnections(pElement1);
+      if (pElement2->isExpandableConnector()) {
+        elementName += QString("[%1]").arg(++numberOfElementConnections);
+      } else if (pElement2->getParentElement() && pRootElement2->isArray() && !pRootElement2->isConnectorSizing()) {
+        if ((!rootElementSpinBoxList2.isEmpty() && rootElementSpinBoxList2.at(0)->value() > 0) || pRootElement2->getArrayIndexAsNumber() == 0) {
+          elementName += QString("[%1]").arg(++numberOfElementConnections);
+        } else {
+          int endConnectionIndex = numberOfElementConnections + pRootElement2->getArrayIndexAsNumber();
+          elementName += QString("[%1:%2]").arg(++numberOfElementConnections).arg(endConnectionIndex);
+        }
+      } else if (pElement2->isArray() && !pElement2->isConnectorSizing()) {
+        if ((!elementSpinBoxList2.isEmpty() && elementSpinBoxList2.at(0)->value() > 0) || pElement2->getArrayIndexAsNumber() == 0) {
+          elementName += QString("[%1]").arg(++numberOfElementConnections);
+        } else {
+          int endConnectionIndex = numberOfElementConnections + pElement2->getArrayIndexAsNumber();
+          elementName += QString("[%1:%2]").arg(++numberOfElementConnections).arg(endConnectionIndex);
+        }
+      }
     }
   }
   return elementName;
@@ -2376,6 +2470,8 @@ void CreateConnectionDialog::createConnection()
   if (mpGraphicsView->getModelWidget()->isNewApi()) {
     mpConnectionLineAnnotation->setLine(new ModelInstance::Line);
     mpConnectionLineAnnotation->updateLine();
+    mpConnectionLineAnnotation->drawCornerItems();
+    mpConnectionLineAnnotation->setCornerItemsActiveOrPassive();
     ModelInfo oldModelInfo = mpGraphicsView->getModelWidget()->createModelInfo();
     mpGraphicsView->addConnectionToView(mpConnectionLineAnnotation, false);
     mpGraphicsView->addConnectionToClass(mpConnectionLineAnnotation);
@@ -2503,8 +2599,20 @@ void CreateOrEditTransitionDialog::createOrEditTransition()
                                                                                        mpPrioritySpinBox->value(),
                                                                                        mpTransitionLineAnnotation->getOMCShapeAnnotation()));
   } else {
-    mpGraphicsView->getModelWidget()->getUndoStack()->push(new AddTransitionCommand(mpTransitionLineAnnotation, true));
-    //mpGraphicsView->getModelWidget()->getLibraryTreeItem()->emitConnectionAdded(mpTransitionLineAnnotation);
+    if (mpGraphicsView->getModelWidget()->isNewApi()) {
+      mpTransitionLineAnnotation->setLine(new ModelInstance::Line);
+      mpTransitionLineAnnotation->updateLine();
+      mpTransitionLineAnnotation->drawCornerItems();
+      mpTransitionLineAnnotation->setCornerItemsActiveOrPassive();
+      ModelInfo oldModelInfo = mpGraphicsView->getModelWidget()->createModelInfo();
+      mpGraphicsView->addTransitionToView(mpTransitionLineAnnotation, false);
+      mpGraphicsView->addTransitionToClass(mpTransitionLineAnnotation);
+      ModelInfo newModelInfo = mpGraphicsView->getModelWidget()->createModelInfo();
+      mpGraphicsView->getModelWidget()->getUndoStack()->push(new OMCUndoCommand(mpGraphicsView->getModelWidget()->getLibraryTreeItem(), oldModelInfo, newModelInfo, "Add Transition"));
+    } else {
+      mpGraphicsView->getModelWidget()->getUndoStack()->push(new AddTransitionCommand(mpTransitionLineAnnotation, true));
+      //mpGraphicsView->getModelWidget()->getLibraryTreeItem()->emitConnectionAdded(mpTransitionLineAnnotation);
+    }
   }
   mpGraphicsView->getModelWidget()->updateModelText();
   accept();

@@ -2235,12 +2235,14 @@ algorithm
 
     case ("getAvailableLibraries",{})
       algorithm
+        PackageManagement.installCachedPackages();
         files := PackageManagement.AvailableLibraries.listKeys(PackageManagement.getInstalledLibraries());
       then
         ValuesUtil.makeArray(List.map(files, ValuesUtil.makeString));
 
     case ("getAvailableLibraryVersions",{Values.CODE(Absyn.C_TYPENAME(Absyn.IDENT(str1)))})
       algorithm
+        PackageManagement.installCachedPackages();
         files := PackageManagement.getInstalledLibraryVersions(str1);
       then
         ValuesUtil.makeArray(List.map(files, ValuesUtil.makeString));
@@ -3258,7 +3260,7 @@ algorithm
   else
     str := AbsynUtil.pathFirstIdent(className);
     (p,b) := CevalScript.loadModel({(Absyn.IDENT(str),"the given model name to instantiate",{"default"},false)},Settings.getModelicaPath(Testsuite.isRunning()),p,true,true,true,false);
-    Error.assertionOrAddSourceMessage(not b,Error.NOTIFY_LOAD_MODEL_DUE_TO_USES,{str,"default"},AbsynUtil.dummyInfo);
+    Error.assertionOrAddSourceMessage(not b,Error.NOTIFY_IMPLICIT_LOAD,{str,"default"},AbsynUtil.dummyInfo);
     System.loadModelCallBack(str);
     // print(stringDelimitList(list(AbsynUtil.pathString(path) for path in Interactive.getTopClassnames(p)), ",") + "\n");
     SymbolTable.setAbsyn(p);
@@ -3579,21 +3581,20 @@ algorithm
     case {"dynamic"}
       algorithm
         if isWindows then
-          CMAKE_GENERATOR := "-G MSYS Makefiles ";
+          CMAKE_GENERATOR := "-G " + dquote + "MSYS Makefiles" + dquote + " ";
         end if;
         buildDir := "build_cmake_dynamic";
-        cmakeCall := "cmake " + CMAKE_GENERATOR +
+        cmakeCall := Autoconf.cmake + " " + CMAKE_GENERATOR +
                               "-DFMI_INTERFACE_HEADER_FILES_DIRECTORY=" + defaultFmiIncludeDirectoy + " " +
                               CMAKE_BUILD_TYPE +
                               " ..";
-        cmd := "cd \"" + fmuSourceDir + "\" && " +
+        cmd := "cd " + dquote + fmuSourceDir + dquote + " && " +
                "mkdir " + buildDir + " && cd " + buildDir + " && " +
                cmakeCall + " && " +
-               "cmake --build . --target install && " +
+               Autoconf.cmake + " --build . --target install && " +
                "cd .. && rm -rf " + buildDir;
         if 0 <> System.systemCall(cmd, outFile=logfile) then
           Error.addMessage(Error.SIMULATOR_BUILD_ERROR, {System.readFile(logfile)});
-          System.removeFile(logfile);
           fail();
         end if;
         then();
@@ -3638,7 +3639,7 @@ algorithm
         else
           fmiTarget := "";
         end if;
-        cmakeCall := "cmake -DFMI_INTERFACE_HEADER_FILES_DIRECTORY=/fmu/fmiInclude " +
+        cmakeCall := Autoconf.cmake + " -DFMI_INTERFACE_HEADER_FILES_DIRECTORY=/fmu/fmiInclude " +
                             fmiTarget +
                             CMAKE_BUILD_TYPE +
                             " ..";
@@ -3647,7 +3648,7 @@ algorithm
                   "cd " + dquote + "/fmu/" + fmuSourceDir + dquote + " && " +
                   "mkdir " + buildDir + " && cd " + buildDir + " && " +
                   cmakeCall + " && " +
-                  "cmake --build . && make install && " +
+                  Autoconf.cmake + " --build . && " + Autoconf.make + " install && " +
                   "cd .. && rm -rf " + buildDir +
                 dquote;
         runDockerCmd(cmd, dockerLogFile, cleanup=true, volumeID=volumeID, containerID=containerID);
@@ -3678,7 +3679,9 @@ algorithm
         then();
     else
       algorithm
-        Error.addMessage(Error.SIMULATOR_BUILD_ERROR, {"Unknown/unsupported platform \"" + platform + " \" for CMake FMU build"});
+        Error.addMessage(Error.SIMULATOR_BUILD_ERROR,
+                         {"Unknown/unsupported platform \"" + platform + " \" for CMake FMU build. " +
+                          "Use platforms={\"dynamic\"} for the default case."});
       then fail();
   end match;
 end configureFMU_cmake;
@@ -3756,7 +3759,7 @@ algorithm
   if System.regularFileExists(logfile) then
     System.removeFile(logfile);
   end if;
-  nozip := Autoconf.make+" -j"+intString(Config.noProc()) + " nozip";
+  nozip := Autoconf.make + " -j" + intString(Config.noProc()) + " nozip";
   finishedBuild := match Util.stringSplitAtChar(platform, " ")
     case {"dynamic"}
       algorithm
@@ -3899,7 +3902,7 @@ algorithm
   ExecStat.execStat("buildModelFMU: configured platform " + platform + " using " + cmd);
   if not finishedBuild then
     if not isWindows then
-      if 0 <> System.systemCall("cd " + dir + " && make clean > /dev/null 2>&1") then
+      if 0 <> System.systemCall("cd " + dir + " && "+ Autoconf.make + " clean > /dev/null 2>&1") then
         Error.addMessage(Error.SIMULATOR_BUILD_ERROR, {"Failed to make clean"});
         fail();
       end if;
@@ -4046,7 +4049,7 @@ algorithm
       end if;
       ExecStat.execStat("buildModelFMU: Generate C++ for platform " + platform);
     end for;
-    if 0 <> System.systemCall("make -f " + filenameprefix + "_FMU.makefile clean", outFile=logfile) then
+    if 0 <> System.systemCall(Autoconf.make + " -f " + filenameprefix + "_FMU.makefile clean", outFile=logfile) then
       // do nothing
     end if;
     return;
@@ -4130,7 +4133,9 @@ algorithm
   end if;
 
   if not Flags.isSet(Flags.GEN_DEBUG_SYMBOLS) then
-    System.removeDirectory(fmutmp);
+    if not System.removeDirectory(fmutmp) then
+      Error.addInternalError("Failed to remove directory: " + fmutmp, sourceInfo());
+    end if;
   end if;
 end callBuildModelFMU;
 

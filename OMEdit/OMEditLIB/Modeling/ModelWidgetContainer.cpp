@@ -220,6 +220,8 @@ GraphicsView::GraphicsView(StringHandler::ViewType viewType, ModelWidget *pModel
   mOutOfSceneShapesList.clear();
   mInheritedElementsList.clear();
   mInheritedConnectionsList.clear();
+  mInheritedTransitionsList.clear();
+  mInheritedInitialStatesList.clear();
   mInheritedShapesList.clear();
   mpConnectionLineAnnotation = 0;
   mpTransitionLineAnnotation = 0;
@@ -245,39 +247,64 @@ void GraphicsView::setIsVisualizationView(bool visualizationView)
  */
 void GraphicsView::drawCoordinateSystem()
 {
-  /* From Modelica Specification Version 3.5-dev
-   * The coordinate system (including preserveAspectRatio) of a class is defined by the following priority:
-   * 1. The coordinate system annotation given in the class (if specified).
-   * 2. The coordinate systems of the first base-class where the extent on the extends-clause specifies a
-   *    null-region (if any). Note that null-region is the default for base-classes, see section 18.6.3.
-   * 3. The default coordinate system CoordinateSystem(extent={{-100, -100}, {100, 100}}).
-   *
-   * Following is the first case.
-   */
   ModelInstance::CoordinateSystem coordinateSystem;
   if (mViewType == StringHandler::Icon && mpModelWidget->getLibraryTreeItem()->getAccess() >= LibraryTreeItem::icon) {
     coordinateSystem = mpModelWidget->getModelInstance()->getIconAnnotation()->getCoordinateSystem();
   } else if (mViewType == StringHandler::Diagram && mpModelWidget->getLibraryTreeItem()->getAccess() >= LibraryTreeItem::diagram) {
     coordinateSystem = mpModelWidget->getModelInstance()->getDiagramAnnotation()->getCoordinateSystem();
   }
-  ModelInstance::Extent extent = coordinateSystem.getExtent();
-  ModelInstance::Point leftBottom = extent.getExtent1();
-  mCoOrdinateSystem.setLeft(leftBottom.x());
-  mCoOrdinateSystem.setBottom(leftBottom.y());
-  ModelInstance::Point rightTop = extent.getExtent2();
-  mCoOrdinateSystem.setRight(rightTop.x());
-  mCoOrdinateSystem.setTop(rightTop.y());
-  mCoOrdinateSystem.setPreserveAspectRatio(coordinateSystem.getPreserveAspectRatio());
-  mCoOrdinateSystem.setInitialScale(coordinateSystem.getInitialScale());
-  ModelInstance::Point grid = coordinateSystem.getGrid();
-  mCoOrdinateSystem.setHorizontal(grid.x());
-  mCoOrdinateSystem.setVertical(grid.y());
-  // start with the local CoOrdinateSystem
+
+  if (coordinateSystem.hasExtent()) {
+    ModelInstance::Extent extent = coordinateSystem.getExtent();
+    ModelInstance::Point leftBottom = extent.getExtent1();
+    mCoOrdinateSystem.setLeft(leftBottom.x());
+    mCoOrdinateSystem.setBottom(leftBottom.y());
+    ModelInstance::Point rightTop = extent.getExtent2();
+    mCoOrdinateSystem.setRight(rightTop.x());
+    mCoOrdinateSystem.setTop(rightTop.y());
+  }
+  if (coordinateSystem.hasPreserveAspectRatio()) {
+    mCoOrdinateSystem.setPreserveAspectRatio(coordinateSystem.getPreserveAspectRatio());
+  }
+  if (coordinateSystem.hasInitialScale()) {
+    mCoOrdinateSystem.setInitialScale(coordinateSystem.getInitialScale());
+  }
+  if (coordinateSystem.hasGrid()) {
+    ModelInstance::Point grid = coordinateSystem.getGrid();
+    mCoOrdinateSystem.setHorizontal(grid.x());
+    mCoOrdinateSystem.setVertical(grid.y());
+  }
   mMergedCoOrdinateSystem = mCoOrdinateSystem;
   // if local CoOrdinateSystem is not complete then try to complete the merged CoOrdinateSystem.
-//  if (!mCoOrdinateSystem.isComplete()) {
-//    readCoOrdinateSystemFromInheritedClass(this, pGraphicsView);
-//  }
+  if (!mCoOrdinateSystem.isComplete()) {
+    ModelInstance::CoordinateSystem mergedCoordinateSystem;
+    if (mViewType == StringHandler::Icon && mpModelWidget->getLibraryTreeItem()->getAccess() >= LibraryTreeItem::icon) {
+      mergedCoordinateSystem = mpModelWidget->getModelInstance()->getIconAnnotation()->getMergedCoordinateSystem();
+    } else if (mViewType == StringHandler::Diagram && mpModelWidget->getLibraryTreeItem()->getAccess() >= LibraryTreeItem::diagram) {
+      mergedCoordinateSystem = mpModelWidget->getModelInstance()->getDiagramAnnotation()->getMergedCoordinateSystem();
+    }
+
+    if (mergedCoordinateSystem.hasExtent()) {
+      ModelInstance::Extent extent = mergedCoordinateSystem.getExtent();
+      ModelInstance::Point leftBottom = extent.getExtent1();
+      mMergedCoOrdinateSystem.setLeft(leftBottom.x());
+      mMergedCoOrdinateSystem.setBottom(leftBottom.y());
+      ModelInstance::Point rightTop = extent.getExtent2();
+      mMergedCoOrdinateSystem.setRight(rightTop.x());
+      mMergedCoOrdinateSystem.setTop(rightTop.y());
+    }
+    if (mergedCoordinateSystem.hasPreserveAspectRatio()) {
+      mMergedCoOrdinateSystem.setPreserveAspectRatio(mergedCoordinateSystem.getPreserveAspectRatio());
+    }
+    if (mergedCoordinateSystem.hasInitialScale()) {
+      mMergedCoOrdinateSystem.setInitialScale(mergedCoordinateSystem.getInitialScale());
+    }
+    if (mergedCoordinateSystem.hasGrid()) {
+      ModelInstance::Point grid = mergedCoordinateSystem.getGrid();
+      mMergedCoOrdinateSystem.setHorizontal(grid.x());
+      mMergedCoOrdinateSystem.setVertical(grid.y());
+    }
+  }
 
   setExtentRectangle(mMergedCoOrdinateSystem.getExtentRectangle());
   resize(size());
@@ -424,13 +451,13 @@ void GraphicsView::drawConnections(ModelInstance::Model *pModelInstance, bool in
   mpModelWidget->detectMultipleDeclarations();
   // We use access.diagram so we can draw connections.
   if (mpModelWidget->getLibraryTreeItem()->getAccess() >= LibraryTreeItem::diagram && mViewType == StringHandler::Diagram) {
+    int modelInfoIndex = -1;
     QList<ModelInstance::Connection*> connections = pModelInstance->getConnections();
     for (int i = 0; i < connections.size(); ++i) {
       auto pConnection = connections.at(i);
       // if connection is valid and has line annotation
       if (pConnection->getStartConnector() && pConnection->getEndConnector() && pConnection->getLine()
           && !connectionExists(pConnection->getStartConnector()->getName(), pConnection->getEndConnector()->getName(), inherited)) {
-        QString connectionString = QString("{%1, %2}").arg(pConnection->getStartConnector()->getName(), pConnection->getEndConnector()->getName());
         // get start and end elements
         QStringList startElementList = pConnection->getStartConnector()->getNameParts();
         QStringList endElementList = pConnection->getEndConnector()->getNameParts();
@@ -463,9 +490,10 @@ void GraphicsView::drawConnections(ModelInstance::Model *pModelInstance, bool in
         }
         // show error message if start element is not found.
         if (!pStartConnectorElement) {
-          MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica, GUIMessages::getMessage(GUIMessages::UNABLE_FIND_COMPONENT_IN_CONNECTION)
-                                                                .arg(pConnection->getStartConnector()->getName(), connectionString), Helper::scriptingKind, Helper::errorLevel));
-          return;
+          MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica, GUIMessages::getMessage(GUIMessages::UNABLE_FIND_COMPONENT_IN_CONNECTION_NEW)
+                                                                .arg(pConnection->getStartConnector()->getName()).arg(pConnection->toString())
+                                                                .arg(mpModelWidget->getLibraryTreeItem()->getNameStructure()), Helper::scriptingKind, Helper::errorLevel));
+          continue;
         }
         // get end element
         Element *pEndElement = 0;
@@ -491,22 +519,23 @@ void GraphicsView::drawConnections(ModelInstance::Model *pModelInstance, bool in
             pEndConnectorElement = mpModelWidget->getConnectorElement(pEndElement, endElementName);
           }
         }
-        // show error message if end component is not found.
+        // show error message if end element is not found.
         if (!pEndConnectorElement) {
-          MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica, GUIMessages::getMessage(GUIMessages::UNABLE_FIND_COMPONENT_IN_CONNECTION)
-                                                                .arg(pConnection->getEndConnector()->getName(), connectionString), Helper::scriptingKind, Helper::errorLevel));
-          return;
+          MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica, GUIMessages::getMessage(GUIMessages::UNABLE_FIND_COMPONENT_IN_CONNECTION_NEW)
+                                                                .arg(pConnection->getEndConnector()->getName()).arg(pConnection->toString())
+                                                                .arg(mpModelWidget->getLibraryTreeItem()->getNameStructure()), Helper::scriptingKind, Helper::errorLevel));
+          continue;
         }
 
-
+        modelInfoIndex++;
         if (modelInfo.mConnectionsList.isEmpty() || inherited) {
           LineAnnotation *pConnectionLineAnnotation = new LineAnnotation(pConnection, pStartConnectorElement, pEndConnectorElement, inherited, this);
           pConnectionLineAnnotation->drawCornerItems();
           pConnectionLineAnnotation->setCornerItemsActiveOrPassive();
           addConnectionToView(pConnectionLineAnnotation, inherited);
         } else { // update case
-          if (i < modelInfo.mConnectionsList.size()) {
-            LineAnnotation *pConnectionLineAnnotation = modelInfo.mConnectionsList.at(i);
+          if (modelInfoIndex < modelInfo.mConnectionsList.size()) {
+            LineAnnotation *pConnectionLineAnnotation = modelInfo.mConnectionsList.at(modelInfoIndex);
             if (pConnectionLineAnnotation) {
               pConnectionLineAnnotation->setStartElement(pStartConnectorElement);
               pConnectionLineAnnotation->setStartElementName(pConnection->getStartConnector()->getName());
@@ -522,10 +551,128 @@ void GraphicsView::drawConnections(ModelInstance::Model *pModelInstance, bool in
         }
       }
     }
+  }
+}
 
-//    getModelConnections();
-//    getModelTransitions();
-//    getModelInitialStates();
+/*!
+ * \brief GraphicsView::drawTransitions
+ * Draws the transitions.
+ * \param pModelInstance
+ * \param inherited
+ * \param modelInfo
+ */
+void GraphicsView::drawTransitions(ModelInstance::Model *pModelInstance, bool inherited, const ModelInfo &modelInfo)
+{
+  // We use access.diagram so we can draw transitions.
+  if (mpModelWidget->getLibraryTreeItem()->getAccess() >= LibraryTreeItem::diagram && mViewType == StringHandler::Diagram) {
+    int modelInfoIndex = -1;
+    QList<ModelInstance::Transition*> transitions = pModelInstance->getTransitions();
+    for (int i = 0; i < transitions.size(); ++i) {
+      auto pTransition = transitions.at(i);
+      // if transition is valid and has line annotation
+      if (pTransition->getStartConnector() && pTransition->getEndConnector() && pTransition->getLine()) {
+        // get start element
+        Element *pStartElement = getElementObject(pTransition->getStartConnector()->getName());
+        // show error message if start element is not found.
+        if (!pStartElement) {
+          MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica,
+                                                                GUIMessages::getMessage(GUIMessages::UNABLE_FIND_COMPONENT_IN_TRANSITION_NEW)
+                                                                .arg(pTransition->getStartConnector()->getName()).arg(pTransition->toString())
+                                                                .arg(mpModelWidget->getLibraryTreeItem()->getNameStructure()),
+                                                                Helper::scriptingKind, Helper::errorLevel));
+          continue;
+        }
+        // get end element
+        Element *pEndElement = getElementObject(pTransition->getEndConnector()->getName());
+        // show error message if end element is not found.
+
+        if (!pEndElement) {
+          MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica,
+                                                                GUIMessages::getMessage(GUIMessages::UNABLE_FIND_COMPONENT_IN_TRANSITION_NEW)
+                                                                .arg(pTransition->getEndConnector()->getName()).arg(pTransition->toString())
+                                                                .arg(mpModelWidget->getLibraryTreeItem()->getNameStructure()),
+                                                                Helper::scriptingKind, Helper::errorLevel));
+          continue;
+        }
+
+        modelInfoIndex++;
+        if (modelInfo.mTransitionsList.isEmpty() || inherited) {
+          LineAnnotation *pTransitionLineAnnotation = new LineAnnotation(pTransition, pStartElement, pEndElement, inherited, this);
+          pTransitionLineAnnotation->drawCornerItems();
+          pTransitionLineAnnotation->setCornerItemsActiveOrPassive();
+          addTransitionToView(pTransitionLineAnnotation, inherited);
+        } else { // update case
+          if (modelInfoIndex < modelInfo.mTransitionsList.size()) {
+            LineAnnotation *pTransitionLineAnnotation = modelInfo.mTransitionsList.at(modelInfoIndex);
+            if (pTransitionLineAnnotation) {
+              pTransitionLineAnnotation->setStartElement(pStartElement);
+              pTransitionLineAnnotation->setStartElementName(pTransition->getStartConnector()->getName());
+              pTransitionLineAnnotation->setEndElement(pEndElement);
+              pTransitionLineAnnotation->setEndElementName(pTransition->getEndConnector()->getName());
+              pTransitionLineAnnotation->setLine(pTransition->getLine());
+              addConnectionDetails(pTransitionLineAnnotation);
+              addItem(pTransitionLineAnnotation);
+              addTransitionToList(pTransitionLineAnnotation);
+              deleteTransitionFromOutOfSceneList(pTransitionLineAnnotation);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+/*!
+ * \brief GraphicsView::drawInitialStates
+ * Draws the initial states.
+ * \param pModelInstance
+ * \param inherited
+ * \param modelInfo
+ */
+void GraphicsView::drawInitialStates(ModelInstance::Model *pModelInstance, bool inherited, const ModelInfo &modelInfo)
+{
+  // We use access.diagram so we can draw initial states.
+  if (mpModelWidget->getLibraryTreeItem()->getAccess() >= LibraryTreeItem::diagram && mViewType == StringHandler::Diagram) {
+    int modelInfoIndex = -1;
+    QList<ModelInstance::InitialState*> initialStates = pModelInstance->getInitialStates();
+    for (int i = 0; i < initialStates.size(); ++i) {
+      auto pInitialState = initialStates.at(i);
+      // if initialState is valid and has line annotation
+      if (pInitialState->getStartConnector() && pInitialState->getLine()) {
+        // get start element
+        Element *pStartElement = getElementObject(pInitialState->getStartConnector()->getName());
+        // show error message if start element is not found.
+        if (!pStartElement) {
+          MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica,
+                                                                GUIMessages::getMessage(GUIMessages::UNABLE_FIND_COMPONENT_IN_INITIALSTATE_NEW)
+                                                                .arg(pInitialState->getStartConnector()->getName()).arg(pInitialState->toString())
+                                                                .arg(mpModelWidget->getLibraryTreeItem()->getNameStructure()),
+                                                                Helper::scriptingKind, Helper::errorLevel));
+          continue;
+        }
+
+        modelInfoIndex++;
+        if (modelInfo.mInitialStatesList.isEmpty() || inherited) {
+          LineAnnotation *pInitialStateLineAnnotation = new LineAnnotation(pInitialState, pStartElement, inherited, this);
+          pInitialStateLineAnnotation->drawCornerItems();
+          pInitialStateLineAnnotation->setCornerItemsActiveOrPassive();
+          addInitialStateToView(pInitialStateLineAnnotation, inherited);
+        } else { // update case
+          if (modelInfoIndex < modelInfo.mInitialStatesList.size()) {
+            LineAnnotation *pInitialStateLineAnnotation = modelInfo.mInitialStatesList.at(modelInfoIndex);
+            if (pInitialStateLineAnnotation) {
+              pInitialStateLineAnnotation->setStartElement(pStartElement);
+              pInitialStateLineAnnotation->setStartElementName(pInitialState->getStartConnector()->getName());
+              pInitialStateLineAnnotation->setLine(pInitialState->getLine());
+              addConnectionDetails(pInitialStateLineAnnotation);
+              addItem(pInitialStateLineAnnotation);
+              addInitialStateToList(pInitialStateLineAnnotation);
+              deleteInitialStateFromOutOfSceneList(pInitialStateLineAnnotation);
+            }
+          }
+        }
+      }
+    }
   }
 }
 
@@ -788,9 +935,7 @@ bool GraphicsView::addComponent(QString className, QPointF position)
           ModelInstance::Element *pElement = new ModelInstance::Element(pModelInstance);
           pElement->setName(name);
           pElement->setType(pLibraryTreeItem->getNameStructure());
-          ModelInstance::Model *pModel = new ModelInstance::Model;
-          pModel->setRestriction(StringHandler::getModelicaClassType(type).toLower());
-          pElement->setModel(pModel);
+          pElement->setModel(new ModelInstance::Model(MainWindow::instance()->getOMCProxy()->getModelInstance(pLibraryTreeItem->getNameStructure(), true)));
           pModelInstance->addElement(pElement);
           ModelInfo oldModelInfo = mpModelWidget->createModelInfo();
           addElementToView(pElement, false, true, true, position);
@@ -1207,8 +1352,18 @@ void GraphicsView::addConnectionDetails(LineAnnotation *pConnectionLineAnnotatio
   if (pStartElement) {
     if (pStartElement->getRootParentElement()) {
       pStartElement->getRootParentElement()->addConnectionDetails(pConnectionLineAnnotation);
+      if (pConnectionLineAnnotation->getLineType() == LineAnnotation::TransitionType) {
+        pStartElement->getRootParentElement()->setHasTransition(true);
+      } else if (pConnectionLineAnnotation->getLineType() == LineAnnotation::InitialStateType) {
+        pStartElement->getRootParentElement()->setIsInitialState(true);
+      }
     } else {
       pStartElement->addConnectionDetails(pConnectionLineAnnotation);
+      if (pConnectionLineAnnotation->getLineType() == LineAnnotation::TransitionType) {
+        pStartElement->setHasTransition(true);
+      } else if (pConnectionLineAnnotation->getLineType() == LineAnnotation::InitialStateType) {
+        pStartElement->setIsInitialState(false);
+      }
     }
   }
   // Add the end element connection details.
@@ -1216,8 +1371,14 @@ void GraphicsView::addConnectionDetails(LineAnnotation *pConnectionLineAnnotatio
   if (pEndElement) {
     if (pEndElement->getRootParentElement()) {
       pEndElement->getRootParentElement()->addConnectionDetails(pConnectionLineAnnotation);
+      if (pConnectionLineAnnotation->getLineType() == LineAnnotation::TransitionType) {
+        pEndElement->getRootParentElement()->setHasTransition(true);
+      }
     } else {
       pEndElement->addConnectionDetails(pConnectionLineAnnotation);
+      if (pConnectionLineAnnotation->getLineType() == LineAnnotation::TransitionType) {
+        pEndElement->setHasTransition(true);
+      }
     }
   }
   pConnectionLineAnnotation->updateToolTip();
@@ -1225,7 +1386,7 @@ void GraphicsView::addConnectionDetails(LineAnnotation *pConnectionLineAnnotatio
 
 /*!
  * \brief GraphicsView::addConnectionToView
- * Adds the connection to the view
+ * Adds the connection to the view.
  * \param pConnectionLineAnnotation
  * \param inherited
  */
@@ -1453,8 +1614,18 @@ void GraphicsView::removeConnectionDetails(LineAnnotation *pConnectionLineAnnota
   if (pStartElement) {
     if (pStartElement->getRootParentElement()) {
       pStartElement->getRootParentElement()->removeConnectionDetails(pConnectionLineAnnotation);
+      if (pConnectionLineAnnotation->getLineType() == LineAnnotation::TransitionType) {
+        pStartElement->getRootParentElement()->setHasTransition(false);
+      } else if (pConnectionLineAnnotation->getLineType() == LineAnnotation::InitialStateType) {
+        pStartElement->getRootParentElement()->setIsInitialState(false);
+      }
     } else {
       pStartElement->removeConnectionDetails(pConnectionLineAnnotation);
+      if (pConnectionLineAnnotation->getLineType() == LineAnnotation::TransitionType) {
+        pStartElement->setHasTransition(false);
+      } else if (pConnectionLineAnnotation->getLineType() == LineAnnotation::InitialStateType) {
+        pStartElement->setIsInitialState(false);
+      }
     }
   }
   // Remove the end element connection details.
@@ -1462,8 +1633,14 @@ void GraphicsView::removeConnectionDetails(LineAnnotation *pConnectionLineAnnota
   if (pEndElement) {
     if (pEndElement->getRootParentElement()) {
       pEndElement->getRootParentElement()->removeConnectionDetails(pConnectionLineAnnotation);
+      if (pConnectionLineAnnotation->getLineType() == LineAnnotation::TransitionType) {
+        pEndElement->getRootParentElement()->setHasTransition(false);
+      }
     } else {
       pEndElement->removeConnectionDetails(pConnectionLineAnnotation);
+      if (pConnectionLineAnnotation->getLineType() == LineAnnotation::TransitionType) {
+        pEndElement->setHasTransition(false);
+      }
     }
   }
 }
@@ -1479,7 +1656,9 @@ void GraphicsView::removeConnectionFromView(LineAnnotation *pConnectionLineAnnot
   deleteConnectionFromList(pConnectionLineAnnotation);
   addConnectionToOutOfSceneList(pConnectionLineAnnotation);
   removeItem(pConnectionLineAnnotation);
-  pConnectionLineAnnotation->emitDeleted();
+  if (!mpModelWidget->isNewApi()) {
+    pConnectionLineAnnotation->emitDeleted();
+  }
 }
 
 /*!
@@ -1527,6 +1706,34 @@ int GraphicsView::numberOfElementConnections(Element *pElement, LineAnnotation *
 }
 
 /*!
+ * \brief GraphicsView::addTransitionToView
+ * Adds the transition to the view.
+ * \param pTransitionLineAnnotation
+ * \param inherited
+ */
+void GraphicsView::addTransitionToView(LineAnnotation *pTransitionLineAnnotation, bool inherited)
+{
+  addConnectionDetails(pTransitionLineAnnotation);
+  if (inherited) {
+    addInheritedTransitionToList(pTransitionLineAnnotation);
+  } else {
+    addTransitionToList(pTransitionLineAnnotation);
+  }
+
+  if (pTransitionLineAnnotation->getTextAnnotation()) {
+    pTransitionLineAnnotation->getTextAnnotation()->setTextString("%condition");
+    pTransitionLineAnnotation->getTextAnnotation()->updateTextString();
+    pTransitionLineAnnotation->updateTransitionTextPosition();
+  }
+
+  addItem(pTransitionLineAnnotation);
+  if (!mpModelWidget->isNewApi()) {
+    deleteTransitionFromOutOfSceneList(pTransitionLineAnnotation);
+    pTransitionLineAnnotation->emitAdded();
+  }
+}
+
+/*!
  * \brief GraphicsView::addTransitionToClass
  * Adds the transition to class.
  * \param pTransitionLineAnnotation - the transition to add.
@@ -1544,47 +1751,24 @@ void GraphicsView::addTransitionToClass(LineAnnotation *pTransitionLineAnnotatio
 }
 
 /*!
- * \brief GraphicsView::removeTransitionDetails
- * Removes tranistion details that are linked with start and end connector.
- * \param pTransitionLineAnnotation
- */
-void GraphicsView::removeTransitionDetails(LineAnnotation *pTransitionLineAnnotation)
-{
-  // Remove the start element connection details.
-  Element *pStartElement = pTransitionLineAnnotation->getStartElement();
-  if (pStartElement && pStartElement->getRootParentElement()) {
-    pStartElement->getRootParentElement()->removeConnectionDetails(pTransitionLineAnnotation);
-    pStartElement->getRootParentElement()->setHasTransition(false);
-  } else if (pStartElement) {
-    pStartElement->removeConnectionDetails(pTransitionLineAnnotation);
-    pStartElement->setHasTransition(false);
-  }
-  // Remove the end element connection details.
-  Element *pEndElement = pTransitionLineAnnotation->getEndElement();
-  if (pEndElement && pEndElement->getRootParentElement()) {
-    pEndElement->getRootParentElement()->removeConnectionDetails(pTransitionLineAnnotation);
-    pEndElement->getRootParentElement()->setHasTransition(false);
-  } else if (pEndElement) {
-    pEndElement->removeConnectionDetails(pTransitionLineAnnotation);
-    pEndElement->setHasTransition(false);
-  }
-}
-
-/*!
  * \brief GraphicsView::removeTransitionFromView
  * Removes the transition from the view.
  * \param pTransitionLineAnnotation
  */
 void GraphicsView::removeTransitionFromView(LineAnnotation *pTransitionLineAnnotation)
 {
-  removeTransitionDetails(pTransitionLineAnnotation);
+  removeConnectionDetails(pTransitionLineAnnotation);
   deleteTransitionFromList(pTransitionLineAnnotation);
   addTransitionToOutOfSceneList(pTransitionLineAnnotation);
-  pTransitionLineAnnotation->getTextAnnotation()->setTextString("%condition");
-  pTransitionLineAnnotation->getTextAnnotation()->updateTextString();
-  pTransitionLineAnnotation->updateTransitionTextPosition();
+  if (pTransitionLineAnnotation->getTextAnnotation()) {
+    pTransitionLineAnnotation->getTextAnnotation()->setTextString("%condition");
+    pTransitionLineAnnotation->getTextAnnotation()->updateTextString();
+    pTransitionLineAnnotation->updateTransitionTextPosition();
+  }
   removeItem(pTransitionLineAnnotation);
-  pTransitionLineAnnotation->emitDeleted();
+  if (!mpModelWidget->isNewApi()) {
+    pTransitionLineAnnotation->emitDeleted();
+  }
 }
 
 /*!
@@ -1614,6 +1798,28 @@ void GraphicsView::removeTransitionsFromView()
 }
 
 /*!
+ * \brief GraphicsView::addInitialStateToView
+ * Adds the initial state to the view.
+ * \param pInitialStateLineAnnotation
+ * \param inherited
+ */
+void GraphicsView::addInitialStateToView(LineAnnotation *pInitialStateLineAnnotation, bool inherited)
+{
+  addConnectionDetails(pInitialStateLineAnnotation);
+  if (inherited) {
+    addInheritedInitialStateToList(pInitialStateLineAnnotation);
+  } else {
+    addInitialStateToList(pInitialStateLineAnnotation);
+  }
+
+  addItem(pInitialStateLineAnnotation);
+  if (!mpModelWidget->isNewApi()) {
+    deleteInitialStateFromOutOfSceneList(pInitialStateLineAnnotation);
+    pInitialStateLineAnnotation->emitAdded();
+  }
+}
+
+/*!
  * \brief GraphicsView::addInitialStateToClass
  * Adds the initial state to class.
  * \param pInitialStateLineAnnotation - the initial state to add.
@@ -1628,31 +1834,13 @@ void GraphicsView::addInitialStateToClass(LineAnnotation *pInitialStateLineAnnot
 }
 
 /*!
- * \brief GraphicsView::removeInitialStateDetails
- * Removes initial state details that are linked with start connector.
- * \param pInitialStateLineAnnotation
- */
-void GraphicsView::removeInitialStateDetails(LineAnnotation *pInitialStateLineAnnotation)
-{
-  // Remove the start initial state details.
-  Element *pStartComponent = pInitialStateLineAnnotation->getStartElement();
-  if (pStartComponent && pStartComponent->getRootParentElement()) {
-    pStartComponent->getRootParentElement()->removeConnectionDetails(pInitialStateLineAnnotation);
-    pStartComponent->getRootParentElement()->setIsInitialState(false);
-  } else if (pStartComponent) {
-    pStartComponent->removeConnectionDetails(pInitialStateLineAnnotation);
-    pStartComponent->setIsInitialState(false);
-  }
-}
-
-/*!
  * \brief GraphicsView::removeInitialStateFromView
  * Removes the initial state from the view.
  * \param pInitialStateLineAnnotation
  */
 void GraphicsView::removeInitialStateFromView(LineAnnotation *pInitialStateLineAnnotation)
 {
-  removeInitialStateDetails(pInitialStateLineAnnotation);
+  removeConnectionDetails(pInitialStateLineAnnotation);
   deleteInitialStateFromList(pInitialStateLineAnnotation);
   addInitialStateToOutOfSceneList(pInitialStateLineAnnotation);
   removeItem(pInitialStateLineAnnotation);
@@ -1844,6 +2032,8 @@ void GraphicsView::clearGraphicsView()
   removeOutOfSceneClassComponents();
   removeInheritedClassShapes();
   removeInheritedClassConnections();
+  removeInheritedClassTransitions();
+  removeInheritedClassInitialStates();
   removeInheritedClassElements();
   scene()->clear();
   mAllItems.clear();
@@ -1928,7 +2118,7 @@ void GraphicsView::removeInheritedClassElements()
 
 /*!
  * \brief GraphicsView::removeInheritedClassConnections
- * Removes all the class inherited class connections.
+ * Removes all the class inherited connections.
  */
 void GraphicsView::removeInheritedClassConnections()
 {
@@ -1936,6 +2126,32 @@ void GraphicsView::removeInheritedClassConnections()
     deleteInheritedConnectionFromList(pConnectionLineAnnotation);
     removeItem(pConnectionLineAnnotation);
     delete pConnectionLineAnnotation;
+  }
+}
+
+/*!
+ * \brief GraphicsView::removeInheritedClassTransitions
+ * Removes all the class inherited transitions.
+ */
+void GraphicsView::removeInheritedClassTransitions()
+{
+  foreach (LineAnnotation *pTransitionLineAnnotation, mInheritedTransitionsList) {
+    deleteInheritedTransitionFromList(pTransitionLineAnnotation);
+    removeItem(pTransitionLineAnnotation);
+    delete pTransitionLineAnnotation;
+  }
+}
+
+/*!
+ * \brief GraphicsView::removeInheritedClassInitialStates
+ * Removes all the class inherited initial states.
+ */
+void GraphicsView::removeInheritedClassInitialStates()
+{
+  foreach (LineAnnotation *pInitialStateLineAnnotation, mInheritedInitialStatesList) {
+    deleteInheritedInitialStateFromList(pInitialStateLineAnnotation);
+    removeItem(pInitialStateLineAnnotation);
+    delete pInitialStateLineAnnotation;
   }
 }
 
@@ -1978,6 +2194,20 @@ void GraphicsView::removeOutOfSceneConnections()
 }
 
 /*!
+ * \brief GraphicsView::removeTransitionsFromScene
+ * Removes all the transitons from the scene and add them to mOutOfSceneTransitionsList.
+ */
+void GraphicsView::removeTransitionsFromScene()
+{
+  foreach (LineAnnotation *pTransitionLineAnnotation, mTransitionsList) {
+    removeConnectionDetails(pTransitionLineAnnotation);
+    removeItem(pTransitionLineAnnotation);
+    addTransitionToOutOfSceneList(pTransitionLineAnnotation);
+    deleteTransitionFromList(pTransitionLineAnnotation);
+  }
+}
+
+/*!
  * \brief GraphicsView::removeOutOfSceneTransitions
  * Removes all the class transitions that are not deleted but are removed from scene.
  */
@@ -1986,6 +2216,20 @@ void GraphicsView::removeOutOfSceneTransitions()
   foreach (LineAnnotation *pLineAnnotation, mOutOfSceneTransitionsList) {
     deleteTransitionFromOutOfSceneList(pLineAnnotation);
     delete pLineAnnotation;
+  }
+}
+
+/*!
+ * \brief GraphicsView::removeInitialStatesFromScene
+ * Removes all the initial states from the scene and add them to mOutOfSceneInitialStatesList.
+ */
+void GraphicsView::removeInitialStatesFromScene()
+{
+  foreach (LineAnnotation *pInitialStateLineAnnotation, mInitialStatesList) {
+    removeConnectionDetails(pInitialStateLineAnnotation);
+    removeItem(pInitialStateLineAnnotation);
+    addInitialStateToOutOfSceneList(pInitialStateLineAnnotation);
+    deleteInitialStateFromList(pInitialStateLineAnnotation);
   }
 }
 
@@ -2246,6 +2490,12 @@ QRectF GraphicsView::itemsBoundingRect()
   foreach (QGraphicsItem *item, mConnectionsList) {
     rect |= item->sceneBoundingRect();
   }
+  foreach (QGraphicsItem *item, mTransitionsList) {
+    rect |= item->sceneBoundingRect();
+  }
+  foreach (QGraphicsItem *item, mInitialStatesList) {
+    rect |= item->sceneBoundingRect();
+  }
   foreach (Element *pElement, mInheritedElementsList) {
     rect |= pElement->itemsBoundingRect();
   }
@@ -2253,6 +2503,12 @@ QRectF GraphicsView::itemsBoundingRect()
     rect |= item->sceneBoundingRect();
   }
   foreach (QGraphicsItem *item, mInheritedConnectionsList) {
+    rect |= item->sceneBoundingRect();
+  }
+  foreach (QGraphicsItem *item, mInheritedTransitionsList) {
+    rect |= item->sceneBoundingRect();
+  }
+  foreach (QGraphicsItem *item, mInheritedInitialStatesList) {
     rect |= item->sceneBoundingRect();
   }
   qreal x1, y1, x2, y2;
@@ -2646,12 +2902,12 @@ Element* GraphicsView::connectorElementAtPosition(QPoint position)
         if (MainWindow::instance()->getConnectModeAction()->isChecked() && mViewType == StringHandler::Diagram &&
             !(mpModelWidget->getLibraryTreeItem()->isSystemLibrary() || isVisualizationView()) &&
             ((mpModelWidget->isNewApi() && pElement->getModel() && pElement->getModel()->isConnector()) ||
-            (pElement->getLibraryTreeItem() && pElement->getLibraryTreeItem()->isConnector()) ||
-            (mpModelWidget->getLibraryTreeItem()->getLibraryType() == LibraryTreeItem::CompositeModel &&
-             pElement->getElementType() == Element::Port) ||
-            (mpModelWidget->getLibraryTreeItem()->getLibraryType() == LibraryTreeItem::OMS &&
-             (pElement->getLibraryTreeItem()->getOMSConnector() || pElement->getLibraryTreeItem()->getOMSBusConnector()
-              || pElement->getLibraryTreeItem()->getOMSTLMBusConnector() || pElement->getElementType() == Element::Port)))) {
+             (pElement->getLibraryTreeItem() && pElement->getLibraryTreeItem()->isConnector()) ||
+             (mpModelWidget->getLibraryTreeItem()->getLibraryType() == LibraryTreeItem::CompositeModel &&
+              pElement->getElementType() == Element::Port) ||
+             (mpModelWidget->getLibraryTreeItem()->getLibraryType() == LibraryTreeItem::OMS &&
+              (pElement->getLibraryTreeItem()->getOMSConnector() || pElement->getLibraryTreeItem()->getOMSBusConnector()
+               || pElement->getLibraryTreeItem()->getOMSTLMBusConnector() || pElement->getElementType() == Element::Port)))) {
           return pElement;
         }
       }
@@ -2676,7 +2932,8 @@ Element* GraphicsView::stateElementAtPosition(QPoint position)
       if (pRootElement && !pRootElement->isSelected()) {
         if (MainWindow::instance()->getTransitionModeAction()->isChecked() && mViewType == StringHandler::Diagram &&
             !(mpModelWidget->getLibraryTreeItem()->isSystemLibrary() || isVisualizationView()) &&
-            ((pElement->getLibraryTreeItem() && pElement->getLibraryTreeItem()->getLibraryType() == LibraryTreeItem::Modelica &&
+            ((mpModelWidget->isNewApi() && pElement->getModel() && pElement->getModel()->isState()) ||
+             (pElement->getLibraryTreeItem() && pElement->getLibraryTreeItem()->getLibraryType() == LibraryTreeItem::Modelica &&
               !pElement->getLibraryTreeItem()->isNonExisting() && pElement->getLibraryTreeItem()->isState()))) {
           return pElement;
         }
@@ -2917,9 +3174,9 @@ void GraphicsView::addConnection(Element *pElement)
             if (!connectionExists(startElementName, endElementName, false)) {
               mpConnectionLineAnnotation->setLine(new ModelInstance::Line);
               mpConnectionLineAnnotation->updateLine();
-              ModelInfo oldModelInfo = mpModelWidget->createModelInfo();
               mpConnectionLineAnnotation->drawCornerItems();
               mpConnectionLineAnnotation->setCornerItemsActiveOrPassive();
+              ModelInfo oldModelInfo = mpModelWidget->createModelInfo();
               addConnectionToView(mpConnectionLineAnnotation, false);
               addConnectionToClass(mpConnectionLineAnnotation);
               ModelInfo newModelInfo = mpModelWidget->createModelInfo();
@@ -3477,6 +3734,8 @@ void GraphicsView::omsOneComponentContextMenu(Element *pComponent, QMenu *pMenu)
   pMenu->addAction(mpRotateAntiClockwiseAction);
   pMenu->addAction(mpFlipHorizontalAction);
   pMenu->addAction(mpFlipVerticalAction);
+  pMenu->addSeparator();
+  pMenu->addAction(pComponent->getReplaceSubModelAction());
 }
 
 /*!
@@ -3814,6 +4073,16 @@ void GraphicsView::flipVertical()
 }
 
 /*!
+ * \brief GraphicsView::showReplaceSubModelDialog
+ * function that opens up the ReplaceSubModelDialog Dialog.
+ */
+void GraphicsView::showReplaceSubModelDialog(QString name)
+{
+  ReplaceSubModelDialog *pReplaceFMUDialog = new ReplaceSubModelDialog(this, name);
+  pReplaceFMUDialog->exec();
+}
+
+/*!
  * \brief GraphicsView::createConnector
  * Creates a connector while making a connection.\n
  * Ends the connection on the newly created connector.
@@ -3862,7 +4131,19 @@ void GraphicsView::setInitialState()
     mpTransitionLineAnnotation->setStartElementName(startComponentName);
     mpTransitionLineAnnotation->setEndElementName("");
     mpTransitionLineAnnotation->setLineType(LineAnnotation::InitialStateType);
-    mpModelWidget->getUndoStack()->push(new AddInitialStateCommand(mpTransitionLineAnnotation, true));
+    if (mpModelWidget->isNewApi()) {
+      mpTransitionLineAnnotation->setLine(new ModelInstance::Line);
+      mpTransitionLineAnnotation->updateLine();
+      mpTransitionLineAnnotation->drawCornerItems();
+      mpTransitionLineAnnotation->setCornerItemsActiveOrPassive();
+      ModelInfo oldModelInfo = mpModelWidget->createModelInfo();
+      addInitialStateToView(mpTransitionLineAnnotation, false);
+      addInitialStateToClass(mpTransitionLineAnnotation);
+      ModelInfo newModelInfo = mpModelWidget->createModelInfo();
+      mpModelWidget->getUndoStack()->push(new OMCUndoCommand(mpModelWidget->getLibraryTreeItem(), oldModelInfo, newModelInfo, "Add InitialState"));
+    } else {
+      mpModelWidget->getUndoStack()->push(new AddInitialStateCommand(mpTransitionLineAnnotation, true));
+    }
     mpModelWidget->updateModelText();
     setIsCreatingTransition(false);
   }
@@ -3991,10 +4272,10 @@ void GraphicsView::drawBackground(QPainter *painter, const QRectF &rect)
       painter->drawLine(QPointF(xAxisStep, yAxisStep), QPointF(rect.right(), yAxisStep));
       yAxisStep -= verticalGridStep;
     }
-    /* set the middle horizontal and vertical line gray */
+    /* Draw horizontal and vertical gray line from 0,0 */
     painter->setPen(grayPen);
-    painter->drawLine(QPointF(rect.left(), extentRectangle.center().y()), QPointF(rect.right(), extentRectangle.center().y()));
-    painter->drawLine(QPointF(extentRectangle.center().x(), rect.top()), QPointF(extentRectangle.center().x(), rect.bottom()));
+    painter->drawLine(QPointF(rect.left(), 0), QPointF(rect.right(), 0));
+    painter->drawLine(QPointF(0, rect.top()), QPointF(0, rect.bottom()));
   }
   // draw scene rectangle
   painter->setPen(grayPen);
@@ -5452,6 +5733,8 @@ void ModelWidget::drawModelIconDiagram(ModelInstance::Model *pModelInstance, boo
   mpDiagramGraphicsView->drawShapes(pModelInstance, inherited, modelInfo.mName.isEmpty());
   mpDiagramGraphicsView->drawElements(pModelInstance, inherited, modelInfo);
   mpDiagramGraphicsView->drawConnections(pModelInstance, inherited, modelInfo);
+  mpDiagramGraphicsView->drawTransitions(pModelInstance, inherited, modelInfo);
+  mpDiagramGraphicsView->drawInitialStates(pModelInstance, inherited, modelInfo);
 }
 
 /*!
@@ -6149,13 +6432,19 @@ void ModelWidget::reDrawModelWidget(const QJsonObject &modelInstanceJson, const 
   mpIconGraphicsView->removeElementsFromScene();
   mpDiagramGraphicsView->removeElementsFromScene();
   mpDiagramGraphicsView->removeConnectionsFromScene();
+  mpDiagramGraphicsView->removeTransitionsFromScene();
+  mpDiagramGraphicsView->removeInitialStatesFromScene();
   // We only remove the inherited stuff and redraw it. The class shapes, connections and elements are updated.
   mpIconGraphicsView->removeInheritedClassShapes();
-  mpIconGraphicsView->removeInheritedClassConnections();
   mpIconGraphicsView->removeInheritedClassElements();
+  mpIconGraphicsView->removeInheritedClassConnections();
+  mpIconGraphicsView->removeInheritedClassTransitions();
+  mpIconGraphicsView->removeInheritedClassInitialStates();
   mpDiagramGraphicsView->removeInheritedClassShapes();
-  mpDiagramGraphicsView->removeInheritedClassConnections();
   mpDiagramGraphicsView->removeInheritedClassElements();
+  mpDiagramGraphicsView->removeInheritedClassConnections();
+  mpDiagramGraphicsView->removeInheritedClassTransitions();
+  mpDiagramGraphicsView->removeInheritedClassInitialStates();
   /* get model components, connection and shapes. */
   // Draw icon view
   // reset the CoOrdinateSystem
@@ -8729,9 +9018,9 @@ void ModelWidgetContainer::addModelWidget(ModelWidget *pModelWidget, bool checkP
     loadPreviousViewType(pModelWidget);
   } else {
     QString defaultView = OptionsDialog::instance()->getGraphicalViewsPage()->getDefaultView();
-    if (defaultView.compare(Helper::iconView) == 0) {
+    if (defaultView.compare(Helper::iconViewForSettings) == 0) {
       pModelWidget->getIconViewToolButton()->setChecked(true);
-    } else if (defaultView.compare(Helper::textView) == 0) {
+    } else if (defaultView.compare(Helper::textViewForSettings) == 0) {
       pModelWidget->getTextViewToolButton()->setChecked(true);
     } else {
       pModelWidget->getDiagramViewToolButton()->setChecked(true);

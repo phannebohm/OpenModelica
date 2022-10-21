@@ -167,9 +167,14 @@ algorithm
     case Class.TYPED_DERIVED()
       algorithm
         typeComponents(c.baseClass, context);
-        c2 := InstNode.getClass(c.baseClass);
-        c2 := Class.setRestriction(c.restriction, c2);
-        InstNode.updateClass(c2, cls);
+
+        // Only collapse for the normal instantiation, for the instance API we
+        // need the derived class chains.
+        if not InstContext.inInstanceAPI(context) then
+          c2 := InstNode.getClass(c.baseClass);
+          c2 := Class.setRestriction(c.restriction, c2);
+          InstNode.updateClass(c2, cls);
+        end if;
       then
         ();
 
@@ -3216,6 +3221,18 @@ algorithm
         e1 := typeOperatorArg(st.message, Type.STRING(), context, "terminate", "message", 1, info);
       then
         Statement.TERMINATE(e1, st.source);
+
+    case Statement.REINIT()
+      algorithm
+        if InstContext.inFunction(context) then
+          Error.addSourceMessage(Error.EXP_INVALID_IN_FUNCTION, {"reinit"},
+            ElementSource.getInfo(st.source));
+          fail();
+        end if;
+
+        (e1, e2) := typeReinit(st.cref, st.reinitExp, context, st.source);
+      then
+        Statement.REINIT(e1, e2, st.source);
 
     case Statement.NORETCALL()
       algorithm

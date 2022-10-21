@@ -754,6 +754,7 @@ InnerOuterMissing5.mo \
 InnerOuterMissing6.mo \
 InnerOuterMissing7.mo \
 InnerOuterMissing8.mo \
+InnerOuterMissing9.mo \
 InnerOuterNotInner1.mo \
 InnerOuterPartialOuter1.mo \
 InnerOuterPartialOuter2.mo \
@@ -990,12 +991,14 @@ ReductionInvalidTypeMin.mo \
 ReductionInvalidTypeMax.mo \
 Reinit1.mo \
 Reinit2.mo \
+Reinit3.mo \
 ReinitInvalid1.mo \
 ReinitInvalid2.mo \
 ReinitInvalid3.mo \
 ReinitInvalid4.mo \
 ReinitInvalid5.mo \
 ReinitInvalid6.mo \
+ReinitInvalid7.mo \
 Return1.mo \
 Return2.mo \
 Size1.mo \

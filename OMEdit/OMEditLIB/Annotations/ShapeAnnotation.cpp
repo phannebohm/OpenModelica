@@ -256,6 +256,7 @@ QStringList FilledShape::getShapeAnnotation()
 /*!
  * \brief FilledShape::getTextShapeAnnotation
  * Returns the annotation values for Text shape.
+ * This function is used for Text annotation only.
  * \return the annotation values as a list.
  */
 QStringList FilledShape::getTextShapeAnnotation()
@@ -263,7 +264,7 @@ QStringList FilledShape::getTextShapeAnnotation()
   QStringList annotationString;
   /* get the text color */
   if (mLineColor.isDynamicSelectExpression() || mLineColor != Qt::black) {
-    annotationString.append(QString("lineColor=%1").arg(mLineColor.toQString()));
+    annotationString.append(QString("textColor=%1").arg(mLineColor.toQString()));
   }
   return annotationString;
 }
@@ -341,8 +342,6 @@ ShapeAnnotation::ShapeAnnotation(bool inheritedShape, GraphicsView *pGraphicsVie
   connect(mpGraphicsView, SIGNAL(resetDynamicSelect()), this, SLOT(resetDynamicSelect()));
 }
 
-int ShapeAnnotation::maxTextLengthToShowOnLibraryIcon = 2;
-
 /*!
  * \brief ShapeAnnotation::setDefaults
  * Sets the default values for the shape annotations. Defaults valued as defined in Modelica specification 3.2 are used.
@@ -361,8 +360,10 @@ void ShapeAnnotation::setDefaults()
   mArrowSize = 3;
   mSmooth = StringHandler::SmoothNone;
   mExtents.clear();
-  mExtents.append(QPointF(0, 0));
-  mExtents.append(QPointF(0, 0));
+  QList<QPointF> extents;
+  extents.append(QPointF(0, 0));
+  extents.append(QPointF(0, 0));
+  mExtents = extents;
   mBorderPattern = StringHandler::BorderNone;
   mRadius = 0;
   mStartAngle = 0;
@@ -536,8 +537,7 @@ void ShapeAnnotation::applyLinePattern(QPainter *painter)
    * Use non cosmetic pens for Libraries Browser and shapes inside component when thickness is greater than 4.
    */
   if (thickness > 4
-      && ((mpGraphicsView && mpGraphicsView->isRenderingLibraryPixmap())
-          || mpParentComponent)) {
+      && ((mpGraphicsView && mpGraphicsView->isRenderingLibraryPixmap()) || mpParentComponent)) {
     pen.setCosmetic(false);
   }
   // if thickness is greater than 1 pixel then use antialiasing.

@@ -9,12 +9,15 @@ GetModelInstanceAttributes2.mos \
 GetModelInstanceComment1.mos \
 GetModelInstanceConditional1.mos \
 GetModelInstanceConnection1.mos \
+GetModelInstanceDerived1.mos \
 GetModelInstanceDuplicate1.mos \
 GetModelInstanceEnum1.mos \
 GetModelInstanceEnum2.mos \
 GetModelInstanceExp1.mos \
 GetModelInstanceExtends1.mos \
+GetModelInstanceExtends2.mos \
 GetModelInstanceInnerOuter1.mos \
+GetModelInstanceInnerOuter2.mos \
 GetModelInstanceMod1.mos \
 GetModelInstanceMod2.mos \
 GetModelInstanceReplaceable1.mos \

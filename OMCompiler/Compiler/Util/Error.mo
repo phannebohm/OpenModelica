@@ -519,7 +519,7 @@ public constant ErrorTypes.Message CONNECT_IN_INITIAL_EQUATION = ErrorTypes.MESS
 public constant ErrorTypes.Message FINAL_COMPONENT_OVERRIDE = ErrorTypes.MESSAGE(222, ErrorTypes.TRANSLATION(), ErrorTypes.ERROR(),
   Gettext.gettext("Trying to override final element %s with modifier '%s'."));
 public constant ErrorTypes.Message NOTIFY_LOAD_MODEL_DUE_TO_USES = ErrorTypes.MESSAGE(223, ErrorTypes.SCRIPTING(), ErrorTypes.NOTIFICATION(),
-  Gettext.gettext("Automatically loaded package %s %s due to uses annotation."));
+  Gettext.gettext("Automatically loaded package %s %s due to uses annotation from %s."));
 public constant ErrorTypes.Message REINIT_MUST_BE_REAL = ErrorTypes.MESSAGE(224, ErrorTypes.TRANSLATION(), ErrorTypes.ERROR(),
   Gettext.gettext("The first argument to reinit must be a subtype of Real, but %s has type %s."));
 public constant ErrorTypes.Message REINIT_MUST_BE_VAR = ErrorTypes.MESSAGE(225, ErrorTypes.TRANSLATION(), ErrorTypes.ERROR(),
@@ -1107,6 +1107,12 @@ public constant ErrorTypes.Message DEPRECATED_FLAG = ErrorTypes.MESSAGE(614, Err
   Gettext.gettext("The flag '%s' is deprecated. Please use '%s' instead."));
 public constant ErrorTypes.Message UNKNOWN_ERROR_INST_FUNCTION = ErrorTypes.MESSAGE(615, ErrorTypes.TRANSLATION(), ErrorTypes.INTERNAL(),
   Gettext.gettext("Unknown error trying to instantiate function: %s."));
+public constant ErrorTypes.Message NOTIFY_INITIALIZING_USER_LIBRARIES = ErrorTypes.MESSAGE(616, ErrorTypes.TRANSLATION(), ErrorTypes.NOTIFICATION(),
+  Gettext.gettext("Cached libraries were found and will be installed into %s."));
+public constant ErrorTypes.Message NOTIFY_PKG_ALREADY_INSTALLED = ErrorTypes.MESSAGE(617, ErrorTypes.TRANSLATION(), ErrorTypes.NOTIFICATION(),
+  Gettext.gettext("%s %s is already installed, skipping."));
+public constant ErrorTypes.Message REINIT_IN_ALGORITHM = ErrorTypes.MESSAGE(618, ErrorTypes.TRANSLATION(), ErrorTypes.ERROR(),
+  Gettext.gettext("Operator reinit may not be used in an algorithm section (use flag --allowNonStandardModelica=reinitInAlgorithms to ignore)."));
 
 public constant ErrorTypes.Message MATCH_SHADOWING = ErrorTypes.MESSAGE(5001, ErrorTypes.TRANSLATION(), ErrorTypes.ERROR(),
   Gettext.gettext("Local variable '%s' shadows another variable."));

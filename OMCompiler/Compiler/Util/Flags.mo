@@ -553,6 +553,8 @@ constant DebugFlag MERGE_COMPONENTS = DEBUG_FLAG(190, "mergeComponents", false,
   Gettext.gettext("Enables automatic merging of components into arrays."));
 constant DebugFlag DUMP_SLICE = DEBUG_FLAG(191, "dumpSlice", false,
   Gettext.gettext("Dumps information about the slicing process (pseudo-array causalization)."));
+constant DebugFlag VECTORIZE_BINDINGS = DEBUG_FLAG(192, "vectorizeBindings", false,
+  Gettext.gettext("Turns on vectorization of bindings when scalarization is turned off."));
 
 public
 // CONFIGURATION FLAGS
@@ -833,8 +835,8 @@ constant ConfigFlag CEVAL_EQUATION = CONFIG_FLAG(32,
   Gettext.notrans(""));
 
 constant ConfigFlag UNIT_CHECKING = CONFIG_FLAG(33,
-  "unitChecking", NONE(), INTERNAL(), BOOL_FLAG(false), NONE(),
-  Gettext.notrans(""));
+  "unitChecking", NONE(), EXTERNAL(), BOOL_FLAG(false), NONE(),
+  Gettext.notrans("Enable unit checking."));
 
 constant ConfigFlag TRANSLATE_DAE_STRING = CONFIG_FLAG(34,
   "translateDAEString", NONE(), INTERNAL(), BOOL_FLAG(true), NONE(),
@@ -1362,8 +1364,8 @@ constant ConfigFlag FMU_CMAKE_BUILD = CONFIG_FLAG(142, "fmuCMakeBuild",
   NONE(), EXTERNAL(), STRING_FLAG("default"),
   SOME(STRING_DESC_OPTION({
     ("default", Gettext.notrans("Let omc decide if CMake should be used.")),
-    ("true", Gettext.notrans("Use CMake to compile FMU binaries.")),
-    ("false", Gettext.notrans("Use default GNU Autoconf toolchain to compile FMU binaries."))
+    ("true",    Gettext.notrans("Use CMake to compile FMU binaries.")),
+    ("false",   Gettext.notrans("Use default GNU Autoconf toolchain to compile FMU binaries."))
     })),
   Gettext.gettext("Defines if FMUs will be configured and build with CMake."));
 
@@ -1387,7 +1389,8 @@ constant ConfigFlag ALLOW_NON_STANDARD_MODELICA = CONFIG_FLAG(146, "allowNonStan
     ("nonStdEnumerationAsIntegers", Gettext.gettext("Allow enumeration as integer without casting via Integer(Enum).\nSee: https://specification.modelica.org/maint/3.5/class-predefined-types-and-declarations.html#type-conversion-of-enumeration-values-to-string-or-integer")),
     ("nonStdIntegersAsEnumeration", Gettext.gettext("Allow integer as enumeration without casting via Enum(Integer).\nSee: https://specification.modelica.org/maint/3.5/class-predefined-types-and-declarations.html#type-conversion-of-integer-to-enumeration-values")),
     ("nonStdDifferentCaseFileVsClassName", Gettext.gettext("Allow directory or file with different case in the name than the contained class name.\nSee: https://specification.modelica.org/maint/3.5/packages.html#mapping-package-class-structures-to-a-hierarchical-file-system")),
-    ("protectedAccess", Gettext.gettext("Allow access of protected elements"))
+    ("protectedAccess", Gettext.gettext("Allow access of protected elements")),
+    ("reinitInAlgorithms", Gettext.gettext("Allow reinit in algorithm sections"))
     })),
   Gettext.gettext("Flags to allow non-standard Modelica."));
 
@@ -1429,6 +1432,20 @@ constant ConfigFlag OBFUSCATE = CONFIG_FLAG(152, "obfuscate",
     ("full", Gettext.gettext("Obfuscates everything."))
   })),
   Gettext.gettext("Obfuscates identifiers in the simulation model"));
+
+constant ConfigFlag FMU_RUNTIME_DEPENDS = CONFIG_FLAG(153, "fmuRuntimeDepends",
+  NONE(), EXTERNAL(), STRING_FLAG("modelica"),
+  SOME(STRING_DESC_OPTION({
+    ("none",     Gettext.notrans("No runtime library dependencies are copied into the FMU.")),
+    ("modelica", Gettext.notrans("All modelica runtime library dependencies are copied into the FMU." +
+                                 "System librarys located in '/lib*', '/usr/lib*' and '/usr/local/lib*' are excluded." +
+                                 "Needs --fmuCMakeBuild=true and CMake version >= 3.21.")),
+    ("all",      Gettext.notrans("All runtime library dependencies are copied into the FMU." +
+                                 "System librarys are copied as well." +
+                                 "Needs --fmuCMakeBuild=true and CMake version >= 3.21."))
+    })),
+  Gettext.gettext("Defines if runtime library dependencies are included in the FMU. Only used when compiler flag fmuCMakeBuild=true."));
+
 
 function getFlags
   "Loads the flags with getGlobalRoot. Assumes flags have been loaded."

@@ -247,7 +247,8 @@ constant list<Flags.DebugFlag> allDebugFlags = {
   Flags.DUMP_BACKEND_CLOCKS,
   Flags.DUMP_SET_BASED_GRAPHS,
   Flags.MERGE_COMPONENTS,
-  Flags.DUMP_SLICE
+  Flags.DUMP_SLICE,
+  Flags.VECTORIZE_BINDINGS
 };
 
 protected
@@ -406,7 +407,8 @@ constant list<Flags.ConfigFlag> allConfigFlags = {
   Flags.TEARING_ALWAYS_DERIVATIVES,
   Flags.DUMP_FLAT_MODEL,
   Flags.SIMULATION,
-  Flags.OBFUSCATE
+  Flags.OBFUSCATE,
+  Flags.FMU_RUNTIME_DEPENDS
 };
 
 public function new

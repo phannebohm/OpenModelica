@@ -586,32 +586,67 @@ const char* SystemImpl__basename(const char *str)
 }
 
 #if defined(__MINGW32__) || defined(_MSC_VER)
-int runProcess(const char* cmd)
+/**
+ * @brief Create new process and run command.
+ *
+ * Create handle for log file if outFile is not NULL and
+ * redirect stdout and stderr.
+ * Using wide chars for all commands and paths.
+ *
+ * @param cmd       Command to execute.
+ * @param outFile   Path to output file, can be NULL.
+ * @return int      Return 0 on success, 1 on failure.
+ */
+int runProcess(const char* cmd, const char* outFile)
 {
-  STARTUPINFOW si;
-  PROCESS_INFORMATION pi;
-  char *c = "cmd /c";
-  char *command = (char *)omc_alloc_interface.malloc_atomic(strlen(cmd) + strlen(c) + 4);
+  STARTUPINFOW startupInfo;
+  PROCESS_INFORMATION processInfo;
+  SECURITY_ATTRIBUTES securityAttributes;
+  HANDLE logFileHandle = NULL;
+  wchar_t* unicodeOutFile = NULL;
+  char *terminal = "cmd /c";
+  char *command = (char *)omc_alloc_interface.malloc_atomic(strlen(cmd) + strlen(terminal) + 4);
   DWORD exitCode = 1;
 
-  ZeroMemory(&si, sizeof(si));
-  si.cb = sizeof(si);
-  ZeroMemory(&pi, sizeof(pi));
+  ZeroMemory(&startupInfo, sizeof(startupInfo));
+  ZeroMemory(&processInfo, sizeof(processInfo));
 
-  sprintf(command, "%s \"%s\"", c, cmd);
-  /* fprintf(stderr, "%s\n", command); fflush(NULL); */
-
-  wchar_t* unicodeCommand = omc_multibyte_to_wchar_str(command);
-
-  if (CreateProcessW(NULL, unicodeCommand, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi))
-  {
-    WaitForSingleObject(pi.hProcess, INFINITE);
-    // Get the exit code.
-    GetExitCodeProcess(pi.hProcess, &exitCode);
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
+  startupInfo.cb = sizeof(startupInfo);   // Size of struct in bytes
+  if (*outFile) {
+    unicodeOutFile = omc_multibyte_to_wchar_str(outFile);
+    securityAttributes.nLength = sizeof(securityAttributes);
+    securityAttributes.lpSecurityDescriptor = NULL;
+    securityAttributes.bInheritHandle = TRUE;
+    logFileHandle = CreateFileW(unicodeOutFile,
+                    FILE_APPEND_DATA,
+                    FILE_SHARE_WRITE | FILE_SHARE_READ,
+                    &securityAttributes,
+                    OPEN_ALWAYS,
+                    FILE_ATTRIBUTE_NORMAL,
+                    NULL);
+    startupInfo.dwFlags |= STARTF_USESTDHANDLES;  // Additional handles in hStdInput, hStdOutput and hStdError elements
+    startupInfo.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    startupInfo.hStdError = logFileHandle;
+    startupInfo.hStdOutput = logFileHandle;
   }
 
+  sprintf(command, "%s \"%s\"", terminal, cmd);
+  wchar_t* unicodeCommand = omc_multibyte_to_wchar_str(command);
+  //printf("unicodeCommand: %ls\n", unicodeCommand);
+
+  if (CreateProcessW(NULL, unicodeCommand, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &startupInfo, &processInfo))
+  {
+    WaitForSingleObject(processInfo.hProcess, INFINITE);
+    // Get the exit code.
+    GetExitCodeProcess(processInfo.hProcess, &exitCode);
+    CloseHandle(processInfo.hProcess);
+    CloseHandle(processInfo.hThread);
+  }
+  if (logFileHandle) {
+    CloseHandle(logFileHandle);
+  }
+
+  free(unicodeOutFile);
   free(unicodeCommand);
   GC_free(command);
   return (int)exitCode;
@@ -624,18 +659,12 @@ int SystemImpl__systemCall(const char* str, const char* outFile)
   const int debug = 0;
   if (debug) {
     fprintf(stderr, "System.systemCall: %s\n", str); fflush(NULL);
+    fprintf(stderr, "System.systemCall log file: %s\n", outFile); fflush(NULL);
   }
 
   fflush(NULL); /* flush output so the testsuite is deterministic */
 #if defined(__MINGW32__) || defined(_MSC_VER)
-  if (*outFile) {
-    char *command = (char *)omc_alloc_interface.malloc_atomic(strlen(str) + strlen(outFile) + 12);
-    sprintf(command, "%s >> \"%s\" 2>&1", str, outFile);
-    status = runProcess(command);
-    GC_free((void*)command);
-  } else {
-    status = runProcess(str);
-  }
+  status = runProcess(str, outFile);
 #else
   pid_t pID = vfork();
   if (pID == 0) { // child
@@ -1042,7 +1071,7 @@ static int SystemImpl__removeDirectoryItem(const char *path)
     while ((retval == 0) && (p = readdir(d)))
     {
       int r2 = -1;
-      char * buf;
+      char * dir_name;
       size_t len;
 
       /* Do not recurse on "." and ".." */
@@ -1052,22 +1081,36 @@ static int SystemImpl__removeDirectoryItem(const char *path)
       }
 
       len = path_len + strlen(p->d_name) + 2;
-      buf = (char *)omc_alloc_interface.malloc_atomic(len);
-      if (buf != NULL)
+      dir_name = (char *)omc_alloc_interface.malloc_atomic(len);
+      if (dir_name != NULL)
       {
         omc_stat_t statbuf;
 
-        snprintf(buf, len, "%s/%s", path, p->d_name);
-        if (omc_stat(buf, &statbuf) == 0)
+        snprintf(dir_name, len, "%s/%s", path, p->d_name);
+        if (omc_stat(dir_name, &statbuf) == 0)
         {
           if (S_ISDIR(statbuf.st_mode))
           {
-            r2 = 0==SystemImpl__removeDirectory(buf);
+            r2 = 0==SystemImpl__removeDirectory(dir_name);
           }
           else
           {
-            r2 = omc_unlink(buf);
+            r2 = omc_unlink(dir_name);
           }
+        }
+        else if(omc_lstat(dir_name, &statbuf) == 0)
+        {
+          // Dead link, that isn't pointing to a file/directory any more
+          r2 = omc_unlink(dir_name);
+        }
+        else {
+          const char *c_tokens[1]={dir_name};
+          c_add_message(NULL,85,
+            ErrorType_scripting,
+            ErrorLevel_error,
+            gettext("Failed to remove %s"),
+            c_tokens,
+            1);
         }
       }
       retval = r2;

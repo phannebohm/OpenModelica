@@ -137,7 +137,6 @@ size_t omc_fread(void *buffer, size_t size, size_t count, FILE *stream, int allo
 }
 
 
-
 #if defined(__MINGW32__) || defined(_MSC_VER)
 /**
  * @brief File attributes
@@ -170,6 +169,44 @@ int omc_stat(const char *filename, omc_stat_t* statbuf)
   return res;
 }
 #endif
+
+
+#if defined(__MINGW32__) || defined(_MSC_VER)
+/**
+ * @brief File attributes
+ *
+ * Using (long) unicode absolute path and `_wstat` on Windows.
+ * Using `stat` on Unix.
+ *
+ * @param filename  File name.
+ * @param statbuf   Pointer to stat structure.
+ * @return int      0 on success, -1 on error.
+ */
+int omc_lstat(const char *filename, omc_stat_t* statbuf)
+{
+  return omc_stat(filename, statbuf);
+}
+#else /* unix */
+int omc_lstat(const char *filename, omc_stat_t* statbuf)
+{
+  int res;
+  res = lstat(filename, statbuf);
+  return res;
+}
+#endif
+
+/**
+ * @brief checks if a file/folder exists on the system.
+ * NOTE: Will return success even for directories, i.e., will not confirm that it is indeed a file.
+ *
+ * @param filename  the filename to check for existence.
+ * @return int  returns 1 if the file/folder exists, 0 otherwise.
+ */
+int omc_file_exists(const char* filename) {
+  omc_stat_t statbuf;
+  return omc_stat(filename, &statbuf) == 0;
+}
+
 
 /**
  * @brief Unlink file.

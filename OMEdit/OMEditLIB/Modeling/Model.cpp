@@ -32,9 +32,12 @@
  */
 
 #include "Model.h"
+#include "Util/StringHandler.h"
 
 #include <QRectF>
 #include <QtMath>
+#include <QVariant>
+#include <QStringBuilder>
 
 namespace ModelInstance
 {
@@ -168,10 +171,10 @@ namespace ModelInstance
     Point leftBottom = mExtent.getExtent1();
     Point topRight = mExtent.getExtent2();
 
-    qreal left = qMin(leftBottom.x(), topRight.y());
-    qreal bottom = qMin(leftBottom.y(), topRight.x());
-    qreal right = qMax(leftBottom.x(), topRight.y());
-    qreal top = qMax(leftBottom.y(), topRight.x());
+    qreal left = qMin(leftBottom.x(), topRight.x());
+    qreal bottom = qMin(leftBottom.y(), topRight.y());
+    qreal right = qMax(leftBottom.x(), topRight.x());
+    qreal top = qMax(leftBottom.y(), topRight.y());
     return QRectF(left, bottom, qFabs(left - right), qFabs(bottom - top));
   }
 
@@ -627,6 +630,7 @@ namespace ModelInstance
   {
     if (jsonObject.contains("coordinateSystem")) {
       mCoordinateSystem.deserialize(jsonObject.value("coordinateSystem").toObject());
+      mMergedCoOrdinateSystem = mCoordinateSystem;
     }
 
     if (jsonObject.contains("graphics")) {
@@ -693,6 +697,14 @@ namespace ModelInstance
     foreach (auto pConnection, mConnections) {
       delete pConnection;
     }
+
+    foreach (auto pTransition, mTransitions) {
+      delete pTransition;
+    }
+
+    foreach (auto pInitialState, mInitialStates) {
+      delete pInitialState;
+    }
   }
 
   void Model::deserialize()
@@ -714,6 +726,11 @@ namespace ModelInstance
 
     if (mModelJson.contains("restriction")) {
       mRestriction = mModelJson.value("restriction").toString();
+    }
+
+    // short type definitions have modifiers
+    if (mModelJson.contains("modifiers")) {
+      mModifier.deserialize(mModelJson.value("modifiers"));
     }
 
     if (mModelJson.contains("prefixes")) {
@@ -815,6 +832,23 @@ namespace ModelInstance
       }
     }
 
+    /* From Modelica Specification Version 3.5-dev
+     * The coordinate system (including preserveAspectRatio) of a class is defined by the following priority:
+     * 1. The coordinate system annotation given in the class (if specified).
+     * 2. The coordinate systems of the first base-class where the extent on the extends-clause specifies a
+     *    null-region (if any). Note that null-region is the default for base-classes, see section 18.6.3.
+     * 3. The default coordinate system CoordinateSystem(extent={{-100, -100}, {100, 100}}).
+     *
+     * Following is the second case. First case is covered when we read the annotation of the class. Third case is handled by default values of IconDiagramAnnotation class.
+     */
+    if (!mpIconAnnotation->getCoordinateSystem().isComplete()) {
+      readCoordinateSystemFromExtendsClass(true);
+    }
+
+    if (!mpDiagramAnnotation->getCoordinateSystem().isComplete()) {
+      readCoordinateSystemFromExtendsClass(false);
+    }
+
     if (mModelJson.contains("components")) {
       QJsonArray components = mModelJson.value("components").toArray();
       foreach (QJsonValue component, components) {
@@ -866,11 +900,30 @@ namespace ModelInstance
         }
       }
     }
-  }
 
-  void Model::serialize(QJsonObject &jsonObject) const
-  {
-    jsonObject["name"] = mName;
+    if (mModelJson.contains("transitions")) {
+      QJsonArray transitions = mModelJson.value("transitions").toArray();
+      foreach (QJsonValue transition, transitions) {
+        QJsonObject transitionObject = transition.toObject();
+        if (!transitionObject.isEmpty()) {
+          Transition *pTransition = new Transition;
+          pTransition->deserialize(transition.toObject());
+          mTransitions.append(pTransition);
+        }
+      }
+    }
+
+    if (mModelJson.contains("initialStates")) {
+      QJsonArray initialStates = mModelJson.value("initialStates").toArray();
+      foreach (QJsonValue initialState, initialStates) {
+        QJsonObject initialStateObject = initialState.toObject();
+        if (!initialStateObject.isEmpty()) {
+          InitialState *pInitialState = new InitialState;
+          pInitialState->deserialize(initialState.toObject());
+          mInitialStates.append(pInitialState);
+        }
+      }
+    }
   }
 
   bool Model::isConnector() const
@@ -889,6 +942,49 @@ namespace ModelInstance
   bool Model::isEnumeration() const
   {
     return (mRestriction.compare(QStringLiteral("enumeration")) == 0);
+  }
+
+  bool Model::isType() const
+  {
+    return (mRestriction.compare(QStringLiteral("type")) == 0);
+  }
+
+  void Model::readCoordinateSystemFromExtendsClass(bool isIcon)
+  {
+    /* From Modelica Specification Version 3.5-dev
+     * The coordinate system (including preserveAspectRatio) of a class is defined by the following priority:
+     * 1. The coordinate system annotation given in the class (if specified).
+     * 2. The coordinate systems of the first base-class where the extent on the extends-clause specifies a
+     *    null-region (if any). Note that null-region is the default for base-classes, see section 18.6.3.
+     * 3. The default coordinate system CoordinateSystem(extent={{-100, -100}, {100, 100}}).
+     *
+     * Following is the second case.
+     */
+    foreach (auto pExtend, mExtends) {
+      ModelInstance::CoordinateSystem coordinateSystem;
+      IconDiagramAnnotation *pIconDiagramAnnotation = 0;
+      if (isIcon) {
+        coordinateSystem = pExtend->getIconAnnotation()->getCoordinateSystem();
+        pIconDiagramAnnotation = mpIconAnnotation;
+      } else {
+        coordinateSystem = pExtend->getDiagramAnnotation()->getCoordinateSystem();
+        pIconDiagramAnnotation = mpDiagramAnnotation;
+      }
+
+      if (!pIconDiagramAnnotation->mMergedCoOrdinateSystem.hasExtent() && coordinateSystem.hasExtent()) {
+        pIconDiagramAnnotation->mMergedCoOrdinateSystem.setExtent(coordinateSystem.getExtent());
+      }
+      if (!pIconDiagramAnnotation->mMergedCoOrdinateSystem.hasPreserveAspectRatio() && coordinateSystem.hasPreserveAspectRatio()) {
+        pIconDiagramAnnotation->mMergedCoOrdinateSystem.setPreserveAspectRatio(coordinateSystem.getPreserveAspectRatio());
+      }
+      if (!pIconDiagramAnnotation->mMergedCoOrdinateSystem.hasInitialScale() && coordinateSystem.hasInitialScale()) {
+        pIconDiagramAnnotation->mMergedCoOrdinateSystem.setInitialScale(coordinateSystem.getInitialScale());
+      }
+      if (!pIconDiagramAnnotation->mMergedCoOrdinateSystem.hasGrid() && coordinateSystem.hasGrid()) {
+        pIconDiagramAnnotation->mMergedCoOrdinateSystem.setGrid(coordinateSystem.getGrid());
+      }
+      break; // we only check coordinate system of first inherited class. See the comment in start of function i.e., "The coordinate systems of the first base-class ..."
+    }
   }
 
   bool Model::isParameterConnectorSizing(const QString &parameter)
@@ -934,6 +1030,8 @@ namespace ModelInstance
     mColumnEnd = 0;
     mReadonly = false;
     mConnections.clear();
+    mTransitions.clear();
+    mInitialStates.clear();
   }
 
   Transformation::Transformation()
@@ -957,13 +1055,18 @@ namespace ModelInstance
 
   PlacementAnnotation::PlacementAnnotation()
   {
-    mVisible = true;
+    // set the visible to false. Otherwise we get elements in the center of the view.
+    mVisible = false;
+    mIconVisible = false;
   }
 
   void PlacementAnnotation::deserialize(const QJsonObject &jsonObject)
   {
     if (jsonObject.contains("visible")) {
       mVisible = jsonObject.value("visible").toBool();
+    } else {
+      // if there is no visible then assume it to be true.
+      mVisible = true;
     }
 
     if (jsonObject.contains("transformation")) {
@@ -1088,6 +1191,30 @@ namespace ModelInstance
     }
   }
 
+  QString Modifier::getModifierValue(QStringList qualifiedModifierName)
+  {
+    if (qualifiedModifierName.isEmpty()) {
+      return "";
+    }
+
+    return Modifier::getModifierValue(*this, qualifiedModifierName.takeFirst(), qualifiedModifierName);
+  }
+
+  QString Modifier::getModifierValue(const Modifier &modifier, const QString &modifierName, QStringList qualifiedModifierName)
+  {
+    foreach (auto subModifier, modifier.getModifiers()) {
+      if (subModifier.getName().compare(modifierName) == 0) {
+        if (qualifiedModifierName.isEmpty()) {
+          return StringHandler::removeFirstLastQuotes(subModifier.getValue());
+        } else {
+          return Modifier::getModifierValue(subModifier, qualifiedModifierName.takeFirst(), qualifiedModifierName);
+        }
+      }
+    }
+
+    return "";
+  }
+
   Choices::Choices()
   {
     mCheckBox = false;
@@ -1140,6 +1267,7 @@ namespace ModelInstance
     mVariability = "";
     mDirection = "";
     mComment = "";
+    mChoicesAllMatching = false;
     mHasDialogAnnotation = false;
   }
 
@@ -1232,6 +1360,10 @@ namespace ModelInstance
     if (jsonObject.contains("annotation")) {
       QJsonObject annotation = jsonObject.value("annotation").toObject();
 
+      if (annotation.contains("choicesAllMatching")) {
+        mChoicesAllMatching = annotation.value("choicesAllMatching").toBool();
+      }
+
       if (annotation.contains("Placement")) {
         mPlacementAnnotation.deserialize(annotation.value("Placement").toObject());
       }
@@ -1249,6 +1381,39 @@ namespace ModelInstance
         mChoices.deserialize(annotation.value("choices").toObject());
       }
     }
+  }
+
+  QString Element::getModifierValueFromType(QStringList modifierNames)
+  {
+    /* 1. First check if unit is defined with in the component modifier.
+     * 2. If no unit is found then check it in the derived class modifier value.
+     * 3. A derived class can be inherited, so look recursively.
+     */
+    // Case 1
+    QString modifierValue = mModifier.getModifierValue(modifierNames);
+    if (modifierValue.isEmpty() && mpModel) {
+      // Case 2
+      modifierValue = mpModel->getModifier().getModifierValue(modifierNames);
+      // Case 3
+      if (modifierValue.isEmpty()) {
+        modifierValue = Element::getModifierValueFromInheritedType(mpModel, modifierNames);
+      }
+    }
+    return modifierValue;
+  }
+
+  QString Element::getModifierValueFromInheritedType(Model *pModel, QStringList modifierNames)
+  {
+    QString modifierValue = "";
+    foreach (auto pExtend, pModel->getExtends()) {
+      modifierValue = pExtend->getModifier().getModifierValue(modifierNames);
+      if (modifierValue.isEmpty()) {
+        modifierValue = Element::getModifierValueFromInheritedType(pExtend, modifierNames);
+      } else {
+        return modifierValue;
+      }
+    }
+    return modifierValue;
   }
 
   Part::Part()
@@ -1366,6 +1531,107 @@ namespace ModelInstance
     }
   }
 
+  QString Connection::toString() const
+  {
+    return "connect(" % mpStartConnector->getName() % ", " % mpEndConnector->getName() % ")";
+  }
+
+  Transition::Transition()
+  {
+    mpStartConnector = 0;
+    mpEndConnector = 0;
+    mCondition = false;
+    mImmediate = true;
+    mReset = true;
+    mSynchronize = false;
+    mPriority = 1;
+    mpLine = 0;
+    mpText = 0;
+  }
+
+  void Transition::deserialize(const QJsonObject &jsonObject)
+  {
+    if (jsonObject.contains("arguments")) {
+      QJsonArray arguments = jsonObject.value("arguments").toArray();
+      if (arguments.size() > 6) {
+        if (arguments.at(0).isObject()) {
+          mpStartConnector = new Connector;
+          mpStartConnector->deserialize(arguments.at(0).toObject());
+        }
+
+        if (arguments.at(1).isObject()) {
+          mpEndConnector = new Connector;
+          mpEndConnector->deserialize(arguments.at(1).toObject());
+        }
+
+        mCondition = arguments.at(2).toBool();
+        mImmediate = arguments.at(3).toBool();
+        mReset = arguments.at(4).toBool();
+        mSynchronize = arguments.at(5).toBool();
+        mPriority = arguments.at(6).toInt();
+      }
+    }
+
+    if (jsonObject.contains("annotation")) {
+      QJsonObject annotation = jsonObject.value("annotation").toObject();
+      if (annotation.contains("Line")) {
+        mpLine = new Line;
+        mpLine->deserialize(annotation.value("Line").toObject());
+      }
+
+      if (annotation.contains("Text")) {
+        mpText = new Text;
+        mpText->deserialize(annotation.value("Text").toObject());
+      }
+    }
+  }
+
+  QString Transition::toString() const
+  {
+    QStringList transitionArgs;
+    transitionArgs << mpStartConnector->getName()
+                   << mpEndConnector->getName()
+                   << QVariant(mCondition).toString()
+                   << QVariant(mCondition).toString()
+                   << QVariant(mImmediate).toString()
+                   << QVariant(mReset).toString()
+                   << QVariant(mSynchronize).toString()
+                   << QString::number(mPriority);
+    return "transition(" % transitionArgs.join(", ") % ")";
+  }
+
+  InitialState::InitialState()
+  {
+    mpStartConnector = 0;
+    mpLine = 0;
+  }
+
+  void InitialState::deserialize(const QJsonObject &jsonObject)
+  {
+    if (jsonObject.contains("arguments")) {
+      QJsonArray arguments = jsonObject.value("arguments").toArray();
+      if (!arguments.isEmpty()) {
+        if (arguments.at(0).isObject()) {
+          mpStartConnector = new Connector;
+          mpStartConnector->deserialize(arguments.at(0).toObject());
+        }
+      }
+    }
+
+    if (jsonObject.contains("annotation")) {
+      QJsonObject annotation = jsonObject.value("annotation").toObject();
+      if (annotation.contains("Line")) {
+        mpLine = new Line;
+        mpLine->deserialize(annotation.value("Line").toObject());
+      }
+    }
+  }
+
+  QString InitialState::toString() const
+  {
+    return "initialState(" % mpStartConnector->getName() % ")";
+  }
+
   Extend::Extend()
     : Model()
   {
@@ -1380,7 +1646,7 @@ namespace ModelInstance
   void Extend::deserialize(const QJsonObject &jsonObject)
   {
     if (jsonObject.contains("modifiers")) {
-      mModifier.deserialize(jsonObject.value("modifiers"));
+      mExtendsModifier.deserialize(jsonObject.value("modifiers"));
     }
 
     if (jsonObject.contains("baseClass")) {
