@@ -37,6 +37,7 @@
 
 #include "Util/Helper.h"
 #include "Util/Utilities.h"
+#include "Util/StringHandler.h"
 
 #include <QFontComboBox>
 #include <QStackedWidget>
@@ -663,6 +664,8 @@ public:
 #ifdef Q_OS_WIN
   QCheckBox* getUseStaticLinkingCheckBox() {return mpUseStaticLinkingCheckBox;}
 #endif
+  void setPostCompilationCommand(const QString & cmd) {mpPostCompilationCommandLineEdit->setText(cmd);}
+  QString getPostCompilationCommand() {return mpPostCompilationCommandLineEdit->text().trimmed();}
   QCheckBox* getIgnoreCommandLineOptionsAnnotationCheckBox() {return mpIgnoreCommandLineOptionsAnnotationCheckBox;}
   QCheckBox* getIgnoreSimulationFlagsAnnotationCheckBox() {return mpIgnoreSimulationFlagsAnnotationCheckBox;}
   QCheckBox* getSaveClassBeforeSimulationCheckBox() {return mpSaveClassBeforeSimulationCheckBox;}
@@ -689,6 +692,7 @@ private:
 #ifdef Q_OS_WIN
   QCheckBox *mpUseStaticLinkingCheckBox;
 #endif
+  QLineEdit *mpPostCompilationCommandLineEdit;
   QCheckBox *mpIgnoreCommandLineOptionsAnnotationCheckBox;
   QCheckBox *mpIgnoreSimulationFlagsAnnotationCheckBox;
   QCheckBox *mpSaveClassBeforeSimulationCheckBox;
@@ -718,14 +722,15 @@ public:
   QFontComboBox* getFontFamilyComboBox() {return mpFontFamilyComboBox;}
   DoubleSpinBox* getFontSizeSpinBox() {return mpFontSizeSpinBox;}
   void setNotificationColor(QColor color) {mNotificaitonColor = color;}
-  QColor getNotificationColor() {return mNotificaitonColor;}
+  QColor getNotificationColor() const {return mNotificaitonColor;}
   void setNotificationPickColorButtonIcon();
   void setWarningColor(QColor color) {mWarningColor = color;}
-  QColor getWarningColor() {return mWarningColor;}
+  QColor getWarningColor() const {return mWarningColor;}
   void setWarningPickColorButtonIcon();
   void setErrorColor(QColor color) {mErrorColor = color;}
-  QColor getErrorColor() {return mErrorColor;}
+  QColor getErrorColor() const {return mErrorColor;}
   void setErrorPickColorButtonIcon();
+  QColor getColor(const StringHandler::SimulationMessageType type) const;
 private:
   OptionsDialog *mpOptionsDialog;
   QGroupBox *mpGeneralGroupBox;
@@ -1105,6 +1110,7 @@ public:
   DiscardLocalTranslationFlagsDialog(QWidget *pParent = 0);
 private:
   Label *mpDescriptionLabel;
+  Label *mpDescriptionLabel2;
   QListWidget *mpClassesWithLocalTranslationFlagsListWidget;
   QPushButton *mpYesButton;
   QPushButton *mpNoButton;

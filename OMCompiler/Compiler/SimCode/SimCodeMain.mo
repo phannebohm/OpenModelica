@@ -845,9 +845,8 @@ algorithm
           cminpack_sources := {};
         end if;
 
-        // Check if the sundials files are needed. Shouldn't this actually check what the flags are
-        // instead of just checking if flags are set only?
-        if isSome(simCode.fmiSimulationFlags) then
+        // Check if the sundials files are needed
+        if SimCodeUtil.cvodeFmiFlagIsSet(simCode.fmiSimulationFlags) then
           // The sundials headers are in the include directory.
           copyFiles(RuntimeSources.sundials_headers, source=install_include_omc_dir, destination=fmu_tmp_sources_dir);
           copyFiles(RuntimeSources.simrt_c_sundials_sources, source=install_fmu_sources_dir, destination=fmu_tmp_sources_dir);
@@ -924,13 +923,9 @@ algorithm
             Error.addCompilerError("Unsupported value " + Flags.getConfigString(Flags.FMU_RUNTIME_DEPENDS) + "for compiler flag 'fmuRuntimeDepends'.");
             then();
         end match;
-        if isSome(simCode.fmiSimulationFlags) then
-          cmakelistsStr := System.stringReplace(cmakelistsStr, "@WITH_SUNDIALS@", ";WITH_SUNDIALS");
-        else
-          cmakelistsStr := System.stringReplace(cmakelistsStr, "@WITH_SUNDIALS@", "");
-        end if;
 
         // Add external libraries and includes
+        cmakelistsStr := System.stringReplace(cmakelistsStr, "@NEED_CVODE@", SimCodeUtil.getCmakeSundialsLinkCode(simCode.fmiSimulationFlags));
         cmakelistsStr := System.stringReplace(cmakelistsStr, "@FMU_ADDITIONAL_LIBS@", SimCodeUtil.getCmakeLinkLibrariesCode(simCode.makefileParams.libs));
         cmakelistsStr := System.stringReplace(cmakelistsStr, "@FMU_ADDITIONAL_INCLUDES@", SimCodeUtil.make2CMakeInclude(simCode.makefileParams.includes));
 
@@ -1049,10 +1044,6 @@ algorithm
     // new backend - also activates new frontend by default
     case (graph, filenameprefix) guard(Flags.getConfigBool(Flags.NEW_BACKEND))
       algorithm
-        // set implied flags to true
-        FlagsUtil.enableDebug(Flags.SCODE_INST);
-        FlagsUtil.enableDebug(Flags.ARRAY_CONNECT);
-        FlagsUtil.disableDebug(Flags.NF_SCALARIZE);
         // ToDo: set permanently matching -> SBGraphs
 
         // ================================
@@ -1416,6 +1407,7 @@ protected
 
   tuple<Option<BackendDAE.SymbolicJacobian>, BackendDAE.SparsePattern, BackendDAE.SparseColoring> daeModeJacobian;
   Option<BackendDAE.SymbolicJacobian> daeModeJac;
+  Option<BackendDAE.Jacobian> jacH;
   BackendDAE.SparsePattern daeModeSparsity;
   BackendDAE.SparseColoring daeModeColoring;
 
@@ -1423,14 +1415,14 @@ protected
   list<SimCode.JacobianMatrix> symJacs, SymbolicJacs, SymbolicJacsNLS, SymbolicJacsTemp, SymbolicJacsStateSelect;
   list<SimCode.SimEqSystem> initialEquations;
   list<SimCode.SimEqSystem> initialEquations_lambda0;
-  list<SimCode.SimEqSystem> removedInitialEquations, jacobianEquations;
+  list<SimCode.SimEqSystem> removedInitialEquations;
   list<SimCodeVar.SimVar> jacobianSimvars, seedVars;
-  list<SimCode.SimEqSystem> startValueEquations;        // --> updateBoundStartValues
-  list<SimCode.SimEqSystem> maxValueEquations;          // --> updateBoundMaxValues
-  list<SimCode.SimEqSystem> minValueEquations;          // --> updateBoundMinValues
-  list<SimCode.SimEqSystem> nominalValueEquations;      // --> updateBoundNominalValues
-  list<SimCode.SimEqSystem> parameterEquations;         // --> updateBoundParameters
-  list<SimCode.SimEqSystem> jacobianEquations;
+  list<SimCode.SimEqSystem> startValueEquations = {};        // --> updateBoundStartValues
+  list<SimCode.SimEqSystem> maxValueEquations = {};          // --> updateBoundMaxValues
+  list<SimCode.SimEqSystem> minValueEquations = {};          // --> updateBoundMinValues
+  list<SimCode.SimEqSystem> nominalValueEquations = {};      // --> updateBoundNominalValues
+  list<SimCode.SimEqSystem> parameterEquations = {};         // --> updateBoundParameters
+  list<SimCode.SimEqSystem> jacobianEquations = {};
 algorithm
   numCheckpoints:=ErrorExt.getNumCheckpoints();
   try
@@ -1481,11 +1473,29 @@ algorithm
     // create parameter equations
     ((uniqueEqIndex, startValueEquations, _)) := BackendDAEUtil.foldEqSystem(inInitDAE, SimCodeUtil.createStartValueEquations, (uniqueEqIndex, {}, inBackendDAE.shared.globalKnownVars));
     if debug then ExecStat.execStat("simCode: createStartValueEquations"); end if;
-    ((uniqueEqIndex, nominalValueEquations)) := BackendDAEUtil.foldEqSystem(inBackendDAE, SimCodeUtil.createNominalValueEquations, (uniqueEqIndex, {}));
+
+    nominalValueEquations := {};
+    minValueEquations := {};
+    maxValueEquations := {};
+    // For now, disable traversal of globalknownvars for creation of nominal, min, and max assignments (if we are not doing
+    // dynamic optimizations).
+    // We need to revise how we handle these assignments for parameters with regard to maintaining the binding values
+    // for those that we end up generating these assignments. See #9825 for discussions.
+    // If you change these remember to change the coresponding code for ode mode simulation in SimCodeUtil.mo.
+    if (Config.acceptOptimicaGrammar() or Flags.getConfigBool(Flags.GENERATE_DYN_OPTIMIZATION_PROBLEM)) then
+      ((uniqueEqIndex, nominalValueEquations)) := SimCodeUtil.createValueEquationsShared(inBackendDAE.shared, SimCodeUtil.createInitialAssignmentsFromNominal, (uniqueEqIndex, nominalValueEquations));
+      if debug then ExecStat.execStat("simCode: createNominalValueEquationsShared"); end if;
+      ((uniqueEqIndex, minValueEquations)) := SimCodeUtil.createValueEquationsShared(inBackendDAE.shared, SimCodeUtil.createInitialAssignmentsFromMin, (uniqueEqIndex, minValueEquations));
+      if debug then ExecStat.execStat("simCode: createMinValueEquationsShared"); end if;
+      ((uniqueEqIndex, maxValueEquations)) := SimCodeUtil.createValueEquationsShared(inBackendDAE.shared, SimCodeUtil.createInitialAssignmentsFromMax, (uniqueEqIndex, maxValueEquations));
+      if debug then ExecStat.execStat("simCode: createMaxValueEquationsShared"); end if;
+    end if;
+
+    ((uniqueEqIndex, nominalValueEquations)) := BackendDAEUtil.foldEqSystem(inBackendDAE, SimCodeUtil.createNominalValueEquations, (uniqueEqIndex, nominalValueEquations));
     if debug then ExecStat.execStat("simCode: createNominalValueEquations"); end if;
-    ((uniqueEqIndex, minValueEquations)) := BackendDAEUtil.foldEqSystem(inBackendDAE, SimCodeUtil.createMinValueEquations, (uniqueEqIndex, {}));
+    ((uniqueEqIndex, minValueEquations)) := BackendDAEUtil.foldEqSystem(inBackendDAE, SimCodeUtil.createMinValueEquations, (uniqueEqIndex, minValueEquations));
     if debug then ExecStat.execStat("simCode: createMinValueEquations"); end if;
-    ((uniqueEqIndex, maxValueEquations)) := BackendDAEUtil.foldEqSystem(inBackendDAE, SimCodeUtil.createMaxValueEquations, (uniqueEqIndex, {}));
+    ((uniqueEqIndex, maxValueEquations)) := BackendDAEUtil.foldEqSystem(inBackendDAE, SimCodeUtil.createMaxValueEquations, (uniqueEqIndex, maxValueEquations));
     if debug then ExecStat.execStat("simCode: createMaxValueEquations"); end if;
     ((uniqueEqIndex, parameterEquations)) := BackendDAEUtil.foldEqSystem(inBackendDAE, SimCodeUtil.createVarNominalAssertFromVars, (uniqueEqIndex, {}));
     if debug then ExecStat.execStat("simCode: createVarNominalAssertFromVars"); end if;
@@ -1511,9 +1521,14 @@ algorithm
       // create symbolic jacobian (like nls systems!)
       (daeModeJac, daeModeSparsity, daeModeColoring) := listGet(inBackendDAE.shared.symjacs, BackendDAE.SymbolicJacobianAIndex);
       if Util.isSome(inBackendDAE.shared.dataReconciliationData) then
-        matrixnames := {"B", "C", "D"};
+        BackendDAE.DATA_RECON(_, _, _, _, jacH) := Util.getOption(inBackendDAE.shared.dataReconciliationData);
+        if isSome(jacH) then
+          matrixnames := {"B", "C", "D"};
+        else
+          matrixnames := {"B", "C", "D", "H"};
+        end if;
       else
-        matrixnames := {"B", "C", "D", "F"};
+        matrixnames := {"B", "C", "D", "F", "H"};
       end if;
       (daeModeSP, uniqueEqIndex, tempVars) := SimCodeUtil.createSymbolicSimulationJacobian(
         inJacobian      = BackendDAE.GENERIC_JACOBIAN(daeModeJac, daeModeSparsity, daeModeColoring),
@@ -1533,9 +1548,14 @@ algorithm
       crefToSimVarHT := SimCodeUtil.createCrefToSimVarHT(modelInfo);
 
       if Util.isSome(inBackendDAE.shared.dataReconciliationData) then
-        matrixnames := {"A", "B", "C", "D"};
+        BackendDAE.DATA_RECON(_, _, _, _, jacH) := Util.getOption(inBackendDAE.shared.dataReconciliationData);
+        if isSome(jacH) then
+          matrixnames := {"A", "B", "C", "D"};
+        else
+          matrixnames := {"A", "B", "C", "D", "H"};
+        end if;
       else
-        matrixnames := {"A", "B", "C", "D", "F"};
+        matrixnames := {"A", "B", "C", "D", "F", "H"};
       end if;
       (symJacs, uniqueEqIndex) := SimCodeUtil.createSymbolicJacobianssSimCode({}, crefToSimVarHT, uniqueEqIndex, matrixnames, {});
     end if;
@@ -1637,8 +1657,8 @@ algorithm
       stateSets                   = {},
       constraints                 = {},
       classAttributes             = {},
-      zeroCrossings               = zeroCrossings,
-      relations                   = relations,
+      zeroCrossings               = ZeroCrossings.updateIndices(zeroCrossings),
+      relations                   = ZeroCrossings.updateIndices(relations),
       timeEvents                  = timeEvents,
       discreteModelVars           = discreteModelVars,
       extObjInfo                  = extObjInfo,

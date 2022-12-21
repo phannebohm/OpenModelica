@@ -68,6 +68,7 @@ uniontype InstNodeType
     "A base class extended by another class."
     InstNode parent;
     SCode.Element definition "The extends clause definition.";
+    InstNodeType ty "The original node type before the class was extended.";
   end BASE_CLASS;
 
   record DERIVED_CLASS
@@ -304,7 +305,7 @@ uniontype InstNode
     name := AbsynUtil.pathLastIdent(base_path);
     node := CLASS_NODE(name, definition, Prefixes.visibilityFromSCode(vis),
       Pointer.create(Class.NOT_INSTANTIATED()), CachedData.empty(), parent,
-      InstNodeType.BASE_CLASS(parent, definition));
+      InstNodeType.BASE_CLASS(parent, definition, nodeType(parent)));
   end newExtends;
 
   function newIterator
@@ -359,13 +360,16 @@ uniontype InstNode
   function isUserdefinedClass
     input InstNode node;
     output Boolean isUserdefined;
+  protected
+    InstNodeType ty;
   algorithm
     isUserdefined := match node
-      case CLASS_NODE()
-        then match node.nodeType
+      case CLASS_NODE(nodeType = ty)
+        then match ty
           case InstNodeType.NORMAL_CLASS() then true;
           case InstNodeType.BASE_CLASS() then true;
           case InstNodeType.DERIVED_CLASS() then true;
+          case InstNodeType.REDECLARED_CLASS() then isUserdefinedClass(ty.parent);
           else false;
         end match;
       else false;
@@ -647,7 +651,19 @@ uniontype InstNode
   algorithm
     scope := match node
       case CLASS_NODE(nodeType = InstNodeType.DERIVED_CLASS())
-        then parentScope(Class.lastBaseClass(node));
+        algorithm
+          scope := Class.lastBaseClass(node);
+        then
+          if isBuiltin(scope) then
+            // Builtin types like Real do not have a parent set, go to the top scope instead.
+            topScope(node.parentScope)
+          elseif referenceEq(node, scope) then
+            // lastBaseClass above might return the same node if the class has
+            // been flattened, go directly to the parent to avoid an infinite loop.
+            node.parentScope
+          else
+            parentScope(scope);
+
       case CLASS_NODE() then node.parentScope;
       case COMPONENT_NODE() then parentScope(Component.classInstance(Pointer.access(node.component)));
       case IMPLICIT_SCOPE() then node.parentScope;
@@ -1087,6 +1103,36 @@ uniontype InstNode
           fail();
     end match;
   end scopeListClass;
+
+  function getAnnotation
+    input String name;
+    input InstNode node;
+    output Option<SCode.SubMod> mod = NONE();
+  algorithm
+
+    if InstNode.isComponent(node) then
+      mod := match Component.comment(InstNode.component(node))
+        local
+          list<SCode.SubMod> subModLst;
+          Boolean done = false;
+
+        case SOME(SCode.COMMENT(annotation_=SOME(SCode.ANNOTATION(modification = SCode.MOD(subModLst = subModLst)))))
+        algorithm
+          for sm in subModLst loop
+            if sm.ident == name then
+              mod := SOME(sm);
+              done := true;
+              break;
+            end if;
+          end for;
+          if not done then
+            mod := getAnnotation(name, parent(node));
+          end if;
+        then mod;
+        else getAnnotation(name, parent(node));
+      end match;
+    end if;
+  end getAnnotation;
 
   type ScopeType = enumeration(
     RELATIVE       "Stops at a root class and doesn't include the root",
@@ -1567,6 +1613,11 @@ uniontype InstNode
     end match;
   end isProtected;
 
+  function isPublic
+    input InstNode node;
+    output Boolean isPublic = not isProtected(node);
+  end isPublic;
+
   function protectClass
     input output InstNode cls;
   algorithm
@@ -1739,10 +1790,21 @@ uniontype InstNode
     output Boolean isBuiltin;
   algorithm
     isBuiltin := match node
-      case CLASS_NODE(nodeType = InstNodeType.BUILTIN_CLASS()) then true;
+      case CLASS_NODE() then isBuiltinNodeType(node.nodeType);
       else false;
     end match;
   end isBuiltin;
+
+  function isBuiltinNodeType
+    input InstNodeType nodeType;
+    output Boolean isBuiltin;
+  algorithm
+    isBuiltin := match nodeType
+      case InstNodeType.BUILTIN_CLASS() then true;
+      case InstNodeType.BASE_CLASS() then isBuiltinNodeType(nodeType.ty);
+      else false;
+    end match;
+  end isBuiltinNodeType;
 
   function isPartial
     input InstNode node;
@@ -1873,8 +1935,7 @@ uniontype InstNode
   function hash
     "Returns the hash of an InstNode's name."
     input InstNode node;
-    input Integer mod;
-    output Integer hash = stringHashDjb2Mod(name(node), mod);
+    output Integer hash = stringHashDjb2(name(node));
   end hash;
 
   function dimensionCount
@@ -1942,6 +2003,16 @@ uniontype InstNode
       else Type.isDiscrete(Class.getType(cls, base_node));
     end match;
   end isDiscreteClass;
+
+  function clearGeneratedInners
+    input InstNode node;
+  protected
+    InstNode top;
+    UnorderedMap<String, InstNode> inners;
+  algorithm
+    InstNodeType.TOP_SCOPE(generatedInners = inners) := nodeType(InstNode.topScope(node));
+    UnorderedMap.clear(inners);
+  end clearGeneratedInners;
 end InstNode;
 
 annotation(__OpenModelica_Interface="frontend");

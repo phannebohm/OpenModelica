@@ -139,6 +139,16 @@ public
     annotation(__OpenModelica_EarlyInline=true);
   end makeAssignment;
 
+  function isAssignment
+    input Statement stmt;
+    output Boolean res;
+  algorithm
+    res := match stmt
+      case ASSIGNMENT() then true;
+      else false;
+    end match;
+  end isAssignment;
+
   function makeIf
     input list<tuple<Expression, list<Statement>>> branches;
     input DAE.ElementSource src;
@@ -168,6 +178,26 @@ public
       case FAILURE() then stmt.source;
     end match;
   end source;
+
+  function setSource
+    input DAE.ElementSource source;
+    input output Statement stmt;
+  algorithm
+    () := match stmt
+      case ASSIGNMENT()          algorithm stmt.source := source; then ();
+      case FUNCTION_ARRAY_INIT() algorithm stmt.source := source; then ();
+      case FOR()                 algorithm stmt.source := source; then ();
+      case IF()                  algorithm stmt.source := source; then ();
+      case WHEN()                algorithm stmt.source := source; then ();
+      case ASSERT()              algorithm stmt.source := source; then ();
+      case TERMINATE()           algorithm stmt.source := source; then ();
+      case NORETCALL()           algorithm stmt.source := source; then ();
+      case WHILE()               algorithm stmt.source := source; then ();
+      case RETURN()              algorithm stmt.source := source; then ();
+      case BREAK()               algorithm stmt.source := source; then ();
+      case FAILURE()             algorithm stmt.source := source; then ();
+    end match;
+  end setSource;
 
   function info
     input Statement stmt;
@@ -449,7 +479,6 @@ public
 
       case ASSIGNMENT()
         algorithm
-          // kabdelhak: shouldn't this map?
           e1 := func(stmt.lhs);
           e2 := func(stmt.rhs);
         then

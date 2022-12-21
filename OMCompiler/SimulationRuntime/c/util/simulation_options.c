@@ -136,6 +136,7 @@ const char *FLAG_NAME[FLAG_MAX+1] = {
   /* FLAG_R */                            "r",
   /* FLAG_DATA_RECONCILE  */              "reconcile",
   /* FLAG_DATA_RECONCILE_BOUNDARY */      "reconcileBoundaryConditions",
+  /* FLAG_DATA_RECONCILE_STATE */         "reconcileState",
   /* FLAG_SR */                           "gbm",
   /* FLAG_SR_CTRL */                      "gbctrl",
   /* FLAG_SR_ERR */                       "gberr",
@@ -156,6 +157,7 @@ const char *FLAG_NAME[FLAG_MAX+1] = {
   /* FLAG_DATA_RECONCILE_Sx */            "sx",
   /* FLAG_UP_HESSIAN */                   "keepHessian",
   /* FLAG_W */                            "w",
+  /* FLAG_PARMODNUMTHREADS */             "parmodNumThreads",
 
   "FLAG_MAX"
 };
@@ -266,6 +268,7 @@ const char *FLAG_DESC[FLAG_MAX+1] = {
   /* FLAG_R */                            "value specifies a new result file than the default Model_res.mat",
   /* FLAG_DATA_RECONCILE */               "Run the Data Reconciliation numerical computation algorithm for constrained equations",
   /* FLAG_DATA_RECONCILE_BOUNDARY */      "Run the Data Reconciliation numerical computation algorithm for boundary condition equations",
+  /* FLAG_DATA_RECONCILE_STATE */         "Run the State Estimation numerical computation algorithm for constrained equations",
   /* FLAG_SR */                           "Value specifies the chosen solver of solver gbode (single-rate, slow states integrator)",
   /* FLAG_SR_CTRL */                      "Step size control of solver gbode (single-rate, slow states integrator)",
   /* FLAG_SR_ERR */                       "Error estimation done by Richardson extrapolation  (-gberr=1) of solver gbode (single-rate, slow states integrator)",
@@ -286,6 +289,7 @@ const char *FLAG_DESC[FLAG_MAX+1] = {
   /* FLAG_DATA_RECONCILE_Sx */            "value specifies a csv-file with inputs as covariance matrix Sx for DataReconciliation",
   /* FLAG_UP_HESSIAN */                   "value specifies the number of steps, which keep hessian matrix constant",
   /* FLAG_W */                            "shows all warnings even if a related log-stream is inactive",
+  /* FLAG_PARMODNUMTHREADS */             "[int default: 0] value specifies the number of threads for simulation using parmodauto. If not specified (or is 0) it will use the systems max number of threads. Note that this option is ignored if the model is not compiled with --parmodauto",
 
   "FLAG_MAX"
 };
@@ -563,6 +567,8 @@ const char *FLAG_DETAILED_DESC[FLAG_MAX+1] = {
   "  Run the Data Reconciliation numerical computation algorithm for constrained equations",
   /* FLAG_DATA_RECONCILE_BOUNDARY */
   "  Run the Data Reconciliation numerical computation algorithm for boundary condition equations",
+  /* FLAG_DATA_RECONCILE_STATE */
+  "  Run the State Estimation numerical computation algorithm for constrained equations",
   /* FLAG_SR */
   "  Value specifies the chosen solver of solver gbode (single-rate, slow states integrator).",
   /* FLAG_SR_CTRL */
@@ -607,6 +613,8 @@ const char *FLAG_DETAILED_DESC[FLAG_MAX+1] = {
   "  Value specifies the number of steps, which keep Hessian matrix constant.",
   /* FLAG_W */
   "  Shows all warnings even if a related log-stream is inactive.",
+  /* FLAG_PARMODNUMTHREADS */
+  "  Value specifies the number of threads for simulation using parmodauto. If not specified (or is 0) it will use the systems max number of threads. Note that this option is ignored if the model is not compiled with --parmodauto",
 
   "FLAG_MAX"
 };
@@ -717,6 +725,7 @@ const flag_repeat_policy FLAG_REPEAT_POLICIES[FLAG_MAX] = {
   /* FLAG_R */                            FLAG_REPEAT_POLICY_FORBID,
   /* FLAG_DATA_RECONCILE  */              FLAG_REPEAT_POLICY_FORBID,
   /* FLAG_DATA_RECONCILE_BOUNDARY */      FLAG_REPEAT_POLICY_FORBID,
+  /* FLAG_DATA_RECONCILE_STATE  */        FLAG_REPEAT_POLICY_FORBID,
   /* FLAG_SR */                           FLAG_REPEAT_POLICY_FORBID,
   /* FLAG_SR_CTRL */                      FLAG_REPEAT_POLICY_FORBID,
   /* FLAG_SR_ERR */                       FLAG_REPEAT_POLICY_FORBID,
@@ -737,6 +746,7 @@ const flag_repeat_policy FLAG_REPEAT_POLICIES[FLAG_MAX] = {
   /* FLAG_DATA_RECONCILE_Sx */            FLAG_REPEAT_POLICY_FORBID,
   /* FLAG_UP_HESSIAN */                   FLAG_REPEAT_POLICY_FORBID,
   /* FLAG_W */                            FLAG_REPEAT_POLICY_FORBID,
+  /* FLAG_PARMODNUMTHREADS */             FLAG_REPEAT_POLICY_FORBID,
 };
 
 
@@ -846,6 +856,7 @@ const int FLAG_TYPE[FLAG_MAX] = {
   /* FLAG_R */                            FLAG_TYPE_OPTION,
   /* FLAG_DATA_RECONCILE */               FLAG_TYPE_FLAG,
   /* FLAG_DATA_RECONCILE_BOUNDARY */      FLAG_TYPE_FLAG,
+  /* FLAG_DATA_RECONCILE_STATE */         FLAG_TYPE_FLAG,
   /* FLAG_SR */                           FLAG_TYPE_OPTION,
   /* FLAG_SR_CTRL */                      FLAG_TYPE_OPTION,
   /* FLAG_SR_ERR */                       FLAG_TYPE_OPTION,
@@ -865,7 +876,8 @@ const int FLAG_TYPE[FLAG_MAX] = {
   /* FLAG_STEADY_STATE_TOL */             FLAG_TYPE_OPTION,
   /* FLAG_DATA_RECONCILE_Sx */            FLAG_TYPE_OPTION,
   /* FLAG_UP_HESSIAN */                   FLAG_TYPE_OPTION,
-  /* FLAG_W */                            FLAG_TYPE_FLAG
+  /* FLAG_W */                            FLAG_TYPE_FLAG,
+  /* FLAG_PARMODNUMTHREADS */             FLAG_TYPE_OPTION,
 };
 
 const char *GB_METHOD_NAME[RK_MAX] = {
@@ -897,14 +909,20 @@ const char *GB_METHOD_NAME[RK_MAX] = {
   /* RK_GAUSS5 */        "gauss5",
   /* RK_GAUSS6 */        "gauss6",
   /* RK_MERSON */        "merson",
+  /* RK_MERSONSSC1 */    "mersonSsc1",
+  /* RK_MERSONSSC2 */    "mersonSsc2",
   /* RK_HEUN */          "heun",
   /* RK_FEHLBERG12 */    "fehlberg12",
   /* RK_FEHLBERG45 */    "fehlberg45",
   /* RK_FEHLBERG78 */    "fehlberg78",
+  /* RK_FEHLBERGSSC1 */  "fehlbergSsc1",
+  /* RK_FEHLBERGSSC2 */  "fehlbergSsc2",
   /* RK_RK810 */         "rk810",
   /* RK_RK1012 */        "rk1012",
   /* RK_RK1214 */        "rk1214",
   /* RK_DOPRI45 */       "dopri45",
+  /* RK_DOPRISSC1 */     "dopriSsc1",
+  /* RK_DOPRISSC2 */     "dopriSsc2",
   /* RK_RKSSC */         "rungekuttaSsc"
 };
 
@@ -937,14 +955,20 @@ const char *GB_METHOD_DESC[RK_MAX] = {
   /* RK_GAUSS5 */        "Implicit Runge-Kutta method of Gauss (order 10)",
   /* RK_GAUSS6 */        "Implicit Runge-Kutta method of Gauss (order 12)",
   /* RK_MERSON */        "Explicit Runge-Kutta Merson method (order 4)",
+  /* RK_MERSONSSC1 */    "Explicit Runge-Kutta Merson method with large stability region (order 1)",
+  /* RK_MERSONSSC2 */    "Explicit Runge-Kutta Merson method with large stability region (order 2)",
   /* RK_HEUN */          "Explicit Runge-Kutta Heun method (order 2)",
   /* RK_FEHLBERG12 */    "Explicit Runge-Kutta Fehlberg method (order 2)",
   /* RK_FEHLBERG45 */    "Explicit Runge-Kutta Fehlberg method (order 5)",
   /* RK_FEHLBERG78 */    "Explicit Runge-Kutta Fehlberg method (order 8)",
+  /* RK_FEHLBERGSSC1 */  "Explicit Runge-Kutta Fehlberg method with large stability region (order 1)",
+  /* RK_FEHLBERGSSC2 */  "Explicit Runge-Kutta Fehlberg method with large stability region (order 2)",
   /* RK_RK810 */         "Explicit 8-10 Runge-Kutta method (order 10)",
   /* RK_RK1012 */        "Explicit 10-12 Runge-Kutta method (order 12)",
   /* RK_RK1214 */        "Explicit 12-14 Runge-Kutta method (order 14)",
   /* RK_DOPRI45 */       "Explicit Runge-Kutta method Dormand-Prince (order 5)",
+  /* RK_DOPRISSC1 */     "Explicit Runge-Kutta method Dormand-Prince with large stability region (order 1)",
+  /* RK_DOPRISSC2 */     "Explicit Runge-Kutta method Dormand-Prince with large stability region (order 2)",
   /* RK_RKSSC */         "Explicit Runge-Kutta method with large stabiliy region (order 1)"
 };
 

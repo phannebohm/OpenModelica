@@ -757,7 +757,7 @@ public
         // interface map. If the map contains a variable it has a zero derivative
         // if the value is "true" it has to be stripped from the interface
         // (it is possible that a variable has a zero derivative, but still appears in the interface)
-        UnorderedMap<String, Boolean> interface_map = UnorderedMap.new<Boolean>(stringHashDjb2Mod, stringEqual);
+        UnorderedMap<String, Boolean> interface_map = UnorderedMap.new<Boolean>(stringHashDjb2, stringEqual);
 
       // builtin functions
       case Expression.CALL(call = call as Call.TYPED_CALL()) guard(Function.isBuiltin(call.fn)) algorithm
@@ -842,7 +842,40 @@ public
   algorithm
     exp := match (exp)
       local
+        Integer i;
         Expression ret, ret1, ret2, arg1, arg2, diffArg1, diffArg2;
+
+      // SMOOTH
+      case (Expression.CALL()) guard(name == "smooth")
+      algorithm
+        {arg1, arg2} := Call.arguments(exp.call);
+        ret := match arg1
+          case Expression.INTEGER(i) guard(i > 0) algorithm
+            (ret2, diffArguments) := differentiateExpression(arg2, diffArguments);
+            exp.call := Call.setArguments(exp.call, {Expression.INTEGER(i-1), ret2});
+          then exp;
+          case Expression.INTEGER(i) algorithm
+            (ret2, diffArguments) := differentiateExpression(arg2, diffArguments);
+            exp := Expression.CALL(Call.makeTypedCall(
+              fn          = NFBuiltinFuncs.NO_EVENT,
+              args        = {ret2},
+              variability = Expression.variability(ret2),
+              purity      = NFPrefixes.Purity.PURE
+            ));
+          then exp;
+          else algorithm
+            Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for: " + Expression.toString(exp) + "."});
+          then fail();
+        end match;
+      then ret;
+
+      // NO_EVENT
+      case (Expression.CALL()) guard(name == "noEvent")
+      algorithm
+        {arg1} := Call.arguments(exp.call);
+        (ret1, diffArguments) := differentiateExpression(arg1, diffArguments);
+        exp.call := Call.setArguments(exp.call, {ret1});
+      then exp;
 
       // Builtin function call with one argument
       // df(y)/dx = df/dy * dy/dx
@@ -850,7 +883,7 @@ public
       algorithm
         // differentiate the call
         {arg1} := Call.arguments(exp.call);
-        ret := differentiateBuiltinCall1Arg(name, arg1);
+        (ret, diffArguments) := differentiateBuiltinCall1Arg(name, arg1, diffArguments);
         if not Expression.isZero(ret) then
           // differentiate the argument (inner derivative)
           diffArg1 := differentiateExpression(arg1, diffArguments);
@@ -891,6 +924,7 @@ public
     input String name;
     input Expression arg;
     output Expression derFuncCall;
+    input output DifferentiationArguments diffArguments;
   protected
     // these probably need to be adapted to the size and type of arg
     Operator.SizeClassification sizeClass = NFOperator.SizeClassification.SCALAR;
@@ -907,6 +941,16 @@ public
       case ("ceil")     then Expression.makeZero(Type.REAL());
       case ("floor")    then Expression.makeZero(Type.REAL());
       case ("integer")  then Expression.makeZero(Type.INTEGER());
+
+      // sum(arg) -> sum(d arg)
+      case ("sum") algorithm
+        (ret, diffArguments) := differentiateExpression(arg, diffArguments);
+      then Expression.CALL(Call.makeTypedCall(
+          fn          = NFBuiltinFuncs.SUM,
+          args        = {ret},
+          variability = Expression.variability(arg),
+          purity      = NFPrefixes.Purity.PURE
+        ));
 
       // abs(arg) -> sign(arg)
       case ("abs") then Expression.CALL(Call.makeTypedCall(
@@ -1226,7 +1270,7 @@ public
     (statements, diffArguments) := List.mapFold(alg.statements, differentiateStatement, diffArguments);
     statements_flat := List.flatten(statements);
     (inputs, outputs) := Algorithm.getInputsOutputs(statements_flat);
-    alg := Algorithm.ALGORITHM(statements_flat, inputs, outputs, alg.source);
+    alg := Algorithm.ALGORITHM(statements_flat, inputs, outputs, alg.scope, alg.source);
   end differentiateAlgorithm;
 
   function differentiateStatement

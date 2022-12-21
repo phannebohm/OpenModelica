@@ -638,13 +638,21 @@ Element::Element(ModelInstance::Element *pModelElement, bool inherited, Graphics
   // transformation
   mTransformation = Transformation(mpGraphicsView->getViewType(), this);
   if (createTransformation) {
+    if (boundingRect().width() > 0) {
+      mTransformation.setWidth(boundingRect().width());
+    }
+    if (boundingRect().height() > 0) {
+      mTransformation.setHeight(boundingRect().height());
+    }
     // snap to grid while creating component
     position = mpGraphicsView->snapPointToGrid(position);
     mTransformation.setOrigin(position);
     ModelInstance::CoordinateSystem coordinateSystem = getCoOrdinateSystemNew();
     qreal initialScale = coordinateSystem.getInitialScale();
-    mTransformation.setExtent1(QPointF(initialScale * boundingRect().left(), initialScale * boundingRect().top()));
-    mTransformation.setExtent2(QPointF(initialScale * boundingRect().right(), initialScale * boundingRect().bottom()));
+    QVector<QPointF> extent;
+    extent.append(QPointF(initialScale * boundingRect().left(), initialScale * boundingRect().top()));
+    extent.append(QPointF(initialScale * boundingRect().right(), initialScale * boundingRect().bottom()));
+    mTransformation.setExtent(extent);
     mTransformation.setRotateAngle(0.0);
   } else {
     mTransformation.parseTransformation(mpModelElement->getPlacementAnnotation(), getCoOrdinateSystemNew());
@@ -789,8 +797,10 @@ Element::Element(QString name, LibraryTreeItem *pLibraryTreeItem, QString annota
     mTransformation.setOrigin(position);
     CoOrdinateSystem coOrdinateSystem = getCoOrdinateSystem();
     qreal initialScale = coOrdinateSystem.getInitialScale();
-    mTransformation.setExtent1(QPointF(initialScale * boundingRect().left(), initialScale * boundingRect().top()));
-    mTransformation.setExtent2(QPointF(initialScale * boundingRect().right(), initialScale * boundingRect().bottom()));
+    QVector<QPointF> extent;
+    extent.append(QPointF(initialScale * boundingRect().left(), initialScale * boundingRect().top()));
+    extent.append(QPointF(initialScale * boundingRect().right(), initialScale * boundingRect().bottom()));
+    mTransformation.setExtent(extent);
     mTransformation.setRotateAngle(0.0);
   }
   // dynamically adjust the interface points.
@@ -1120,10 +1130,11 @@ QRectF Element::boundingRect() const
     return coordinateSystem.getExtentRectangle();
   } else {
     CoOrdinateSystem coOrdinateSystem = getCoOrdinateSystem();
-    qreal left = coOrdinateSystem.getLeft();
-    qreal bottom = coOrdinateSystem.getBottom();
-    qreal right = coOrdinateSystem.getRight();
-    qreal top = coOrdinateSystem.getTop();
+    ExtentAnnotation extent = coOrdinateSystem.getExtent();
+    qreal left = extent.at(0).x();
+    qreal bottom = extent.at(0).y();
+    qreal right = extent.at(1).x();
+    qreal top = extent.at(1).y();
     return QRectF(left, bottom, qFabs(left - right), qFabs(bottom - top));
   }
 }
@@ -1252,12 +1263,12 @@ ModelInstance::CoordinateSystem Element::getCoOrdinateSystemNew() const
   ModelInstance::CoordinateSystem coordinateSystem;
   if (mpModel->isConnector()) {
     if (mpGraphicsView->getViewType() == StringHandler::Icon) {
-      coordinateSystem = mpModel->getIconAnnotation()->getMergedCoordinateSystem();
+      coordinateSystem = mpModel->getIconAnnotation()->mMergedCoOrdinateSystem;
     } else {
-      coordinateSystem = mpModel->getDiagramAnnotation()->getMergedCoordinateSystem();
+      coordinateSystem = mpModel->getDiagramAnnotation()->mMergedCoOrdinateSystem;
     }
   } else {
-    coordinateSystem = mpModel->getIconAnnotation()->getMergedCoordinateSystem();
+    coordinateSystem = mpModel->getIconAnnotation()->mMergedCoOrdinateSystem;
   }
   return coordinateSystem;
 }
@@ -1293,8 +1304,9 @@ QString Element::getTransformationAnnotation(bool ModelicaSyntax)
   annotationString.append("origin={").append(QString::number(mTransformation.getOrigin().x())).append(",");
   annotationString.append(QString::number(mTransformation.getOrigin().y())).append("}, ");
   // add extent points
-  QPointF extent1 = mTransformation.getExtent1();
-  QPointF extent2 = mTransformation.getExtent2();
+  ExtentAnnotation extent = mTransformation.getExtent();
+  QPointF extent1 = extent.at(0);
+  QPointF extent2 = extent.at(1);
   annotationString.append("extent={").append("{").append(QString::number(extent1.x()));
   annotationString.append(",").append(QString::number(extent1.y())).append("},");
   annotationString.append("{").append(QString::number(extent2.x())).append(",");
@@ -1359,8 +1371,9 @@ QString Element::getOMCTransformationAnnotation(QPointF position)
   annotationString.append(QString::number(mTransformation.getOrigin().x())).append(",");
   annotationString.append(QString::number(mTransformation.getOrigin().y())).append(",");
   // add extent points
-  QPointF extent1 = mTransformation.getExtent1();
-  QPointF extent2 = mTransformation.getExtent2();
+  ExtentAnnotation extent = mTransformation.getExtent();
+  QPointF extent1 = extent.at(0);
+  QPointF extent2 = extent.at(1);
   annotationString.append(QString::number(extent1.x())).append(",");
   annotationString.append(QString::number(extent1.y())).append(",");
   annotationString.append(QString::number(extent2.x())).append(",");
@@ -1428,8 +1441,9 @@ QString Element::getTransformationExtent()
 {
   QString transformationExtent;
   // add extent points
-  QPointF extent1 = mTransformation.getExtent1();
-  QPointF extent2 = mTransformation.getExtent2();
+  ExtentAnnotation extent = mTransformation.getExtent();
+  QPointF extent1 = extent.at(0);
+  QPointF extent2 = extent.at(1);
   transformationExtent.append("{").append(QString::number(extent1.x()));
   transformationExtent.append(",").append(QString::number(extent1.y())).append(",");
   transformationExtent.append(QString::number(extent2.x())).append(",");
@@ -1866,8 +1880,7 @@ QString Element::getParameterDisplayString(QString parameterName)
   /* How to get the display value,
    * 0. If the component is inherited component then check if the value is available in the class extends modifiers.
    * 1. Check if the value is available in component modifier.
-   * 2. Check if the value is available in the component's containing class as a parameter or variable.
-   * 2.1 Check if the value is available in the component's class as a parameter or variable.
+   * 2 Check if the value is available in the component's class as a parameter or variable.
    * 3. Find the value in extends classes and check if the value is present in extends modifier.
    * 4. If there is no extends modifier then finally check if value is present in extends classes.
    */
@@ -1879,9 +1892,13 @@ QString Element::getParameterDisplayString(QString parameterName)
    * Handle parameters display of inherited components.
    */
   /* case 0 */
-  if (isInheritedElement() && mpReferenceElement) {
-    QString extendsClass = mpReferenceElement->getGraphicsView()->getModelWidget()->getLibraryTreeItem()->getNameStructure();
-    displayString = mpGraphicsView->getModelWidget()->getExtendsModifiersMap(extendsClass).value(QString("%1.%2").arg(getName()).arg(parameterName), "");
+  if (isInheritedElement()) {
+    if (mpGraphicsView->getModelWidget()->isNewApi()) {
+      displayString = mpModel->getParameterValueFromExtendsModifiers(parameterName);
+    } else if (mpReferenceElement) {
+      QString extendsClass = mpReferenceElement->getGraphicsView()->getModelWidget()->getLibraryTreeItem()->getNameStructure();
+      displayString = mpGraphicsView->getModelWidget()->getExtendsModifiersMap(extendsClass).value(QString("%1.%2").arg(getName()).arg(parameterName), "");
+    }
   }
   /* case 1 */
   if (displayString.isEmpty()) {
@@ -1893,22 +1910,26 @@ QString Element::getParameterDisplayString(QString parameterName)
   }
   /* case 2 or check for enumeration type if case 1 */
   if (displayString.isEmpty() || typeName.isEmpty()) {
-    if (mpLibraryTreeItem) {
+    if (mpGraphicsView->getModelWidget()->isNewApi()) {
+      QString value = mpModel->getParameterValue(parameterName, typeName);
+      if (displayString.isEmpty()) {
+        displayString = value;
+      }
+      Element::checkEnumerationDisplayString(displayString, typeName);
+    } else if (mpLibraryTreeItem) {
       mpLibraryTreeItem->getModelWidget()->loadDiagramView();
       foreach (Element *pElement, mpLibraryTreeItem->getModelWidget()->getDiagramGraphicsView()->getElementsList()) {
         if (pElement->getElementInfo()->getName().compare(StringHandler::getFirstWordBeforeDot(parameterName)) == 0) {
           if (displayString.isEmpty()) {
             displayString = pElement->getElementInfo()->getParameterValue(pOMCProxy, mpLibraryTreeItem->getNameStructure());
           }
-          /* case 2.1
-           * Fixes issue #7493. Handles the case where value is from instance name e.g., %instanceName.parameterName
-           */
+          // Fixes issue #7493. Handles the case where value is from instance name e.g., %instanceName.parameterName
           if (displayString.isEmpty()) {
             displayString = pOMCProxy->getParameterValue(pElement->getElementInfo()->getClassName(), StringHandler::getLastWordAfterDot(parameterName));
           }
 
           typeName = pElement->getElementInfo()->getClassName();
-          checkEnumerationDisplayString(displayString, typeName);
+          Element::checkEnumerationDisplayString(displayString, typeName);
           break;
         }
       }
@@ -2320,7 +2341,7 @@ void Element::createStateElement()
     mpStateElementRectangle->setLinePattern(StringHandler::LineDash);
     mpStateElementRectangle->setRadius(40);
     mpStateElementRectangle->setFillColor(QColor(255, 255, 255));
-    QList<QPointF> extents;
+    QVector<QPointF> extents;
     extents << QPointF(-100, -100) << QPointF(100, 100);
     mpStateElementRectangle->setExtents(extents);
   } else {
@@ -2380,8 +2401,10 @@ void Element::reDrawElement(bool coOrdinateSystemUpdated)
     if (mTransformationString.isEmpty()) {
       CoOrdinateSystem coOrdinateSystem = getCoOrdinateSystem();
       qreal initialScale = coOrdinateSystem.getInitialScale();
-      mTransformation.setExtent1(QPointF(initialScale * boundingRect().left(), initialScale * boundingRect().top()));
-      mTransformation.setExtent2(QPointF(initialScale * boundingRect().right(), initialScale * boundingRect().bottom()));
+      QVector<QPointF> extent;
+      extent.append(QPointF(initialScale * boundingRect().left(), initialScale * boundingRect().top()));
+      extent.append(QPointF(initialScale * boundingRect().right(), initialScale * boundingRect().bottom()));
+      mTransformation.setExtent(extent);
       mTransformation.setRotateAngle(0.0);
     }
     setTransform(mTransformation.getTransformationMatrix());
@@ -2448,7 +2471,7 @@ void Element::drawOMSElement()
   } else if (mpLibraryTreeItem->getOMSConnector()) { // if component is a signal i.e., input/output
     if (mpLibraryTreeItem->getOMSConnector()->causality == oms_causality_input) {
       PolygonAnnotation *pInputPolygonAnnotation = new PolygonAnnotation(this);
-      QList<QPointF> points;
+      QVector<QPointF> points;
       points << QPointF(-100.0, 100.0) << QPointF(100.0, 0.0) << QPointF(-100.0, -100.0) << QPointF(-100.0, 100.0);
       pInputPolygonAnnotation->setPoints(points);
       pInputPolygonAnnotation->setFillPattern(StringHandler::FillSolid);
@@ -2477,7 +2500,7 @@ void Element::drawOMSElement()
       mShapesList.append(pInputPolygonAnnotation);
     } else if (mpLibraryTreeItem->getOMSConnector()->causality == oms_causality_output) {
       PolygonAnnotation *pOutputPolygonAnnotation = new PolygonAnnotation(this);
-      QList<QPointF> points;
+      QVector<QPointF> points;
       points << QPointF(-100.0, 100.0) << QPointF(100.0, 0.0) << QPointF(-100.0, -100.0) << QPointF(-100.0, 100.0);
       pOutputPolygonAnnotation->setPoints(points);
       pOutputPolygonAnnotation->setFillPattern(StringHandler::FillSolid);
@@ -2507,7 +2530,7 @@ void Element::drawOMSElement()
     }
   } else if (mpLibraryTreeItem->getOMSBusConnector()) { // if component is a bus
     RectangleAnnotation *pBusRectangleAnnotation = new RectangleAnnotation(this);
-    QList<QPointF> extents;
+    QVector<QPointF> extents;
     extents << QPointF(-100, -100) << QPointF(100, 100);
     pBusRectangleAnnotation->setExtents(extents);
     pBusRectangleAnnotation->setLineColor(QColor(73, 151, 60));
@@ -2516,7 +2539,7 @@ void Element::drawOMSElement()
     mShapesList.append(pBusRectangleAnnotation);
   } else if (mpLibraryTreeItem->getOMSTLMBusConnector()) { // if component is a tlm bus
     RectangleAnnotation *pTLMBusRectangleAnnotation = new RectangleAnnotation(this);
-    QList<QPointF> extents;
+    QVector<QPointF> extents;
     extents << QPointF(-100, -100) << QPointF(100, 100);
     pTLMBusRectangleAnnotation->setExtents(extents);
     switch (mpLibraryTreeItem->getOMSTLMBusConnector()->domain) {
@@ -2647,11 +2670,14 @@ void Element::createClassInheritedElements()
 void Element::createClassShapes()
 {
   if (mpGraphicsView->getModelWidget()->isNewApi()) {
-    /* ticket:4505
-     * Only use the diagram annotation when connector is inside the component instance.
-     */
     QList<ModelInstance::Shape*> shapes;
-    if (mpModel->isConnector() && mpGraphicsView->getViewType() == StringHandler::Diagram && canUseDiagramAnnotation() && !mpModel->getDiagramAnnotation()->isGraphicsEmpty()) {
+    /* issue #9557
+     * For connectors, the icon layer is used to represent a connector when it is shown in the icon layer of the enclosing model.
+     * The diagram layer of the connector is used to represent it when shown in the diagram layer of the enclosing model.
+     *
+     * Always use the icon annotation when element type is port.
+     */
+    if (mpModel->isConnector() && mpGraphicsView->getViewType() == StringHandler::Diagram && canUseDiagramAnnotation()) {
       shapes = mpModel->getDiagramAnnotation()->getGraphics();
     } else {
       shapes = mpModel->getIconAnnotation()->getGraphics();
@@ -2680,14 +2706,15 @@ void Element::createClassShapes()
           pMainWindow->getLibraryWidget()->getLibraryTreeModel()->showModelWidget(mpLibraryTreeItem, false);
         }
         GraphicsView *pGraphicsView = mpLibraryTreeItem->getModelWidget()->getIconGraphicsView();
-        /* ticket:4505
-           * Only use the diagram annotation when connector is inside the component instance.
-           */
+        /* issue #9557
+         * For connectors, the icon layer is used to represent a connector when it is shown in the icon layer of the enclosing model.
+         * The diagram layer of the connector is used to represent it when shown in the diagram layer of the enclosing model.
+         *
+         * Always use the icon annotation when element type is port.
+         */
         if (mpLibraryTreeItem->isConnector() && mpGraphicsView->getViewType() == StringHandler::Diagram && canUseDiagramAnnotation()) {
           mpLibraryTreeItem->getModelWidget()->loadDiagramView();
-          if (mpLibraryTreeItem->getModelWidget()->getDiagramGraphicsView()->hasAnnotation()) {
-            pGraphicsView = mpLibraryTreeItem->getModelWidget()->getDiagramGraphicsView();
-          }
+          pGraphicsView = mpLibraryTreeItem->getModelWidget()->getDiagramGraphicsView();
         }
         foreach (ShapeAnnotation *pShapeAnnotation, pGraphicsView->getShapesList()) {
           if (dynamic_cast<LineAnnotation*>(pShapeAnnotation)) {
@@ -2872,7 +2899,7 @@ void Element::hideResizerItems()
 void Element::getScale(qreal *sx, qreal *sy)
 {
   qreal angle = mTransformation.getRotateAngle();
-  if (transform().type() == QTransform::TxScale || transform().type() == QTransform::TxTranslate) {
+  if (transform().type() == QTransform::TxScale || transform().type() == QTransform::TxTranslate || transform().type() == QTransform::TxNone) {
     *sx = transform().m11() / (cos(angle * (M_PI / 180)));
     *sy = transform().m22() / (cos(angle * (M_PI / 180)));
   } else {
@@ -2925,7 +2952,9 @@ QString Element::getParameterDisplayStringFromExtendsModifiers(QString parameter
   /* Ticket:4204
    * Get the extends modifiers of the class not the inherited class.
    */
-  if (mpLibraryTreeItem) {
+  if (mpGraphicsView->getModelWidget()->isNewApi()) {
+    displayString = mpModel->getParameterValueFromExtendsModifiers(parameterName);
+  } else if (mpLibraryTreeItem) {
     foreach (Element *pElement, mInheritedElementsList) {
       if (pElement->getLibraryTreeItem()) {
         QMap<QString, QString> extendsModifiersMap = mpLibraryTreeItem->getModelWidget()->getExtendsModifiersMap(pElement->getLibraryTreeItem()->getNameStructure());
@@ -2954,32 +2983,67 @@ QString Element::getParameterDisplayStringFromExtendsParameters(QString paramete
 {
   QString displayString = modifierString;
   QString typeName = "";
-  foreach (Element *pInheritedElement, mInheritedElementsList) {
-    if (pInheritedElement->getLibraryTreeItem()) {
-      if (!pInheritedElement->getLibraryTreeItem()->getModelWidget()) {
-        MainWindow::instance()->getLibraryWidget()->getLibraryTreeModel()->showModelWidget(pInheritedElement->getLibraryTreeItem(), false);
-      }
-      pInheritedElement->getLibraryTreeItem()->getModelWidget()->loadDiagramView();
-      foreach (Element *pElement, pInheritedElement->getLibraryTreeItem()->getModelWidget()->getDiagramGraphicsView()->getElementsList()) {
-        if (pElement->getElementInfo()->getName().compare(parameterName) == 0) {
-          OMCProxy *pOMCProxy = MainWindow::instance()->getOMCProxy();
-          /* Ticket:4204
-           * Look for the parameter value in the parameter containing class not in the parameter class.
-           */
-          if (pInheritedElement->getLibraryTreeItem()) {
-            if (displayString.isEmpty()) {
-              displayString = pElement->getElementInfo()->getParameterValue(pOMCProxy, pInheritedElement->getLibraryTreeItem()->getNameStructure());
-            }
-            typeName = pElement->getElementInfo()->getClassName();
-            checkEnumerationDisplayString(displayString, typeName);
-            if (!(displayString.isEmpty() || typeName.isEmpty())) {
-              return displayString;
+  if (mpGraphicsView->getModelWidget()->isNewApi()) {
+    displayString = Element::getParameterDisplayStringFromExtendsParameters(mpModel, parameterName, modifierString);
+  } else {
+    foreach (Element *pInheritedElement, mInheritedElementsList) {
+      if (pInheritedElement->getLibraryTreeItem()) {
+        if (!pInheritedElement->getLibraryTreeItem()->getModelWidget()) {
+          MainWindow::instance()->getLibraryWidget()->getLibraryTreeModel()->showModelWidget(pInheritedElement->getLibraryTreeItem(), false);
+        }
+        pInheritedElement->getLibraryTreeItem()->getModelWidget()->loadDiagramView();
+        foreach (Element *pElement, pInheritedElement->getLibraryTreeItem()->getModelWidget()->getDiagramGraphicsView()->getElementsList()) {
+          if (pElement->getElementInfo()->getName().compare(parameterName) == 0) {
+            OMCProxy *pOMCProxy = MainWindow::instance()->getOMCProxy();
+            /* Ticket:4204
+             * Look for the parameter value in the parameter containing class not in the parameter class.
+             */
+            if (pInheritedElement->getLibraryTreeItem()) {
+              if (displayString.isEmpty()) {
+                displayString = pElement->getElementInfo()->getParameterValue(pOMCProxy, pInheritedElement->getLibraryTreeItem()->getNameStructure());
+              }
+              typeName = pElement->getElementInfo()->getClassName();
+              Element::checkEnumerationDisplayString(displayString, typeName);
+              if (!(displayString.isEmpty() || typeName.isEmpty())) {
+                return displayString;
+              }
             }
           }
         }
       }
+      displayString = pInheritedElement->getParameterDisplayStringFromExtendsParameters(parameterName, displayString);
+      if (!(displayString.isEmpty() || typeName.isEmpty())) {
+        return displayString;
+      }
     }
-    displayString = pInheritedElement->getParameterDisplayStringFromExtendsParameters(parameterName, displayString);
+  }
+  return displayString;
+}
+
+/*!
+ * \brief Element::getParameterDisplayStringFromExtendsParameters
+ * Gets the display string for components from extends parameters.
+ * \param pModel
+ * \param parameterName
+ * \param modifierString
+ * \return
+ */
+QString Element::getParameterDisplayStringFromExtendsParameters(ModelInstance::Model *pModel, QString parameterName, QString modifierString)
+{
+  QString displayString = modifierString;
+  QString typeName = "";
+
+  QList<ModelInstance::Extend*> extends = pModel->getExtends();
+  foreach (auto pExtend, extends) {
+    QString value = pExtend->getParameterValue(parameterName, typeName);
+    if (displayString.isEmpty()) {
+      displayString = value;
+    }
+    Element::checkEnumerationDisplayString(displayString, typeName);
+    if (!(displayString.isEmpty() || typeName.isEmpty())) {
+      return displayString;
+    }
+    displayString = Element::getParameterDisplayStringFromExtendsParameters(pExtend, parameterName, displayString);
     if (!(displayString.isEmpty() || typeName.isEmpty())) {
       return displayString;
     }
@@ -3081,8 +3145,9 @@ void Element::updatePlacementAnnotation()
   } else if (pLibraryTreeItem->getLibraryType()== LibraryTreeItem::OMS) {
     if (mpLibraryTreeItem && mpLibraryTreeItem->getOMSElement()) {
       ssd_element_geometry_t elementGeometry = mpLibraryTreeItem->getOMSElementGeometry();
-      QPointF extent1 = mTransformation.getExtent1();
-      QPointF extent2 = mTransformation.getExtent2();
+      ExtentAnnotation extent = mTransformation.getExtent();
+      QPointF extent1 = extent.at(0);
+      QPointF extent2 = extent.at(1);
       extent1.setX(extent1.x() + mTransformation.getOrigin().x());
       extent1.setY(extent1.y() + mTransformation.getOrigin().y());
       extent2.setX(extent2.x() + mTransformation.getOrigin().x());
@@ -3406,8 +3471,10 @@ void Element::resizeElement(QPointF newPosition)
   extent2.setX(sx * boundingRect().right());
   extent2.setY(sy * boundingRect().bottom());
   mTransformation.setOrigin(scenePos());
-  mTransformation.setExtent1(extent1);
-  mTransformation.setExtent2(extent2);
+  QVector<QPointF> extent;
+  extent.append(extent1);
+  extent.append(extent2);
+  mTransformation.setExtent(extent);
   setTransform(mTransformation.getTransformationMatrix());
   // let connections know that component has changed.
   emit transformChange(false);
@@ -3549,11 +3616,14 @@ void Element::rotateAntiClockwise()
 void Element::flipHorizontal()
 {
   Transformation oldTransformation = mTransformation;
-  QPointF extent1 = mTransformation.getExtent1();
-  QPointF extent2 = mTransformation.getExtent2();
+  ExtentAnnotation extent = mTransformation.getExtent();
+  QPointF extent1 = extent.at(0);
+  QPointF extent2 = extent.at(1);
   // invert x value of extents and the angle
-  mTransformation.setExtent1(QPointF(-extent1.x(), extent1.y()));
-  mTransformation.setExtent2(QPointF(-extent2.x(), extent2.y()));
+  QVector<QPointF> newExtent;
+  newExtent.append(QPointF(-extent1.x(), extent1.y()));
+  newExtent.append(QPointF(-extent2.x(), extent2.y()));
+  mTransformation.setExtent(newExtent);
   mTransformation.setRotateAngle(-mTransformation.getRotateAngle());
   updateElementTransformations(oldTransformation, false);
   showResizerItems();
@@ -3566,11 +3636,14 @@ void Element::flipHorizontal()
 void Element::flipVertical()
 {
   Transformation oldTransformation = mTransformation;
-  QPointF extent1 = mTransformation.getExtent1();
-  QPointF extent2 = mTransformation.getExtent2();
+  ExtentAnnotation extent = mTransformation.getExtent();
+  QPointF extent1 = extent.at(0);
+  QPointF extent2 = extent.at(1);
   // invert y value of extents and the angle
-  mTransformation.setExtent1(QPointF(extent1.x(), -extent1.y()));
-  mTransformation.setExtent2(QPointF(extent2.x(), -extent2.y()));
+  QVector<QPointF> newExtent;
+  newExtent.append(QPointF(extent1.x(), -extent1.y()));
+  newExtent.append(QPointF(extent2.x(), -extent2.y()));
+  mTransformation.setExtent(newExtent);
   mTransformation.setRotateAngle(-mTransformation.getRotateAngle());
   updateElementTransformations(oldTransformation, false);
   showResizerItems();

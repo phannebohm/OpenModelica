@@ -95,7 +95,7 @@ ShapePropertiesDialog::ShapePropertiesDialog(ShapeAnnotation *pShapeAnnotation, 
   // Extent Group Box
   mpExtentGroupBox = new QGroupBox(Helper::extent);
   // Extent1X
-  QList<QPointF> extents = mpShapeAnnotation->getExtents();
+  QVector<QPointF> extents = mpShapeAnnotation->getExtents();
   mpExtent1XLabel = new Label(Helper::extent1X);
   mpExtent1XSpinBox = new DoubleSpinBox;
   mpExtent1XSpinBox->setRange(-std::numeric_limits<double>::max(), std::numeric_limits<double>::max());
@@ -204,7 +204,7 @@ ShapePropertiesDialog::ShapePropertiesDialog(ShapeAnnotation *pShapeAnnotation, 
   mpFontNameLabel = new Label(Helper::name);
   mpFontNameComboBox = new QFontComboBox;
   mpFontNameComboBox->insertItem(0, "Default");
-  currentIndex = mpFontNameComboBox->findText(mpShapeAnnotation->getFontName(), Qt::MatchExactly);
+  currentIndex = mpFontNameComboBox->findText(StringHandler::removeFirstLastQuotes(mpShapeAnnotation->getFontName()), Qt::MatchExactly);
   if (currentIndex > -1) {
     mpFontNameComboBox->setCurrentIndex(currentIndex);
   } else {
@@ -416,7 +416,7 @@ ShapePropertiesDialog::ShapePropertiesDialog(ShapeAnnotation *pShapeAnnotation, 
   headerLabels << "X" << "Y";
   mpPointsTableWidget->setHorizontalHeaderLabels(headerLabels);
   // add points to points table widget
-  QList<QPointF> points = mpShapeAnnotation->getPoints();
+  QVector<QPointF> points = mpShapeAnnotation->getPoints();
   mpPointsTableWidget->setRowCount(points.size());
   int rowIndex = 0;
   LineAnnotation::LineType lineType = LineAnnotation::ShapeType;
@@ -816,7 +816,7 @@ bool ShapePropertiesDialog::applyShapeProperties()
   mpShapeAnnotation->setOrigin(QPointF(mpOriginXSpinBox->value(), mpOriginYSpinBox->value()));
   mpShapeAnnotation->setRotationAngle(mpRotationSpinBox->value());
   if (!mpLineAnnotation && !mpPolygonAnnotation) {
-    QList<QPointF> extents;
+    QVector<QPointF> extents;
     QPointF p1(mpExtent1XSpinBox->value(), mpExtent1YSpinBox->value());
     QPointF p2(mpExtent2XSpinBox->value(), mpExtent2YSpinBox->value());
     extents << p1 << p2;
@@ -839,7 +839,7 @@ bool ShapePropertiesDialog::applyShapeProperties()
     qreal fontSize = 0;
     fontSize = mpFontSizeComboBox->lineEdit()->text().toDouble();
     mpShapeAnnotation->setFontSize(fontSize);
-    QList<StringHandler::TextStyle> textStyles;
+    QVector<StringHandler::TextStyle> textStyles;
     if (mpTextBoldCheckBox->isChecked()) textStyles.append(StringHandler::TextStyleBold);
     if (mpTextItalicCheckBox->isChecked()) textStyles.append(StringHandler::TextStyleItalic);
     if (mpTextUnderlineCheckBox->isChecked()) textStyles.append(StringHandler::TextStyleUnderLine);
@@ -860,7 +860,7 @@ bool ShapePropertiesDialog::applyShapeProperties()
   }
   /* save points */
   mpShapeAnnotation->clearPoints();
-  QList<QPointF> points;
+  QVector<QPointF> points;
   for (int i = 0 ; i < mpPointsTableWidget->rowCount() ; i++) {
     points.append(QPointF(mpPointsTableWidget->item(i, 0)->text().toDouble(), mpPointsTableWidget->item(i, 1)->text().toDouble()));
   }

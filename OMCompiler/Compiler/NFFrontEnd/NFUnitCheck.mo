@@ -61,7 +61,7 @@ algorithm
     htCr2U1 := Unit.newCrefUnitTable(Util.nextPrime(integer(10 + 1.4*listLength(flatModel.variables))));
     htS2U := Unit.getKnownUnits();
     htU2S := Unit.getKnownUnitsInverse();
-    fn_cache := UnorderedMap.new<Functionargs>(stringHashDjb2Mod, stringEq);
+    fn_cache := UnorderedMap.new<Functionargs>(stringHashDjb2, stringEq);
 
     for v in flatModel.variables loop
       convertUnitStringToUnit(v, htCr2U1, htS2U, htU2S);
@@ -223,7 +223,7 @@ algorithm
   if Type.isReal(var.ty) and Binding.isBound(var.binding) then
     binding_exp := Binding.getTypedExp(var.binding);
     eq := Equation.makeEquality(Expression.fromCref(var.name), binding_exp, var.ty,
-      ElementSource.createElementSource(var.info));
+      InstNode.EMPTY_NODE(), ElementSource.createElementSource(var.info));
     foldEquation(eq, htCr2U, htS2U, htU2S, fnCache, dumpEqInitStruct);
   end if;
 end foldBindingExp;

@@ -147,25 +147,24 @@ algorithm
   // ((i, ht, literals)) := BackendDAEUtil.traverseBackendDAEExpsNoCopyWithUpdate(dae, findLiteralsHelper, (i, ht, literals));
 end simulationFindLiterals;
 
-public function hashEqSystemMod
+public function hashEqSystem
   input SimCode.SimEqSystem eq;
-  input Integer mod;
   output Integer hash;
 algorithm
   hash := match eq
     local
       DAE.Statement stmt;
-    case SimCode.SES_RESIDUAL() then Expression.hashExpMod(eq.exp, mod);
-    case SimCode.SES_FOR_RESIDUAL() then Expression.hashExpMod(eq.exp, mod); // also hash the indices?
-    case SimCode.SES_GENERIC_RESIDUAL() then Expression.hashExpMod(eq.exp, mod); // also hash the indices?
-    case SimCode.SES_SIMPLE_ASSIGN() then intMod(ComponentReference.hashComponentRefMod(eq.cref,mod)+7*Expression.hashExpMod(eq.exp, mod), mod);
-    case SimCode.SES_SIMPLE_ASSIGN_CONSTRAINTS() then intMod(ComponentReference.hashComponentRefMod(eq.cref,mod)+7*Expression.hashExpMod(eq.exp, mod), mod);
-    case SimCode.SES_ARRAY_CALL_ASSIGN() then intMod(Expression.hashExpMod(eq.lhs, mod)+7*Expression.hashExpMod(eq.exp, mod), mod);
-    case SimCode.SES_ALGORITHM(statements={stmt as DAE.STMT_ASSERT()}) then intMod(Expression.hashExpMod(stmt.cond, mod)+7*Expression.hashExpMod(stmt.msg, mod)+49*Expression.hashExpMod(stmt.level, mod), mod);
+    case SimCode.SES_RESIDUAL() then Expression.hashExp(eq.exp);
+    case SimCode.SES_FOR_RESIDUAL() then Expression.hashExp(eq.exp); // also hash the indices?
+    case SimCode.SES_GENERIC_RESIDUAL() then Expression.hashExp(eq.exp); // also hash the indices?
+    case SimCode.SES_SIMPLE_ASSIGN() then ComponentReference.hashComponentRef(eq.cref)+7*Expression.hashExp(eq.exp);
+    case SimCode.SES_SIMPLE_ASSIGN_CONSTRAINTS() then ComponentReference.hashComponentRef(eq.cref)+7*Expression.hashExp(eq.exp);
+    case SimCode.SES_ARRAY_CALL_ASSIGN() then Expression.hashExp(eq.lhs)+7*Expression.hashExp(eq.exp);
+    case SimCode.SES_ALGORITHM(statements={stmt as DAE.STMT_ASSERT()}) then Expression.hashExp(stmt.cond)+7*Expression.hashExp(stmt.msg)+49*Expression.hashExp(stmt.level);
     // Whatever; we're not caching these values anyway
-    else intMod(valueConstructor(eq), mod);
+    else valueConstructor(eq);
   end match;
-end hashEqSystemMod;
+end hashEqSystem;
 
 public function compareEqSystemsEquality "Is true if the equations are the same except the index. If false they might still be the same."
   input SimCode.SimEqSystem eq1;
@@ -255,15 +254,15 @@ protected
   list<SimCode.SimEqSystem> equationsForZeroCrossings;
   list<SimCode.SimEqSystem> initialEquations;           // --> initial_equations
   list<SimCode.SimEqSystem> initialEquations_lambda0;   // --> initial_equations_lambda0
-  list<SimCode.SimEqSystem> jacobianEquations;
-  list<SimCode.SimEqSystem> maxValueEquations;          // --> updateBoundMaxValues
-  list<SimCode.SimEqSystem> minValueEquations;          // --> updateBoundMinValues
-  list<SimCode.SimEqSystem> nominalValueEquations;      // --> updateBoundNominalValues
+  list<SimCode.SimEqSystem> jacobianEquations = {};
+  list<SimCode.SimEqSystem> maxValueEquations = {};          // --> updateBoundMaxValues
+  list<SimCode.SimEqSystem> minValueEquations = {};          // --> updateBoundMinValues
+  list<SimCode.SimEqSystem> nominalValueEquations = {};      // --> updateBoundNominalValues
   //list<SimCode.SimEqSystem> paramAssertSimEqs;
-  list<SimCode.SimEqSystem> parameterEquations;         // --> updateBoundParameters
+  list<SimCode.SimEqSystem> parameterEquations = {};         // --> updateBoundParameters
   list<SimCode.SimEqSystem> removedEquations;
   list<SimCode.SimEqSystem> removedInitialEquations;    // -->
-  list<SimCode.SimEqSystem> startValueEquations;        // --> updateBoundStartValues
+  list<SimCode.SimEqSystem> startValueEquations = {};        // --> updateBoundStartValues
   list<SimCode.StateSet> stateSets;
   list<SimCodeVar.SimVar> tempvars, jacobianSimvars, seedVars;
   list<list<SimCode.SimEqSystem>> algebraicEquations;   // --> functionAlgebraics
@@ -285,9 +284,12 @@ protected
   BackendDAE.Var dtVar;
   HashTableSimCodeEqCache.HashTable eqCache;
   BackendDAE.Jacobian dataReconJac;
-  BackendDAE.Variables setcVars,datareconinputvars;
-  list<SimCodeVar.SimVar> tmpsetcVars,tmpdatareconinputvars;
-  SimCode.JacobianMatrix dataReconSimJac;
+  Option<BackendDAE.Jacobian> dataReconJacH;
+  BackendDAE.Variables setcVars, datareconinputvars;
+  Option<BackendDAE.Variables> setBVars;
+  list<SimCodeVar.SimVar> tmpsetcVars, tmpdatareconinputvars, tmpsetBVars;
+  SimCode.JacobianMatrix dataReconSimJac, dataReconSimJacH;
+  Integer numRelatedBoundaryConditions;
   String fullPathPrefix;
 
   SimCode.OMSIFunction omsiInitEquations, omsiSimEquations;
@@ -438,13 +440,29 @@ algorithm
 
     // Assertions and crap
     // create parameter equations
+
     ((uniqueEqIndex, startValueEquations, _)) := BackendDAEUtil.foldEqSystem(dlow, createStartValueEquations, (uniqueEqIndex, {}, globalKnownVars));
     if debug then execStat("simCode: createStartValueEquations"); end if;
-    ((uniqueEqIndex, nominalValueEquations)) := BackendDAEUtil.foldEqSystem(dlow, createNominalValueEquations, (uniqueEqIndex, {}));
+
+    // For now, disable traversal of globalknownvars for creation of nominal, min, and max assignments (if we are not doing
+    // dynamic optimizations).
+    // We need to revise how we handle these assignments for parameters with regard to maintaining the binding values
+    // for those that we end up generating these assignments. See #9825 for discussions.
+    // If you change these remember to change the coresponding code for daemode in SimCodeMain.mo.
+    if (Config.acceptOptimicaGrammar() or Flags.getConfigBool(Flags.GENERATE_DYN_OPTIMIZATION_PROBLEM)) then
+      ((uniqueEqIndex, nominalValueEquations)) := createValueEquationsShared(dlow.shared, createInitialAssignmentsFromNominal, (uniqueEqIndex, nominalValueEquations));
+      if debug then execStat("simCode: createNominalValueEquationsShared"); end if;
+      ((uniqueEqIndex, minValueEquations)) := createValueEquationsShared(dlow.shared, createInitialAssignmentsFromMin, (uniqueEqIndex, minValueEquations));
+      if debug then execStat("simCode: createMinValueEquationsShared"); end if;
+      ((uniqueEqIndex, maxValueEquations)) := createValueEquationsShared(dlow.shared, createInitialAssignmentsFromMax, (uniqueEqIndex, maxValueEquations));
+      if debug then execStat("simCode: createMaxValueEquationsShared"); end if;
+    end if;
+
+    ((uniqueEqIndex, nominalValueEquations)) := BackendDAEUtil.foldEqSystem(dlow, createNominalValueEquations, (uniqueEqIndex, nominalValueEquations));
     if debug then execStat("simCode: createNominalValueEquations"); end if;
-    ((uniqueEqIndex, minValueEquations)) := BackendDAEUtil.foldEqSystem(dlow, createMinValueEquations, (uniqueEqIndex, {}));
+    ((uniqueEqIndex, minValueEquations)) := BackendDAEUtil.foldEqSystem(dlow, createMinValueEquations, (uniqueEqIndex, minValueEquations));
     if debug then execStat("simCode: createMinValueEquations"); end if;
-    ((uniqueEqIndex, maxValueEquations)) := BackendDAEUtil.foldEqSystem(dlow, createMaxValueEquations, (uniqueEqIndex, {}));
+    ((uniqueEqIndex, maxValueEquations)) := BackendDAEUtil.foldEqSystem(dlow, createMaxValueEquations, (uniqueEqIndex, maxValueEquations));
     if debug then execStat("simCode: createMaxValueEquations"); end if;
     ((uniqueEqIndex, parameterEquations)) := BackendDAEUtil.foldEqSystem(dlow, createVarNominalAssertFromVars, (uniqueEqIndex, {}));
     if debug then execStat("simCode: createVarNominalAssertFromVars"); end if;
@@ -540,9 +558,15 @@ algorithm
 
     // Generate jacobian code for DataReconciliation
     if Util.isSome(shared.dataReconciliationData) then
-      BackendDAE.DATA_RECON(dataReconJac,setcVars,datareconinputvars) := Util.getOption(shared.dataReconciliationData);
+      BackendDAE.DATA_RECON(dataReconJac, setcVars, datareconinputvars, setBVars, dataReconJacH, numRelatedBoundaryConditions) := Util.getOption(shared.dataReconciliationData);
       (SOME(dataReconSimJac), uniqueEqIndex, tempvars) := createSymbolicSimulationJacobian(dataReconJac, uniqueEqIndex, tempvars);
-      (SymbolicJacsdatarecon, modelInfo, SymbolicJacsTemp) := addAlgebraicLoopsModelInfoSymJacs({dataReconSimJac}, modelInfo);
+      // check for jacobian H for state estimation, if exist generate Matrix H
+      if (Util.isSome(dataReconJacH)) then
+        (SOME(dataReconSimJacH), uniqueEqIndex, tempvars) := createSymbolicSimulationJacobian(Util.getOption(dataReconJacH), uniqueEqIndex, tempvars);
+        (SymbolicJacsdatarecon, modelInfo, SymbolicJacsTemp) := addAlgebraicLoopsModelInfoSymJacs({dataReconSimJac, dataReconSimJacH}, modelInfo);
+      else
+        (SymbolicJacsdatarecon, modelInfo, SymbolicJacsTemp) := addAlgebraicLoopsModelInfoSymJacs({dataReconSimJac}, modelInfo);
+      end if;
       SymbolicJacsNLS := listAppend(SymbolicJacsTemp, SymbolicJacsNLS);
       //SymbolicJacsNLS := dataReconSimJac::SymbolicJacsNLS;
     end if;
@@ -646,10 +670,23 @@ algorithm
         tmpSimVars.dataReconinputVars := tmpdatareconinputvars;
         modelInfo.vars := tmpSimVars;
 
+        // set setBVars
+        if Util.isSome(setBVars) then
+          ((tmpsetBVars, _)) :=  BackendVariable.traverseBackendDAEVars(Util.getOption(setBVars), traversingdlowvarToSimvar, ({}, emptyVars));
+          tmpsetBVars := rewriteIndex(tmpsetBVars, 0);
+          tmpSimVars.dataReconSetBVars := tmpsetBVars;
+          modelInfo.vars := tmpSimVars;
+          // set varInfo nsetbvars
+          varInfo := modelInfo.varInfo;
+          varInfo.numSetbVars := listLength(tmpsetBVars);
+          modelInfo.varInfo := varInfo;
+        end if;
+
         // set varInfo nsetcvars
         varInfo := modelInfo.varInfo;
         varInfo.numSetcVars := listLength(tmpsetcVars);
         varInfo.numDataReconVars := listLength(tmpdatareconinputvars);
+        varInfo.numRelatedBoundaryConditions := numRelatedBoundaryConditions;
         modelInfo.varInfo := varInfo;
         //print("\n simcode gen setc:*****"+anyString(tmpsetcVars) + "\n lenght of vars :" +anyString(listLength(tmpsetcVars)));
     end if;
@@ -725,8 +762,8 @@ algorithm
       stateSets                   = stateSets,
       constraints                 = constraints,
       classAttributes             = classAttributes,
-      zeroCrossings               = zeroCrossings,
-      relations                   = relations,
+      zeroCrossings               = ZeroCrossings.updateIndices(zeroCrossings),
+      relations                   = ZeroCrossings.updateIndices(relations),
       timeEvents                  = timeEvents,
       discreteModelVars           = discreteModelVars,
       extObjInfo                  = extObjInfo,
@@ -2090,7 +2127,7 @@ protected function zeroCrossingEquations "
   input BackendDAE.ZeroCrossing inZC;
   output list<Integer> outLst;
 algorithm
-  BackendDAE.ZERO_CROSSING(_, outLst) := inZC;
+  BackendDAE.ZERO_CROSSING(_, _, outLst, _) := inZC;
 end zeroCrossingEquations;
 
 protected function whenEquationsIndices "
@@ -2143,7 +2180,7 @@ algorithm
    case (BackendDAE.ZERO_CROSSING(relation_=exp, occurEquLst=occurEquLst)::rest, _, _)
      equation
        occurEquLst = convertListIndx(occurEquLst, eqBackendSimCodeMappingArray);
-       ozeroCrossings = updateZeroCrossEqnIndexHelp(rest, eqBackendSimCodeMappingArray, BackendDAE.ZERO_CROSSING(exp, occurEquLst)::iAccum);
+       ozeroCrossings = updateZeroCrossEqnIndexHelp(rest, eqBackendSimCodeMappingArray, BackendDAE.ZERO_CROSSING(0, exp, occurEquLst, NONE())::iAccum);
      then
        ozeroCrossings;
 
@@ -4868,6 +4905,7 @@ algorithm
       SimCode.HashTableCrefToSimVar crefSimVarHT;
       SimCode.JacobianMatrix tmpJac;
       list<String> matrixnames;
+      Option<BackendDAE.Jacobian> jacH;
     case (_, _, _)
       algorithm
         // b := FlagsUtil.disableDebug(Flags.EXEC_STAT);
@@ -4878,10 +4916,16 @@ algorithm
         // This is used to set the matrixnames for Linearization and DataReconciliation procedure
         // For dataReconciliation F is set in earlier order which cause index problem for linearization matrix and hence identify if
         // dataReconciliation is involved and pass the matrix names
+        // for stateEstimation problem two jacobinas are needed F and H
         if Util.isSome(shared.dataReconciliationData) then
-           matrixnames := {"A", "B", "C", "D"};
+          BackendDAE.DATA_RECON(_, _, _, _, jacH) := Util.getOption(shared.dataReconciliationData);
+          if isSome(jacH) then // check for matrix H is present which means state estimation algorithm is choosed and jacobian F and H are generated earlier
+            matrixnames := {"A", "B", "C", "D"};
+          else
+            matrixnames := {"A", "B", "C", "D", "H"};
+          end if;
         else
-           matrixnames := {"A", "B", "C", "D", "F"};
+           matrixnames := {"A", "B", "C", "D", "F", "H"};
         end if;
         (res, ouniqueEqIndex) := createSymbolicJacobianssSimCode(inSymjacs, crefSimVarHT, iuniqueEqIndex, matrixnames, {});
         // _ := FlagsUtil.set(Flags.EXEC_STAT, b);
@@ -7202,24 +7246,54 @@ algorithm
   end matchcontinue;
 end createStartValueEquations;
 
+public function createValueEquationsShared
+  input BackendDAE.Shared shared;
+  input Function valueFunction;
+  input tuple<Integer, list<SimCode.SimEqSystem>> acc;
+  output tuple<Integer, list<SimCode.SimEqSystem>> maxValueEquations;
+
+  partial function Function
+    input BackendDAE.Var inVar;
+    input tuple<list<BackendDAE.Equation>, BackendDAE.Variables> inTpl;
+    output BackendDAE.Var outVar;
+    output tuple<list<BackendDAE.Equation>, BackendDAE.Variables> outTpl;
+  end Function;
+algorithm
+  maxValueEquations := match(shared, acc)
+    local
+      list<BackendDAE.Equation> maxValueEquationsTmp;
+      list<SimCode.SimEqSystem> simeqns, simeqns1;
+      Integer uniqueEqIndex;
+
+    case (BackendDAE.SHARED(), (uniqueEqIndex, simeqns)) equation
+      // vars
+      ((maxValueEquationsTmp, _)) = BackendVariable.traverseBackendDAEVars(shared.globalKnownVars, valueFunction, ({}, shared.aliasVars));
+      maxValueEquationsTmp = listReverse(maxValueEquationsTmp);
+
+      (simeqns1, uniqueEqIndex) = List.mapFold(maxValueEquationsTmp, dlowEqToSimEqSystem, uniqueEqIndex);
+    then ((uniqueEqIndex, listAppend(simeqns1, simeqns)));
+
+    else equation
+      Error.addInternalError("function createValueEquationsShared failed", sourceInfo());
+    then fail();
+  end match;
+end createValueEquationsShared;
+
 public function createNominalValueEquations
   input BackendDAE.EqSystem syst;
   input BackendDAE.Shared shared;
   input tuple<Integer, list<SimCode.SimEqSystem>> acc;
   output tuple<Integer, list<SimCode.SimEqSystem>> nominalValueEquations;
 algorithm
-  nominalValueEquations := matchcontinue (syst, shared, acc)
+  nominalValueEquations := match (syst, shared, acc)
     local
-      BackendDAE.Variables vars, av;
       list<BackendDAE.Equation> nominalValueEquationsTmp;
       list<SimCode.SimEqSystem> simeqns, simeqns1;
       Integer uniqueEqIndex;
-      BackendDAE.Variables globalKnownVars;
 
-    case (BackendDAE.EQSYSTEM(orderedVars=vars), BackendDAE.SHARED(aliasVars=av, globalKnownVars=globalKnownVars), (uniqueEqIndex, simeqns)) equation
+    case (BackendDAE.EQSYSTEM(), BackendDAE.SHARED(), (uniqueEqIndex, simeqns)) equation
       // vars
-      ((nominalValueEquationsTmp, _)) = BackendVariable.traverseBackendDAEVars(vars, createInitialAssignmentsFromNominal, ({}, av));
-      ((nominalValueEquationsTmp, _)) = BackendVariable.traverseBackendDAEVars(globalKnownVars, createInitialAssignmentsFromNominal, (nominalValueEquationsTmp, av));
+      ((nominalValueEquationsTmp, _)) = BackendVariable.traverseBackendDAEVars(syst.orderedVars, createInitialAssignmentsFromNominal, ({}, shared.aliasVars));
       nominalValueEquationsTmp = listReverse(nominalValueEquationsTmp);
 
       (simeqns1, uniqueEqIndex) = List.mapFold(nominalValueEquationsTmp, dlowEqToSimEqSystem, uniqueEqIndex);
@@ -7228,7 +7302,7 @@ algorithm
     else equation
       Error.addInternalError("function createNominalValueEquations failed", sourceInfo());
     then fail();
-  end matchcontinue;
+  end match;
 end createNominalValueEquations;
 
 public function createMinValueEquations
@@ -7237,18 +7311,15 @@ public function createMinValueEquations
   input tuple<Integer, list<SimCode.SimEqSystem>> acc;
   output tuple<Integer, list<SimCode.SimEqSystem>> minValueEquations;
 algorithm
-  minValueEquations := matchcontinue (syst, shared, acc)
+  minValueEquations := match (syst, shared, acc)
     local
-      BackendDAE.Variables vars, av;
       list<BackendDAE.Equation> minValueEquationsTmp;
       list<SimCode.SimEqSystem> simeqns, simeqns1;
       Integer uniqueEqIndex;
-      BackendDAE.Variables globalKnownVars;
 
-    case (BackendDAE.EQSYSTEM(orderedVars=vars), BackendDAE.SHARED(aliasVars=av, globalKnownVars=globalKnownVars), (uniqueEqIndex, simeqns)) equation
+    case (BackendDAE.EQSYSTEM(), BackendDAE.SHARED(), (uniqueEqIndex, simeqns)) equation
       // vars
-      ((minValueEquationsTmp, _)) = BackendVariable.traverseBackendDAEVars(vars, createInitialAssignmentsFromMin, ({}, av));
-      ((minValueEquationsTmp, _)) = BackendVariable.traverseBackendDAEVars(globalKnownVars, createInitialAssignmentsFromMin, (minValueEquationsTmp, av));
+      ((minValueEquationsTmp, _)) = BackendVariable.traverseBackendDAEVars(syst.orderedVars, createInitialAssignmentsFromMin, ({}, shared.aliasVars));
       minValueEquationsTmp = listReverse(minValueEquationsTmp);
 
       (simeqns1, uniqueEqIndex) = List.mapFold(minValueEquationsTmp, dlowEqToSimEqSystem, uniqueEqIndex);
@@ -7257,7 +7328,7 @@ algorithm
     else equation
       Error.addInternalError("function createMinValueEquations failed", sourceInfo());
     then fail();
-  end matchcontinue;
+  end match;
 end createMinValueEquations;
 
 public function createMaxValueEquations
@@ -7266,18 +7337,15 @@ public function createMaxValueEquations
   input tuple<Integer, list<SimCode.SimEqSystem>> acc;
   output tuple<Integer, list<SimCode.SimEqSystem>> maxValueEquations;
 algorithm
-  maxValueEquations := matchcontinue (syst, shared, acc)
+  maxValueEquations := match (syst, shared, acc)
     local
-      BackendDAE.Variables vars, av;
       list<BackendDAE.Equation> maxValueEquationsTmp;
       list<SimCode.SimEqSystem> simeqns, simeqns1;
       Integer uniqueEqIndex;
-      BackendDAE.Variables globalKnownVars;
 
-    case (BackendDAE.EQSYSTEM(orderedVars=vars), BackendDAE.SHARED(aliasVars=av, globalKnownVars=globalKnownVars), (uniqueEqIndex, simeqns)) equation
+    case (BackendDAE.EQSYSTEM(), BackendDAE.SHARED(), (uniqueEqIndex, simeqns)) equation
       // vars
-      ((maxValueEquationsTmp, _)) = BackendVariable.traverseBackendDAEVars(vars, createInitialAssignmentsFromMax, ({}, av));
-      ((maxValueEquationsTmp, _)) = BackendVariable.traverseBackendDAEVars(globalKnownVars, createInitialAssignmentsFromMax, (maxValueEquationsTmp, av));
+      ((maxValueEquationsTmp, _)) = BackendVariable.traverseBackendDAEVars(syst.orderedVars, createInitialAssignmentsFromMax, ({}, shared.aliasVars));
       maxValueEquationsTmp = listReverse(maxValueEquationsTmp);
 
       (simeqns1, uniqueEqIndex) = List.mapFold(maxValueEquationsTmp, dlowEqToSimEqSystem, uniqueEqIndex);
@@ -7286,7 +7354,7 @@ algorithm
     else equation
       Error.addInternalError("function createMaxValueEquations failed", sourceInfo());
     then fail();
-  end matchcontinue;
+  end match;
 end createMaxValueEquations;
 
 protected function makeSolved_fromStartValue
@@ -7460,7 +7528,7 @@ algorithm
   end matchcontinue;
 end createInitialAssignmentsFromStart;
 
-protected function createInitialAssignmentsFromNominal "see also createInitialAssignmentsFromStart"
+public function createInitialAssignmentsFromNominal "see also createInitialAssignmentsFromStart"
   input BackendDAE.Var inVar;
   input tuple<list<BackendDAE.Equation>, BackendDAE.Variables> inTpl;
   output BackendDAE.Var outVar;
@@ -7487,7 +7555,7 @@ algorithm
   end matchcontinue;
 end createInitialAssignmentsFromNominal;
 
-protected function createInitialAssignmentsFromMin "see also createInitialAssignmentsFromStart"
+public function createInitialAssignmentsFromMin "see also createInitialAssignmentsFromStart"
   input BackendDAE.Var inVar;
   input tuple<list<BackendDAE.Equation>, BackendDAE.Variables> inTpl;
   output BackendDAE.Var outVar;
@@ -7514,7 +7582,7 @@ algorithm
   end matchcontinue;
 end createInitialAssignmentsFromMin;
 
-protected function createInitialAssignmentsFromMax "see also createInitialAssignmentsFromStart"
+public function createInitialAssignmentsFromMax "see also createInitialAssignmentsFromStart"
   input BackendDAE.Var inVar;
   input tuple<list<BackendDAE.Equation>, BackendDAE.Variables> inTpl;
   output BackendDAE.Var outVar;
@@ -7654,7 +7722,7 @@ algorithm
   numTimeEvents := numTimeEvents;
   numRelations := numRelations;
   varInfo := SimCode.VARINFO(numZeroCrossings, numTimeEvents, numRelations, numMathEventFunctions, nx, ny, ndy, ny_int, ny_bool, na, na_int, na_bool, np, np_int, np_bool, numOutVars, numInVars,
-          next, ny_string, np_string, na_string, 0, 0, 0, 0, numStateSets,0,numOptimizeConstraints, numOptimizeFinalConstraints, 0, 0, 0, numRealInputVars);
+          next, ny_string, np_string, na_string, 0, 0, 0, 0, numStateSets,0,numOptimizeConstraints, numOptimizeFinalConstraints, 0, 0, 0, numRealInputVars, 0, 0);
 end createVarInfo;
 
 protected function getNumberOfRealInputs
@@ -8130,6 +8198,7 @@ protected type SimVarsIndex = enumeration(
   sensitivity,
   setcvars,
   datareconinputvars,
+  setBVars,
   jacobian,
   seed
 );
@@ -8272,7 +8341,8 @@ algorithm
     Dangerous.arrayGetNoBoundsChecking(simVars, Integer(SimVarsIndex.realOptimizeFinalConstraints)),
     Dangerous.arrayGetNoBoundsChecking(simVars, Integer(SimVarsIndex.sensitivity)),
     Dangerous.arrayGetNoBoundsChecking(simVars, Integer(SimVarsIndex.setcvars)),
-    Dangerous.arrayGetNoBoundsChecking(simVars, Integer(SimVarsIndex.datareconinputvars))
+    Dangerous.arrayGetNoBoundsChecking(simVars, Integer(SimVarsIndex.datareconinputvars)),
+    Dangerous.arrayGetNoBoundsChecking(simVars, Integer(SimVarsIndex.setBVars))
   );
   GCExt.free(simVars);
 end createVars;
@@ -13679,6 +13749,7 @@ public function createFMISimulationFlags
   "Function reads FMI simulation flags from user input --fmiFlags
    and creates FmiSimulationFlags record for code generation.
    Author: AnHeuermann"
+  input Boolean printWarning = true;
   output Option<SimCode.FmiSimulationFlags> fmiSimulationFlags;
 protected
   list<String> fmiFlagsList;
@@ -13703,7 +13774,7 @@ algorithm
     fmiSimulationFlags := SOME(SimCode.defaultFmiSimulationFlags);
 
   // User supplied file
-  // --fmiFlags=none
+  // --fmiFlags=path/to/*.json
   elseif listLength(fmiFlagsList) == 1 and stringEqual( List.last(Util.stringSplitAtChar(List.first(fmiFlagsList),".")) , "json" )  then
     pathToFile := List.first(fmiFlagsList);
     if System.regularFileExists(pathToFile) then
@@ -13713,8 +13784,10 @@ algorithm
       fmiSimulationFlags := SOME(SimCode.FMI_SIMULATION_FLAGS_FILE(path=Util.absoluteOrRelative(pathToFile)));
       return;
     else
-      msg := "Could not find file \"" + pathToFile + "\nIgnoring \"--fmiFlags=" + pathToFile + "\" and using default setting.\n";
-      Error.addCompilerWarning(msg);
+      if printWarning then
+        msg := "Could not find file \"" + pathToFile + "\nIgnoring \"--fmiFlags=" + pathToFile + "\" and using default setting.\n";
+        Error.addCompilerWarning(msg);
+      end if;
       fmiSimulationFlags := SOME(SimCode.defaultFmiSimulationFlags);
       return;
     end if;
@@ -13726,8 +13799,10 @@ algorithm
       // Check each flag
       tmpSplitted := Util.stringSplitAtChar(flag,":");
       if not listLength(tmpSplitted) == 2 then
-        msg := "Can't process flag \"" + flag + "\".\nSeperate flag name and flag value with \":\".\n";
-        Error.addCompilerWarning(msg);
+        if printWarning then
+          msg := "Can't process flag \"" + flag + "\".\nSeperate flag name and flag value with \":\".\n";
+          Error.addCompilerWarning(msg);
+        end if;
         fmiSimulationFlags := SOME(SimCode.defaultFmiSimulationFlags);
         return;
       end if;
@@ -13736,12 +13811,16 @@ algorithm
       // Save value
       if stringEqual(tmpName, "s") then
         if not stringEqual(tmpValue, "euler") and not stringEqual(tmpValue, "cvode") then
-          msg := "Unknown value \"" + tmpValue + "\" for flag \"s\".";
-          Error.addCompilerWarning(msg);
+          if printWarning then
+            msg := "Unknown value \"" + tmpValue + "\" for flag \"s\".";
+            Error.addCompilerWarning(msg);
+          end if;
         end if;
       else
-        msg := "Adding unknown FMU simulation flag \"" + tmpName + "\" .";
-        Error.addCompilerWarning(msg);
+        if printWarning then
+          msg := "Adding unknown FMU simulation flag \"" + tmpName + "\" .";
+          Error.addCompilerWarning(msg);
+        end if;
       end if;
       nameValueTuples := (tmpName, tmpValue) :: nameValueTuples;
     end for;
@@ -15564,6 +15643,7 @@ protected
   end addQuotationMarks;
 algorithm
   (locations, libraries) := getDirectoriesForDLLsFromLinkLibs(libs);
+  locations := listAppend({Settings.getInstallationDirectoryPath() + "/bin"}, locations);   // pthread located in OpenModelica/bin/ on Windows
   locations := List.map(locations, addQuotationMarks);
   // Use target_link_directories when CMake 3.13 is available and skip the find_library part
   cmakecode := cmakecode + "set(EXTERNAL_LIBDIRECTORIES " + stringDelimitList(locations, "\n                            ") + ")\n";
@@ -15576,6 +15656,54 @@ algorithm
   end for;
 end getCmakeLinkLibrariesCode;
 
+public function getCmakeSundialsLinkCode
+  "Code for FMU CMakeLists.txt to specify if CVODE is needed."
+  input Option<SimCode.FmiSimulationFlags> fmiSimulationFlags;
+  output String code = "";
+algorithm
+  if not cvodeFmiFlagIsSet(fmiSimulationFlags) then
+    code := "set(NEED_CVODE FALSE)";
+  else
+    code := "set(NEED_CVODE TRUE)\n" +
+            "set(CVODE_DIRECTORY \"" +  Settings.getInstallationDirectoryPath() + "/lib/omc\")";
+  end if;
+end getCmakeSundialsLinkCode;
+
+public function cvodeFmiFlagIsSet
+  "Checks if s:cvode is part of FMI_FLAGS.
+   If a *.json exists we don't check and assume cvode will be needed at some point."
+  input Option<SimCode.FmiSimulationFlags> fmiSimulationFlags;
+  output Boolean needsCvode = false;
+algorithm
+  _ := match fmiSimulationFlags
+    local
+      list<tuple<String,String>> nameValueTuples;
+      String setting, value;
+      String configFile;
+      String fileContent;
+    case SOME(SimCode.FMI_SIMULATION_FLAGS(nameValueTuples))
+      algorithm
+        if listLength(nameValueTuples) >= 1 then
+          for tpl in nameValueTuples loop
+            (setting, value) := tpl;
+            if stringEqual(setting, "s") and stringEqual(value, "cvode") then
+              needsCvode := true;
+              break;
+            end if;
+          end for;
+        end if;
+      then();
+    case SOME(SimCode.FMI_SIMULATION_FLAGS_FILE(configFile))
+      algorithm
+        fileContent := System.readFile(configFile);
+        if not -1 == System.stringFind(fileContent, "\"cvode\"") then
+          needsCvode := true;
+        end if;
+      then();
+    else then();
+  end match;
+end cvodeFmiFlagIsSet;
+
 public function make2CMakeInclude
   "Convert makefile include directories to CMake include directories"
   input list<String> includes;
@@ -15586,6 +15714,15 @@ algorithm
                  "\"" + System.trim(include, "\"-I") + "\"";
   end for;
 end make2CMakeInclude;
+
+function getSimIteratorSize
+  input list<BackendDAE.SimIterator> iters;
+  output Integer size = 1;
+algorithm
+  for iter in iters loop
+    size := size * iter.size;
+  end for;
+end getSimIteratorSize;
 
 annotation(__OpenModelica_Interface="backend");
 end SimCodeUtil;

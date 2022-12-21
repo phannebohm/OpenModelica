@@ -750,12 +750,15 @@ QString OMCProxy::getVersion(QString className)
  * \brief OMCProxy::loadSystemLibraries
  * Loads the Modelica System Libraries.\n
  * Reads the omedit.ini file to get the libraries to load.
+ * \param libraries
  */
-void OMCProxy::loadSystemLibraries()
+void OMCProxy::loadSystemLibraries(const QVector<QPair<QString, QString> > libraries)
 {
   if (MainWindow::instance()->isTestsuiteRunning()) {
-    loadModel("Modelica", "default");
-    loadModel("ModelicaReference", "default");
+    QPair<QString, QString> library;
+    foreach (library, libraries) {
+      loadModel(library.first, library.second);
+    }
   } else {
     const bool loadLatestModelica = OptionsDialog::instance()->getLibrariesPage()->getLoadLatestModelicaCheckbox()->isChecked();
     if (loadLatestModelica) {
@@ -786,14 +789,16 @@ void OMCProxy::loadSystemLibraries()
  */
 void OMCProxy::loadUserLibraries()
 {
-  QSettings *pSettings = Utilities::getApplicationSettings();
-  pSettings->beginGroup("userlibraries");
-  QStringList libraries = pSettings->childKeys();
-  pSettings->endGroup();
-  foreach (QString lib, libraries) {
-    QString encoding = pSettings->value("userlibraries/" + lib).toString();
-    QString fileName = QUrl::fromPercentEncoding(QByteArray(lib.toUtf8().constData()));
-    MainWindow::instance()->getLibraryWidget()->openFile(fileName, encoding);
+  if (!MainWindow::instance()->isTestsuiteRunning()) {
+    QSettings *pSettings = Utilities::getApplicationSettings();
+    pSettings->beginGroup("userlibraries");
+    QStringList libraries = pSettings->childKeys();
+    pSettings->endGroup();
+    foreach (QString lib, libraries) {
+      QString encoding = pSettings->value("userlibraries/" + lib).toString();
+      QString fileName = QUrl::fromPercentEncoding(QByteArray(lib.toUtf8().constData()));
+      MainWindow::instance()->getLibraryWidget()->openFile(fileName, encoding);
+    }
   }
 }
 
@@ -3458,14 +3463,30 @@ QList<QString> OMCProxy::getAvailablePackageConversionsFrom(const QString &pkg, 
 
 /*!
  * \brief OMCProxy::getModelInstance
- * Returns the class information as json string.
  * \param className
  * \param prettyPrint
+ * \param icon
  * \return
  */
-QJsonObject OMCProxy::getModelInstance(const QString &className, bool prettyPrint)
+QJsonObject OMCProxy::getModelInstance(const QString &className, bool prettyPrint, bool icon)
 {
-  QString modelInstanceJson = mpOMCInterface->getModelInstance(className, prettyPrint);
+  QString modelInstanceJson = "";
+  if (icon) {
+    modelInstanceJson = mpOMCInterface->getModelInstanceIcon(className, prettyPrint);
+    if (modelInstanceJson.isEmpty()) {
+      if (MainWindow::instance()->isDebug()) {
+        QString msg = QString("<b>getModelInstanceIcon(%1, %2)</b> failed. Using <b>getModelInstance(%1, %2)</b>.").arg(className).arg(prettyPrint ? "true" : "false");
+        MessageItem messageItem(MessageItem::Modelica, msg, Helper::scriptingKind, Helper::errorLevel);
+        MessagesWidget::instance()->addGUIMessage(messageItem);
+        printMessagesStringInternal();
+      } else {
+        getErrorString();
+      }
+      modelInstanceJson = mpOMCInterface->getModelInstance(className, prettyPrint);
+    }
+  } else {
+    modelInstanceJson = mpOMCInterface->getModelInstance(className, prettyPrint);
+  }
   printMessagesStringInternal();
   if (!modelInstanceJson.isEmpty()) {
     QJsonParseError jsonParserError;
@@ -3502,6 +3523,17 @@ int OMCProxy::storeAST()
 bool OMCProxy::restoreAST(int id)
 {
   bool result = mpOMCInterface->restoreAST(id);
+  printMessagesStringInternal();
+  return result;
+}
+
+/*!
+ * \brief OMCProxy::clear
+ * Clears all loaded classes.
+ */
+bool OMCProxy::clear()
+{
+  bool result = mpOMCInterface->clear();
   printMessagesStringInternal();
   return result;
 }

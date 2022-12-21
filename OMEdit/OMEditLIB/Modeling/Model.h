@@ -38,58 +38,43 @@
 #include <QColor>
 #include <QRectF>
 
+#include "Annotations/BooleanAnnotation.h"
+#include "Annotations/PointAnnotation.h"
+#include "Annotations/RealAnnotation.h"
+#include "Annotations/ColorAnnotation.h"
+#include "Annotations/LinePatternAnnotation.h"
+#include "Annotations/FillPatternAnnotation.h"
+#include "Annotations/PointArrayAnnotation.h"
+#include "Annotations/ArrowAnnotation.h"
+#include "Annotations/SmoothAnnotation.h"
+#include "Annotations/ExtentAnnotation.h"
+#include "Annotations/BorderPatternAnnotation.h"
+#include "Annotations/EllipseClosureAnnotation.h"
+#include "Annotations/StringAnnotation.h"
+#include "Annotations/TextStyleAnnotation.h"
+#include "Annotations/TextAlignmentAnnotation.h"
+
 namespace ModelInstance
 {
-  class Point
-  {
-  public:
-    Point();
-    Point(double x, double y);
-    Point(const Point &point);
-    void deserialize(const QJsonArray &jsonArray);
-    double x() const {return mValue[0];}
-    double y() const {return mValue[1];}
-
-    bool operator==(const Point &point);
-    Point& operator=(const Point &point) noexcept = default;
-private:
-    double mValue[2];
-  };
-
-  class Extent
-  {
-  public:
-    Extent();
-    Extent(const Point &extent1, const Point extent2);
-    Extent(const Extent &extent);
-    void deserialize(const QJsonArray &jsonArray);
-    Point getExtent1() const {return mPoint[0];}
-    Point getExtent2() const {return mPoint[1];}
-
-    Extent& operator=(const Extent &extent) noexcept = default;
-private:
-    Point mPoint[2];
-  };
-
   class CoordinateSystem
   {
   public:
     CoordinateSystem();
     CoordinateSystem(const CoordinateSystem &coOrdinateSystem);
-    void setExtent(const Extent &extent);
-    Extent getExtent() const {return mExtent;}
+    void setExtent(const QVector<QPointF> extent);
+    ExtentAnnotation getExtent() const {return mExtent;}
     void setHasExtent(const bool hasExtent) {mHasExtent = hasExtent;}
     bool hasExtent() const {return mHasExtent;}
     void setPreserveAspectRatio(const bool preserveAspectRatio);
-    bool getPreserveAspectRatio() const {return mPreserveAspectRatio;}
+    BooleanAnnotation getPreserveAspectRatio() const {return mPreserveAspectRatio;}
     bool hasPreserveAspectRatio() const {return mHasPreserveAspectRatio;}
     void setHasPreserveAspectRatio(const bool hasPreserveAspectRatio) {mHasPreserveAspectRatio = hasPreserveAspectRatio;}
     void setInitialScale(const qreal initialScale);
-    double getInitialScale() const {return mInitialScale;}
+    RealAnnotation getInitialScale() const {return mInitialScale;}
     bool hasInitialScale() const {return mHasInitialScale;}
     void setHasInitialScale(const bool hasInitialScale) {mHasInitialScale = hasInitialScale;}
-    void setGrid(const Point &grid);
-    Point getGrid() const {return mGrid;}
+    void setGrid(const QPointF grid);
+    PointAnnotation getGrid() const {return mGrid;}
     void setHasGrid(const bool hasGrid) {mHasGrid = hasGrid;}
     bool hasGrid() const {return mHasGrid;}
 
@@ -100,199 +85,177 @@ private:
     bool isComplete() const;
     void deserialize(const QJsonObject &jsonObject);
 
-    CoordinateSystem& operator=(const CoordinateSystem &coOrdinateSystem) noexcept = default;
+    CoordinateSystem& operator=(const CoordinateSystem &coOrdinateSystem) = default;
   private:
-    Extent mExtent;
+    ExtentAnnotation mExtent;
     bool mHasExtent;
-    bool mPreserveAspectRatio;
+    BooleanAnnotation mPreserveAspectRatio;
     bool mHasPreserveAspectRatio;
-    qreal mInitialScale;
+    RealAnnotation mInitialScale;
     bool mHasInitialScale;
-    Point mGrid;
+    PointAnnotation mGrid;
     bool mHasGrid;
   };
 
   class GraphicItem
   {
   public:
-    GraphicItem();
-    bool getVisible() const {return mVisible;}
-    Point getOrigin() const {return mOrigin;}
-    double getRotation() const {return mRotation;}
+    GraphicItem() {}
+    BooleanAnnotation getVisible() const {return mVisible;}
+    PointAnnotation getOrigin() const {return mOrigin;}
+    RealAnnotation getRotation() const {return mRotation;}
   protected:
     void deserialize(const QJsonArray &jsonArray);
     void deserialize(const QJsonObject &jsonObject);
 private:
-    bool mVisible;
-    Point mOrigin;
-    double mRotation;
+    BooleanAnnotation mVisible;
+    PointAnnotation mOrigin;
+    RealAnnotation mRotation;
   };
-
-  class Color
-  {
-  public:
-    Color();
-    void deserialize(const QJsonArray &jsonArray);
-    void setColor(const QColor &color) {mColor = color;}
-    QColor getColor() const {return mColor;}
-
-    bool operator==(const Color &color) const;
-  private:
-    QColor mColor;
-  };
-
-  enum class LinePattern {None, Solid, Dash, Dot, DashDot, DashDotDot};
-  enum class FillPattern {None, Solid, Horizontal, Vertical, Cross, Forward, Backward, CrossDiag, HorizontalCylinder, VerticalCylinder, Sphere};
-  enum class BorderPattern {None, Raised, Sunken, Engraved};
-  enum class Smooth {None, Bezier};
-  enum class EllipseClosure {None, Chord, Radial};
-  enum class Arrow {None, Open, Filled, Half};
-  enum class TextStyle {Bold, Italic, UnderLine};
-  enum class TextAlignment {Left, Center, Right};
 
   class FilledShape
   {
   public:
     FilledShape();
-    Color getLineColor() const {return mLineColor;}
-    Color getFillColor() const {return mFillColor;}
-    QString getPattern() const {return mPattern;}
-    QString getFillPattern() const {return mFillPattern;}
-    double getLineThickness() const {return mLineThickness;}
+    ColorAnnotation getLineColor() const {return mLineColor;}
+    ColorAnnotation getFillColor() const {return mFillColor;}
+    LinePatternAnnotation getPattern() const {return mPattern;}
+    FillPatternAnnotation getFillPattern() const {return mFillPattern;}
+    RealAnnotation getLineThickness() const {return mLineThickness;}
   protected:
     void deserialize(const QJsonArray &jsonArray);
     void deserialize(const QJsonObject &jsonObject);
   private:
-    Color mLineColor;
-    Color mFillColor;
-    QString mPattern;
-    QString mFillPattern;
-    double mLineThickness;
+    ColorAnnotation mLineColor;
+    ColorAnnotation mFillColor;
+    LinePatternAnnotation mPattern;
+    FillPatternAnnotation mFillPattern;
+    RealAnnotation mLineThickness;
   };
 
   class Shape : public GraphicItem, public FilledShape
   {
   public:
-    Shape();
+    Shape(Model *pParentModel);
     virtual ~Shape();
+
+    Model *getParentModel() const {return mpParentModel;}
+  private:
+    Model *mpParentModel;
   };
 
   class Line : public Shape
   {
   public:
-    Line();
+    Line(Model *pParentModel);
     void deserialize(const QJsonArray &jsonArray);
     void deserialize(const QJsonObject &jsonObject);
 
-    void addPoint(const QPointF &point);
-    QList<Point> getPoints() const {return mPoints;}
+    void setPoints(const PointArrayAnnotation &points) {mPoints = points;}
+    PointArrayAnnotation getPoints() const {return mPoints;}
     void clearPoints() {mPoints.clear();}
     void setColor(const QColor &color);
-    Color getColor() const {return mColor;}
-    void setLinePattern(const QString &pattern) {mPattern = pattern;}
-    QString getPattern() const {return mPattern;}
+    ColorAnnotation getColor() const {return mColor;}
+    void setPattern(StringHandler::LinePattern pattern) {mPattern = pattern;}
+    LinePatternAnnotation getPattern() const {return mPattern;}
     void setThickness(double thickness) {mThickness = thickness;}
-    double getThickness() const {return mThickness;}
-    void setStartArrow(const QString &startArrow) {mArrow[0] = startArrow;}
-    QString getStartArrow() const {return mArrow[0];}
-    void setEndArrow(const QString &endArrow) {mArrow[1] = endArrow;}
-    QString getEndArrow() const {return mArrow[1];}
+    RealAnnotation getThickness() const {return mThickness;}
+    void setArrow(const ArrowAnnotation &arrow) {mArrow = arrow;}
+    ArrowAnnotation getArrow() {return mArrow;}
     void setArrowSize(double arrowSize) {mArrowSize = arrowSize;}
-    double getArrowSize() const {return mArrowSize;}
-    void setSmooth(const QString &smooth) {mSmooth = smooth;}
-    QString getSmooth() const {return mSmooth;}
-
-    bool operator==(const Line &line) const;
+    RealAnnotation getArrowSize() const {return mArrowSize;}
+    void setSmooth(StringHandler::Smooth smooth) {mSmooth = smooth;}
+    SmoothAnnotation getSmooth() const {return mSmooth;}
   private:
-    QList<Point> mPoints;
-    Color mColor;
-    QString mPattern;
-    double mThickness;
-    QString mArrow[2];
-    double mArrowSize = 3;
-    QString mSmooth;
+    PointArrayAnnotation mPoints;
+    ColorAnnotation mColor;
+    LinePatternAnnotation mPattern;
+    RealAnnotation mThickness;
+    ArrowAnnotation mArrow;
+    RealAnnotation mArrowSize;
+    SmoothAnnotation mSmooth;
   };
 
   class Polygon : public Shape
   {
   public:
-    Polygon();
+    Polygon(Model *pParentModel);
     void deserialize(const QJsonArray &jsonArray);
 
-    QList<Point> getPoints() const {return mPoints;}
-    QString getSmooth() const {return mSmooth;}
+    PointArrayAnnotation getPoints() const {return mPoints;}
+    SmoothAnnotation getSmooth() const {return mSmooth;}
   private:
-    QList<Point> mPoints;
-    QString mSmooth;
+    PointArrayAnnotation mPoints;
+    SmoothAnnotation mSmooth;
   };
 
   class Rectangle : public Shape
   {
   public:
-    Rectangle();
+    Rectangle(Model *pParentModel);
     void deserialize(const QJsonArray &jsonArray);
 
-    QString getBorderPattern() const {return mBorderPattern;}
-    Extent getExtent() const {return mExtent;}
-    double getRadius() const {return mRadius;}
+    BorderPatternAnnotation getBorderPattern() const {return mBorderPattern;}
+    ExtentAnnotation getExtent() const {return mExtent;}
+    RealAnnotation getRadius() const {return mRadius;}
   private:
-    QString mBorderPattern;
-    Extent mExtent;
-    double mRadius;
+    BorderPatternAnnotation mBorderPattern;
+    ExtentAnnotation mExtent;
+    RealAnnotation mRadius;
   };
 
   class Ellipse : public Shape
   {
   public:
-    Ellipse();
+    Ellipse(Model *pParentModel);
     void deserialize(const QJsonArray &jsonArray);
 
-    Extent getExtent() const {return mExtent;}
-    double getStartAngle() const {return mStartAngle;}
-    double getEndAngle() const {return mEndAngle;}
-    QString getClosure() const {return mClosure;}
+    ExtentAnnotation getExtent() const {return mExtent;}
+    RealAnnotation getStartAngle() const {return mStartAngle;}
+    RealAnnotation getEndAngle() const {return mEndAngle;}
+    EllipseClosureAnnotation getClosure() const {return mClosure;}
   private:
-    Extent mExtent;
-    double mStartAngle;
-    double mEndAngle;
-    QString mClosure;
+    ExtentAnnotation mExtent;
+    RealAnnotation mStartAngle;
+    RealAnnotation mEndAngle;
+    EllipseClosureAnnotation mClosure;
   };
 
   class Text : public Shape
   {
   public:
-    Text();
+    Text(Model *pParentModel);
     void deserialize(const QJsonArray &jsonArray);
     void deserialize(const QJsonObject &jsonObject);
 
-    Extent getExtent() const {return mExtent;}
-    QString getTextString() const {return mTextString;}
-    double getFontSize() const {return mFontSize;}
-    QString getFontName() const {return mFontName;}
-    QStringList getTextStyle() const {return mTextStyle;}
-    Color getTextColor() const {return mTextColor;}
-    QString getHorizontalAlignment() const {return mHorizontalAlignment;}
+    ExtentAnnotation getExtent() const {return mExtent;}
+    StringAnnotation getTextString() const {return mTextString;}
+    RealAnnotation getFontSize() const {return mFontSize;}
+    StringAnnotation getFontName() const {return mFontName;}
+    TextStyleAnnotation getTextStyle() const {return mTextStyle;}
+    ColorAnnotation getTextColor() const {return mTextColor;}
+    TextAlignmentAnnotation getHorizontalAlignment() const {return mHorizontalAlignment;}
   private:
-    Extent mExtent;
-    QString mTextString;
-    double mFontSize;
-    QString mFontName;
-    QStringList mTextStyle;
-    Color mTextColor;
-    QString mHorizontalAlignment;
+    ExtentAnnotation mExtent;
+    StringAnnotation mTextString;
+    RealAnnotation mFontSize;
+    StringAnnotation mFontName;
+    TextStyleAnnotation mTextStyle;
+    ColorAnnotation mTextColor;
+    TextAlignmentAnnotation mHorizontalAlignment;
   };
 
   class Bitmap : public Shape
   {
   public:
-    Bitmap();
+    Bitmap(Model *pParentModel);
     void deserialize(const QJsonArray &jsonArray);
 
-    Extent getExtent() const {return mExtent;}
+    ExtentAnnotation getExtent() const {return mExtent;}
     QString getFileName() const {return mFileName;}
     QString getImageSource() const {return mImageSource;}
   private:
-    Extent mExtent;
+    ExtentAnnotation mExtent;
     QString mFileName;
     QString mImageSource;
   };
@@ -300,18 +263,19 @@ private:
   class IconDiagramAnnotation
   {
   public:
-    IconDiagramAnnotation();
+    IconDiagramAnnotation(Model *pParentModel);
     ~IconDiagramAnnotation();
     void deserialize(const QJsonObject &jsonObject);
-    CoordinateSystem getCoordinateSystem() {return mCoordinateSystem;}
-    CoordinateSystem getMergedCoordinateSystem() {return mMergedCoOrdinateSystem;}
+
+    Model *getParentModel() const {return mpParentModel;}
     QList<Shape*> getGraphics() const {return mGraphics;}
     bool isGraphicsEmpty() const {return mGraphics.isEmpty();}
 
     CoordinateSystem mCoordinateSystem;
     CoordinateSystem mMergedCoOrdinateSystem;
+  private:
+    Model *mpParentModel;
     QList<Shape*> mGraphics;
-
   };
 
   class Modifier
@@ -322,7 +286,7 @@ private:
 
     QString getName() const {return mName;}
     void setName(const QString &name) {mName = name;}
-    QString getValue() const {return mValue;}
+    QString getValue() const;
     QList<Modifier> getModifiers() const {return mModifiers;}
     bool isFinal() const {return mFinal;}
     bool isEach() const {return mEach;}
@@ -375,7 +339,6 @@ private:
     bool isDocumentationClass() const {return mDocumentationClass;}
     QString getVersion() const {return mVersion;}
     QString getVersionDate() const {return mVersionDate;}
-    QString getVersionBuild() const {return mVersionBuild;}
     QString getDateModified() const {return mDateModified;}
     QString getPreferredView() const {return mPreferredView;}
     bool isState() const {return mState;}
@@ -393,6 +356,10 @@ private:
     QList<InitialState *> getInitialStates() const {return mInitialStates;}
 
     bool isParameterConnectorSizing(const QString &parameter);
+    QString getParameterValue(const QString &parameter, QString &typeName);
+    QString getParameterValueFromExtendsModifiers(const QString &parameter);
+
+    FlatModelica::Expression getVariableBinding(const QString &variableName);
   private:
     void initialize();
 
@@ -413,14 +380,14 @@ private:
     QString mComment;
     IconDiagramAnnotation *mpIconAnnotation;
     IconDiagramAnnotation *mpDiagramAnnotation;
-    bool mDocumentationClass;
-    QString mVersion;
-    QString mVersionDate;
-    QString mVersionBuild;
-    QString mDateModified;
-    QString mPreferredView;
-    bool mState;
-    QString mAccess;
+    BooleanAnnotation mDocumentationClass;
+    StringAnnotation mVersion;
+    StringAnnotation mVersionDate;
+    RealAnnotation mVersionBuild;
+    StringAnnotation mDateModified;
+    StringAnnotation mPreferredView;
+    BooleanAnnotation mState;
+    StringAnnotation mAccess;
     QList<Element*> mElements;
     QString mFileName;
     int mLineStart;
@@ -438,28 +405,30 @@ private:
   public:
     Transformation();
     void deserialize(const QJsonObject &jsonObject);
-    Point getOrigin() const {return mOrigin;}
-    Extent getExtent() const {return mExtent;}
+    PointAnnotation getOrigin() const {return mOrigin;}
+    ExtentAnnotation getExtent() const {return mExtent;}
     double getRotation() const {return mRotation;}
   private:
-    Point mOrigin;
-    Extent mExtent;
-    double mRotation;
+    PointAnnotation mOrigin;
+    ExtentAnnotation mExtent;
+    RealAnnotation mRotation;
   };
 
   class PlacementAnnotation
   {
   public:
-    PlacementAnnotation();
+    PlacementAnnotation(Model *pParentModel);
     void deserialize(const QJsonObject &jsonObject);
-    bool getVisible() const {return mVisible;}
+    Model *getParentModel() const {return mpParentModel;}
+    BooleanAnnotation getVisible() const {return mVisible;}
     Transformation getTransformation() const {return mTransformation;}
-    bool getIconVisible() const {return mIconVisible;}
+    BooleanAnnotation getIconVisible() const {return mIconVisible;}
     Transformation getIconTransformation() const {return mIconTransformation;}
   private:
-    bool mVisible;
+    Model *mpParentModel;
+    BooleanAnnotation mVisible;
     Transformation mTransformation;
-    bool mIconVisible;
+    BooleanAnnotation mIconVisible;
     Transformation mIconTransformation;
   };
 
@@ -468,11 +437,11 @@ private:
   public:
     Selector();
     void deserialize(const QJsonObject &jsonObject);
-    QString getFilter() const {return mFilter;}
-    QString getCaption() const {return mCaption;}
+    StringAnnotation getFilter() const {return mFilter;}
+    StringAnnotation getCaption() const {return mCaption;}
   private:
-    QString mFilter;
-    QString mCaption;
+    StringAnnotation mFilter;
+    StringAnnotation mCaption;
   };
 
   class DialogAnnotation
@@ -480,27 +449,27 @@ private:
   public:
     DialogAnnotation();
     void deserialize(const QJsonObject &jsonObject);
-    QString getTab() const {return mTab;}
-    QString getGroup() const {return mGroup;}
-    bool isEnabled() const {return mEnable;}
-    bool getShowStartAttribute() const {return mShowStartAttribute;}
-    bool isColorSelector() const {return mColorSelector;}
+    StringAnnotation getTab() const {return mTab;}
+    StringAnnotation getGroup() const {return mGroup;}
+    BooleanAnnotation isEnabled() const {return mEnable;}
+    BooleanAnnotation getShowStartAttribute() const {return mShowStartAttribute;}
+    BooleanAnnotation isColorSelector() const {return mColorSelector;}
     Selector getLoadSelector() const {return mLoadSelector;}
     Selector getSaveSelector() const {return mSaveSelector;}
     Selector getDirectorySelector() const {return mDirectorySelector;}
     QString getGroupImage() const {return mGroupImage;}
-    bool isConnectorSizing() const {return mConnectorSizing;}
+    BooleanAnnotation isConnectorSizing() const {return mConnectorSizing;}
   private:
-    QString mTab;
-    QString mGroup;
-    bool mEnable;
-    bool mShowStartAttribute;
-    bool mColorSelector;
+    StringAnnotation mTab;
+    StringAnnotation mGroup;
+    BooleanAnnotation mEnable;
+    BooleanAnnotation mShowStartAttribute;
+    BooleanAnnotation mColorSelector;
     Selector mLoadSelector;
     Selector mSaveSelector;
     Selector mDirectorySelector;
-    QString mGroupImage;
-    bool mConnectorSizing;
+    StringAnnotation mGroupImage;
+    BooleanAnnotation mConnectorSizing;
   };
 
   class Choices
@@ -511,8 +480,8 @@ private:
     bool isCheckBox() const {return mCheckBox;}
     bool isDymolaCheckBox() const {return mDymolaCheckBox;}
   private:
-    bool mCheckBox;
-    bool mDymolaCheckBox;
+    BooleanAnnotation mCheckBox;
+    BooleanAnnotation mDymolaCheckBox;
   };
 
   class Element
@@ -532,6 +501,8 @@ private:
     void setModel(Model *pModel) {mpModel = pModel;}
     Model *getModel() const {return mpModel;}
     Modifier getModifier() const {return mModifier;}
+    FlatModelica::Expression getBinding() const {return mBinding;}
+    void setBinding(const FlatModelica::Expression expression) {mBinding = expression;}
     QString getModifierValueFromType(QStringList modifierName);
     QStringList getAbsynDimensions() const {return mAbsynDims;}
     QString getAbsynDimensionsString() const {return mAbsynDims.join(", ");}
@@ -559,6 +530,7 @@ private:
     QString mType;
     Model *mpModel;
     Modifier mModifier;
+    FlatModelica::Expression mBinding;
     QStringList mAbsynDims;
     QStringList mTypedDims;
     bool mPublic;
@@ -571,11 +543,11 @@ private:
     QString mVariability;
     QString mDirection;
     QString mComment;
-    bool mChoicesAllMatching;
+    BooleanAnnotation mChoicesAllMatching;
     PlacementAnnotation mPlacementAnnotation;
     bool mHasDialogAnnotation;
     DialogAnnotation mDialogAnnotation;
-    bool mEvaluate;
+    BooleanAnnotation mEvaluate;
     Choices mChoices;
 
     static QString getModifierValueFromInheritedType(Model *pModel, QStringList modifierName);
@@ -609,16 +581,18 @@ private:
   class Connection
   {
   public:
-    Connection();
+    Connection(Model *pParentModel);
     ~Connection();
     void deserialize(const QJsonObject &jsonObject);
 
+    Model *getParentModel() const {return mpParentModel;}
     Connector *getStartConnector() const {return mpStartConnector;}
     Connector *getEndConnector() const {return mpEndConnector;}
     Line *getLine() const {return mpLine;}
     Text *getText() const {return mpText;}
     QString toString() const;
   private:
+    Model *mpParentModel;
     Connector *mpStartConnector;
     Connector *mpEndConnector;
     Line *mpLine;
@@ -628,9 +602,10 @@ private:
   class Transition
   {
   public:
-    Transition();
+    Transition(Model *pParentModel);
     void deserialize(const QJsonObject &jsonObject);
 
+    Model *getParentModel() const {return mpParentModel;}
     Connector *getStartConnector() const {return mpStartConnector;}
     Connector *getEndConnector() const {return mpEndConnector;}
     bool getCondition() const {return mCondition;}
@@ -642,6 +617,7 @@ private:
     Text *getText() const {return mpText;}
     QString toString() const;
   private:
+    Model *mpParentModel;
     Connector *mpStartConnector;
     Connector *mpEndConnector;
     bool mCondition;
@@ -656,15 +632,30 @@ private:
   class InitialState
   {
   public:
-    InitialState();
+    InitialState(Model *pParentModel);
     void deserialize(const QJsonObject &jsonObject);
 
+    Model *getParentModel() const {return mpParentModel;}
     Connector *getStartConnector() const {return mpStartConnector;}
     Line *getLine() const {return mpLine;}
     QString toString() const;
   private:
+    Model *mpParentModel;
     Connector *mpStartConnector;
     Line *mpLine;
+  };
+
+  class IconDiagramMap
+  {
+  public:
+    IconDiagramMap();
+    void deserialize(const QJsonObject &jsonObject);
+
+    ExtentAnnotation getExtent() const {return mExtent;}
+    BooleanAnnotation getprimitivesVisible() const {return mPrimitivesVisible;}
+  private:
+    ExtentAnnotation mExtent;
+    BooleanAnnotation mPrimitivesVisible;
   };
 
   class Extend : public Model
@@ -675,6 +666,9 @@ private:
     void deserialize(const QJsonObject &jsonObject);
 
     Modifier getExtendsModifier() const {return mExtendsModifier;}
+
+    IconDiagramMap mIconMap;
+    IconDiagramMap mDiagramMap;
   private:
     Modifier mExtendsModifier;
   };

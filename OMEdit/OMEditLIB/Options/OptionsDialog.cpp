@@ -936,6 +936,12 @@ void OptionsDialog::readSimulationSettings()
   }
 #endif
 
+  if (mpSettings->contains("simulation/postCompilationCommand")) {
+    mpSimulationPage->setPostCompilationCommand(mpSettings->value("simulation/postCompilationCommand").toString());
+  } else {
+    mpSimulationPage->setPostCompilationCommand(OptionsDefaults::Simulation::postCompilationCommand);
+  }
+
   if (mpSettings->contains("simulation/ignoreCommandLineOptionsAnnotation")) {
     mpSimulationPage->getIgnoreCommandLineOptionsAnnotationCheckBox()->setChecked(mpSettings->value("simulation/ignoreCommandLineOptionsAnnotation").toBool());
   } else {
@@ -2296,6 +2302,7 @@ void OptionsDialog::saveSimulationSettings()
   // save matching algorithm
   QString matchingAlgorithm = mpSimulationPage->getTranslationFlagsWidget()->getMatchingAlgorithmComboBox()->currentText();
   if (mMatchingAlgorithm.compare(matchingAlgorithm) != 0) {
+    mMatchingAlgorithm = matchingAlgorithm;
     changed = true;
   }
   if (matchingAlgorithm.compare(simulationOptions.getMatchingAlgorithm()) == 0) {
@@ -2306,6 +2313,7 @@ void OptionsDialog::saveSimulationSettings()
   // save index reduction
   QString indexReduction = mpSimulationPage->getTranslationFlagsWidget()->getIndexReductionMethodComboBox()->currentText();
   if (mIndexReductionMethod.compare(indexReduction) != 0) {
+    mIndexReductionMethod = indexReduction;
     changed = true;
   }
   if (indexReduction.compare(simulationOptions.getIndexReductionMethod()) == 0) {
@@ -2316,6 +2324,7 @@ void OptionsDialog::saveSimulationSettings()
   // save initialization
   bool initialization = mpSimulationPage->getTranslationFlagsWidget()->getInitializationCheckBox()->isChecked();
   if (mInitialization != initialization) {
+    mInitialization = initialization;
     changed = true;
   }
   if (initialization == simulationOptions.getInitialization()) {
@@ -2326,6 +2335,7 @@ void OptionsDialog::saveSimulationSettings()
   // save evaluate all parameters
   bool evaluateAllParameters = mpSimulationPage->getTranslationFlagsWidget()->getEvaluateAllParametersCheckBox()->isChecked();
   if (mEvaluateAllParameters != evaluateAllParameters) {
+    mEvaluateAllParameters = evaluateAllParameters;
     changed = true;
   }
   if (evaluateAllParameters == simulationOptions.getEvaluateAllParameters()) {
@@ -2336,6 +2346,7 @@ void OptionsDialog::saveSimulationSettings()
   // save NLS analytic jacobian
   bool NLSanalyticJacobian = mpSimulationPage->getTranslationFlagsWidget()->getNLSanalyticJacobianCheckBox()->isChecked();
   if (mNLSanalyticJacobian != NLSanalyticJacobian) {
+    mNLSanalyticJacobian = NLSanalyticJacobian;
     changed = true;
   }
   if (NLSanalyticJacobian == simulationOptions.getNLSanalyticJacobian()) {
@@ -2346,6 +2357,7 @@ void OptionsDialog::saveSimulationSettings()
   // save parmodauto
   bool parmodauto = mpSimulationPage->getTranslationFlagsWidget()->getParmodautoCheckBox()->isChecked();
   if (mParmodauto != parmodauto) {
+    mParmodauto = parmodauto;
     changed = true;
   }
   if (parmodauto == simulationOptions.getParmodauto()) {
@@ -2356,6 +2368,7 @@ void OptionsDialog::saveSimulationSettings()
   // save old instantiation
   bool newInst = !mpSimulationPage->getTranslationFlagsWidget()->getOldInstantiationCheckBox()->isChecked();
   if (mOldInstantiation != newInst) {
+    mOldInstantiation = newInst;
     changed = true;
   }
   if (newInst == !simulationOptions.getOldInstantiation()) {
@@ -2365,7 +2378,8 @@ void OptionsDialog::saveSimulationSettings()
   }
   // save enable FMU Import
   bool enableFMUImport = mpSimulationPage->getTranslationFlagsWidget()->getEnableFMUImportCheckBox()->isChecked();
-  if (mEnableFMUImport = enableFMUImport) {
+  if (mEnableFMUImport != enableFMUImport) {
+    mEnableFMUImport = enableFMUImport;
     changed = true;
   }
   if (enableFMUImport == simulationOptions.getEnableFMUImport()) {
@@ -2377,6 +2391,7 @@ void OptionsDialog::saveSimulationSettings()
   QString additionalFlags = mpSimulationPage->getTranslationFlagsWidget()->getAdditionalTranslationFlagsTextBox()->text();
   if (mpSimulationPage->getTranslationFlagsWidget()->applyFlags()) {
     if (mAdditionalTranslationFlags.compare(additionalFlags) != 0) {
+      mAdditionalTranslationFlags = additionalFlags;
       changed = true;
     }
     if (additionalFlags.compare(simulationOptions.getAdditionalTranslationFlags()) == 0) {
@@ -2501,6 +2516,13 @@ void OptionsDialog::saveGlobalSimulationSettings()
     mpSettings->setValue("simulation/useStaticLinking", useStaticLinking);
   }
 #endif
+  // post compilation command
+  const QString postCompilationCommand = mpSimulationPage->getPostCompilationCommand();
+  if (postCompilationCommand == OptionsDefaults::Simulation::postCompilationCommand) {
+    mpSettings->remove("simulation/postCompilationCommand");
+  } else {
+    mpSettings->setValue("simulation/postCompilationCommand", postCompilationCommand);
+  }
   // save ignore command line options
   bool ignoreCommandLineOptionsAnnotation = mpSimulationPage->getIgnoreCommandLineOptionsAnnotationCheckBox()->isChecked();
   if (ignoreCommandLineOptionsAnnotation == OptionsDefaults::Simulation::ignoreCommandLineOptionsAnnotation) {
@@ -3649,7 +3671,7 @@ GeneralSettingsPage::GeneralSettingsPage(OptionsDialog *pOptionsDialog)
   mpHorizontalViewRadioButton = new QRadioButton(tr("Horizontal View"));
   mpHorizontalViewRadioButton->setChecked(true);
   mpVerticalViewRadioButton = new QRadioButton(tr("Vertical View"));
-  QButtonGroup *pWelcomePageViewButtons = new QButtonGroup;
+  QButtonGroup *pWelcomePageViewButtons = new QButtonGroup(this);
   pWelcomePageViewButtons->addButton(mpHorizontalViewRadioButton);
   pWelcomePageViewButtons->addButton(mpVerticalViewRadioButton);
   // plotting view radio buttons layout
@@ -3789,7 +3811,7 @@ LibrariesPage::LibrariesPage(OptionsDialog *pOptionsDialog)
   QGroupBox *pModelicaPathGroupBox = new QGroupBox(Helper::general);
   mpModelicaPathLabel = new Label("MODELICAPATH");
   mpModelicaPathTextBox = new QLineEdit;
-  QString modelicaPathToolTip = tr("List of paths searched while loading a library. Paths are separated by native path separator.");
+  QString modelicaPathToolTip = tr("List of paths searched while loading a library. Paths are separated by ; on Windows and : on Linux and macOS.");
   mpModelicaPathTextBox->setPlaceholderText(Helper::ModelicaPath);
   mpModelicaPathTextBox->setToolTip(modelicaPathToolTip);
   mpModelicaPathBrowseButton = new QPushButton(Helper::browse);
@@ -4991,7 +5013,7 @@ GraphicalViewsPage::GraphicalViewsPage(OptionsDialog *pOptionsDialog)
   mpModelingTabbedViewRadioButton = new QRadioButton(tr("Tabbed View"));
   mpModelingTabbedViewRadioButton->setChecked(true);
   mpModelingSubWindowViewRadioButton = new QRadioButton(tr("SubWindow View"));
-  QButtonGroup *pModelingViewModeButtonGroup = new QButtonGroup;
+  QButtonGroup *pModelingViewModeButtonGroup = new QButtonGroup(this);
   pModelingViewModeButtonGroup->addButton(mpModelingTabbedViewRadioButton);
   pModelingViewModeButtonGroup->addButton(mpModelingSubWindowViewRadioButton);
   // modeling view radio buttons layout
@@ -5011,7 +5033,7 @@ GraphicalViewsPage::GraphicalViewsPage(OptionsDialog *pOptionsDialog)
   mpDiagramViewRadioButton->setChecked(true);
   mpTextViewRadioButton = new QRadioButton(Helper::textView);
   mpDocumentationViewRadioButton = new QRadioButton(Helper::documentationView);
-  QButtonGroup *pDefaultViewButtonGroup = new QButtonGroup;
+  QButtonGroup *pDefaultViewButtonGroup = new QButtonGroup(this);
   pDefaultViewButtonGroup->addButton(mpIconViewRadioButton);
   pDefaultViewButtonGroup->addButton(mpDiagramViewRadioButton);
   pDefaultViewButtonGroup->addButton(mpTextViewRadioButton);
@@ -5520,6 +5542,11 @@ SimulationPage::SimulationPage(OptionsDialog *pOptionsDialog)
   mpUseStaticLinkingCheckBox = new QCheckBox(tr("Use static Linking"));
   mpUseStaticLinkingCheckBox->setToolTip(tr("Enables static linking for the simulation executable. Default is dynamic linking."));
 #endif
+  // post compilation command line edit
+  mpPostCompilationCommandLineEdit = new QLineEdit;
+  QLayout * mpPostCompilationCommandLayout = new QHBoxLayout;
+  mpPostCompilationCommandLayout->addWidget(new Label(tr("Post compilation command:")));
+  mpPostCompilationCommandLayout->addWidget(mpPostCompilationCommandLineEdit);
   // ignore command line options annotation checkbox
   mpIgnoreCommandLineOptionsAnnotationCheckBox = new QCheckBox(tr("Ignore __OpenModelica_commandLineOptions annotation"));
   // ignore simulation flags annotation checkbox
@@ -5546,7 +5573,7 @@ SimulationPage::SimulationPage(OptionsDialog *pOptionsDialog)
   mpStructuredRadioButton->setChecked(true);
   mpFormattedTextRadioButton = new QRadioButton(tr("Formatted Text"));
   mpFormattedTextRadioButton->setToolTip(tr("Shows the simulation output in the form of formatted text."));
-  QButtonGroup *pOutputButtonGroup = new QButtonGroup;
+  QButtonGroup *pOutputButtonGroup = new QButtonGroup(this);
   pOutputButtonGroup->addButton(mpStructuredRadioButton);
   pOutputButtonGroup->addButton(mpFormattedTextRadioButton);
   // output view buttons layout
@@ -5588,6 +5615,7 @@ SimulationPage::SimulationPage(OptionsDialog *pOptionsDialog)
 #ifdef Q_OS_WIN
   pSimulationLayout->addWidget(mpUseStaticLinkingCheckBox, row++, 0, 1, 2);
 #endif
+  pSimulationLayout->addLayout(mpPostCompilationCommandLayout, row++, 0, 1, 2);
   pSimulationLayout->addWidget(mpIgnoreCommandLineOptionsAnnotationCheckBox, row++, 0, 1, 2);
   pSimulationLayout->addWidget(mpIgnoreSimulationFlagsAnnotationCheckBox, row++, 0, 1, 2);
   pSimulationLayout->addWidget(mpSaveClassBeforeSimulationCheckBox, row++, 0, 1, 2);
@@ -5763,6 +5791,30 @@ void MessagesPage::setErrorPickColorButtonIcon()
   QPixmap pixmap(Helper::iconSize);
   pixmap.fill(getErrorColor());
   mpErrorColorButton->setIcon(pixmap);
+}
+
+/*!
+ * \brief MessagesPage::getColor
+ * Returns the color based on the error type.
+ * \param type
+ * \return
+ */
+QColor MessagesPage::getColor(const StringHandler::SimulationMessageType type) const
+{
+  switch (type) {
+    case StringHandler::OMEditInfo:
+      return Qt::blue;
+    case StringHandler::SMWarning:
+      return getWarningColor();
+    case StringHandler::Error:
+    case StringHandler::Assert:
+      return getErrorColor();
+    case StringHandler::Debug:
+    case StringHandler::Info:
+    case StringHandler::Unknown:
+    default:
+      return getNotificationColor();
+  }
 }
 
 void MessagesPage::pickNotificationColor()
@@ -6130,7 +6182,7 @@ PlottingPage::PlottingPage(OptionsDialog *pOptionsDialog)
   mpPlottingTabbedViewRadioButton = new QRadioButton(tr("Tabbed View"));
   mpPlottingTabbedViewRadioButton->setChecked(true);
   mpPlottingSubWindowViewRadioButton = new QRadioButton(tr("SubWindow View"));
-  QButtonGroup *pPlottingViewModeButtonGroup = new QButtonGroup;
+  QButtonGroup *pPlottingViewModeButtonGroup = new QButtonGroup(this);
   pPlottingViewModeButtonGroup->addButton(mpPlottingTabbedViewRadioButton);
   pPlottingViewModeButtonGroup->addButton(mpPlottingSubWindowViewRadioButton);
   // plotting view radio buttons layout
@@ -7037,11 +7089,16 @@ DiscardLocalTranslationFlagsDialog::DiscardLocalTranslationFlagsDialog(QWidget *
   setAttribute(Qt::WA_DeleteOnClose);
   setWindowTitle(QString("%1 - %2").arg(Helper::applicationName, tr("Discard Local Translation Flags")));
   setMinimumWidth(400);
-  mpDescriptionLabel = new Label(tr("The global translation flags are changed. The following models have local translation flags. Select which models local translation flags"
-                                    " you want to discard. Discard means that the simulation settings of the models will be reset as if you closed OMEdit and restarted"
-                                    " a new session. The new global options will first be applied, and then any further setting saved in the annotations will be applied.\n"
-                                    "Double click the model to see its existing local translation flags.\n"));
+  mpDescriptionLabel = new Label(tr("You just changed some global translation flags.\n\n"
+                                    "The models listed below are currently open and have different local translation flags,"
+                                    "that were selected with the Simulation Setup dialog.\n\n"
+                                    "Select the models for which you want to discard the local translation flag and apply the new global flags (*)."
+                                    "All other models will retain the current local settings until you close OMEdit.\n"));
+  mpDescriptionLabel2 = new Label(tr("(*) If you discard local settings, the new global settings will first be applied, and then any further settings"
+                                     "saved in the model annotations will be applied. This is the same behaviour you would get if you closed OMEdit,"
+                                     "restarted it and reopened all models.\n"));
   mpDescriptionLabel->setWordWrap(true);
+  mpDescriptionLabel2->setWordWrap(true);
   mpClassesWithLocalTranslationFlagsListWidget = new QListWidget;
   mpClassesWithLocalTranslationFlagsListWidget->setObjectName("ClassesWithLocalTranslationFlagsListWidget");
   mpClassesWithLocalTranslationFlagsListWidget->setItemDelegate(new ItemDelegate(mpClassesWithLocalTranslationFlagsListWidget));
@@ -7069,6 +7126,7 @@ DiscardLocalTranslationFlagsDialog::DiscardLocalTranslationFlagsDialog(QWidget *
   pMainLayout->addWidget(mpDescriptionLabel);
   pMainLayout->addWidget(pSelectUnSelectAll);
   pMainLayout->addWidget(mpClassesWithLocalTranslationFlagsListWidget);
+  pMainLayout->addWidget(mpDescriptionLabel2);
   pMainLayout->addWidget(mpButtonBox, 0, Qt::AlignRight);
   setLayout(pMainLayout);
 }

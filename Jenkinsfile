@@ -2,6 +2,7 @@ def common
 def shouldWeBuildMINGW
 def shouldWeDisableAllCMakeBuilds_value
 def shouldWeEnableMacOSCMakeBuild_value
+def shouldWeEnableMinGWCMakeBuild_value
 def shouldWeRunTests
 def isPR
 pipeline {
@@ -16,7 +17,8 @@ pipeline {
   parameters {
     booleanParam(name: 'BUILD_MINGW', defaultValue: false, description: 'Build with Win/MinGW')
     booleanParam(name: 'DISABLE_ALL_CMAKE_BUILDS', defaultValue: false, description: 'Skip building omc with CMake (CMake 3.17.2) on all platforms')
-    booleanParam(name: 'ENABLE_MACOS_CMAKE_BUILD', defaultValue: false, description: 'Skip building omc with CMake on macOS')
+    booleanParam(name: 'ENABLE_MINGW_CMAKE_BUILD', defaultValue: false, description: 'Enable building omc with CMake on MinGW')
+    booleanParam(name: 'ENABLE_MACOS_CMAKE_BUILD', defaultValue: false, description: 'Enable building omc with CMake on macOS')
   }
   // stages are ordered according to execution time; highest time first
   // nodes are selected based on a priority (in Jenkins config)
@@ -41,6 +43,8 @@ pipeline {
           print "shouldWeDisableAllCMakeBuilds: ${shouldWeDisableAllCMakeBuilds_value}"
           shouldWeEnableMacOSCMakeBuild_value = common.shouldWeEnableMacOSCMakeBuild()
           print "shouldWeEnableMacOSCMakeBuild: ${shouldWeEnableMacOSCMakeBuild_value}"
+          shouldWeEnableMinGWCMakeBuild_value = common.shouldWeEnableMinGWCMakeBuild()
+          print "shouldWeEnableMinGWCMakeBuild: ${shouldWeEnableMinGWCMakeBuild_value}"
           shouldWeRunTests = common.shouldWeRunTests()
           print "shouldWeRunTests: ${shouldWeRunTests}"
         }
@@ -131,7 +135,10 @@ pipeline {
           steps {
             script {
               echo "Running on: ${env.NODE_NAME}"
-              common.buildOMC_CMake('-DCMAKE_BUILD_TYPE=Release -DOM_USE_CCACHE=OFF -DCMAKE_INSTALL_PREFIX=build', '/opt/cmake-3.17.2/bin/cmake')
+              common.buildOMC_CMake("-DCMAKE_BUILD_TYPE=Release"
+                                        + " -DOM_USE_CCACHE=OFF"
+                                        + " -DCMAKE_INSTALL_PREFIX=build"
+                                    , "/opt/cmake-3.17.2/bin/cmake")
               sh "build/bin/omc --version"
             }
             // stash name: 'omc-cmake-gcc', includes: 'OMCompiler/build_cmake/install_cmake/bin/**'
@@ -152,14 +159,41 @@ pipeline {
               echo "Running on: ${env.NODE_NAME}"
               withEnv (["PATH=/opt/homebrew/bin:/opt/homebrew/opt/openjdk/bin:/usr/local/bin:${env.PATH}"]) {
                 sh "echo PATH: $PATH"
-                common.buildOMC_CMake("-DCMAKE_BUILD_TYPE=Release" +
-                                          " -DOM_USE_CCACHE=OFF" +
-                                          " -DCMAKE_INSTALL_PREFIX=build" +
-                                          " -DOM_OMC_ENABLE_FORTRAN=OFF" +
-                                          " -DOM_OMC_ENABLE_IPOPT=OFF" +
-                                          " -DOM_OMC_ENABLE_CPP_RUNTIME=OFF"
+                common.buildOMC_CMake("-DCMAKE_BUILD_TYPE=Release"
+                                          + " -DOM_USE_CCACHE=OFF"
+                                          + " -DCMAKE_INSTALL_PREFIX=build"
+                                          // Look in /opt/local first to prefer the macports libraries
+                                          // over others in the system.
+                                          + " -DCMAKE_PREFIX_PATH=/opt/local"
+                                          // Always specify the compilers explicilty for macOS
+                                          + " -DCMAKE_C_COMPILER=gcc"
+                                          + " -DCMAKE_CXX_COMPILER=g++"
+                                          + " -DCMAKE_Fortran_COMPILER=gfortran"
                                       )
                 sh "build/bin/omc --version"
+              }
+            }
+          }
+        }
+        stage('cmake-OMDev-gcc') {
+          agent {
+            node {
+              label 'windows'
+            }
+          }
+          when {
+            beforeAgent true
+            expression { !shouldWeDisableAllCMakeBuilds_value && shouldWeEnableMinGWCMakeBuild_value}
+          }
+          steps {
+            script {
+              echo "Running on: ${env.NODE_NAME}"
+              withEnv (["PATH=C:\\OMDev\\tools\\msys\\usr\\bin;C:\\Program Files\\TortoiseSVN\\bin;c:\\bin\\jdk\\bin;c:\\bin\\nsis\\;${env.PATH};c:\\bin\\git\\bin;"]) {
+                bat "echo PATH: %PATH%"
+                common.buildOMC_CMake('-DCMAKE_BUILD_TYPE=Release'
+                                        + ' -DCMAKE_INSTALL_PREFIX=build'
+                                        + ' -G "MSYS Makefiles"'
+                                      )
               }
             }
           }
@@ -182,9 +216,10 @@ pipeline {
             sh "make -f Makefile.in -j${common.numLogicalCPU()} --output-sync=recurse bom-error utf8-error thumbsdb-error spellcheck"
             sh '''
             cd doc/bibliography
-            mkdir -p /tmp/openmodelica.org-bibgen
-            sh generate.sh /tmp/openmodelica.org-bibgen
+            mkdir -p openmodelica.org-bibgen
+            sh generate.sh "$PWD/openmodelica.org-bibgen"
             '''
+            stash name: 'bibliography', includes: 'doc/bibliography/openmodelica.org-bibgen/*.md'
           }
         }
       }
@@ -208,7 +243,8 @@ pipeline {
               def deps = docker.build('testsuite-fmu-crosscompile', '--pull .CI/cache')
               // deps.pull() // Already built...
               def dockergid = sh (script: 'stat -c %g /var/run/docker.sock', returnStdout: true).trim()
-              deps.inside("-v /var/run/docker.sock:/var/run/docker.sock --group-add '${dockergid}'") {
+              deps.inside("-v /var/run/docker.sock:/var/run/docker.sock --group-add '${dockergid}' " +
+                          "--mount type=volume,source=omlibrary-cache,target=/cache/omlibrary") {
                 common.standardSetup()
                 unstash 'omc-clang'
                 common.makeLibsAndCache()
@@ -446,6 +482,7 @@ pipeline {
               image 'docker.openmodelica.org/build-deps:v1.16.3'
               label 'linux'
               alwaysPull true
+              args "--mount type=volume,source=omlibrary-cache,target=/cache/omlibrary"
             }
           }
           steps {
@@ -479,7 +516,7 @@ pipeline {
             sh '''
             export OPENMODELICAHOME=$PWD/build
             test ! -d $PWD/build/lib/omlibrary
-            cp -a testsuite/libraries-for-testing/.openmodelica/libraries $PWD/build/lib/omlibrary
+            cp -a libraries/.openmodelica/libraries $PWD/build/lib/omlibrary
             for target in html pdf epub; do
               if ! make -C doc/UsersGuide $target; then
                 killall omc || true
@@ -668,16 +705,23 @@ pipeline {
             stash name: 'cross-fmu-results-armhf', includes: 'testsuite/special/FmuExportCrossCompile/*.csv, testsuite/special/FmuExportCrossCompile/Test_FMUs/**'
           }
         }
-        stage('clang-qt5') {
+        stage('clang-qt5-omedit-testsuite') {
           agent {
             docker {
               image 'docker.openmodelica.org/build-deps:v1.16.3'
               label 'linux'
               alwaysPull true
+              args "--mount type=volume,source=omlibrary-cache,target=/cache/omlibrary"
             }
           }
+          environment {
+            RUNTESTDB = "/cache/runtest/"
+            LIBRARIES = "/cache/omlibrary"
+          }
           steps {
-            script { common.buildAndRunOMEditTestsuite('omedit-testsuite-clang') }
+            script {
+              common.buildAndRunOMEditTestsuite('omedit-testsuite-clang')
+            }
           }
         }
       }
@@ -752,21 +796,59 @@ pipeline {
         }
       }
     }
-    stage('push-to-master') {
-      agent {
-        label 'linux'
-      }
-      when {
-        beforeAgent true
-        branch 'omlib-staging'
-        expression { return currentBuild.currentResult == 'SUCCESS' }
-      }
-      steps {
-        githubNotify status: 'SUCCESS', description: 'The staged library changes are working', context: 'continuous-integration/jenkins/pr-merge'
-        githubNotify status: 'SUCCESS', description: 'Skipping CLA checks on omlib-staging', context: 'license/CLA'
-        sshagent (credentials: ['Hudson-SSH-Key']) {
-          sh 'ssh-keyscan github.com >> ~/.ssh/known_hosts'
-          sh 'git push git@github.com:OpenModelica/OpenModelica.git omlib-staging:master || (echo "Trying to update the repository if that is the problem" ; git pull --rebase && git push --force  git@github.com:OpenModelica/OpenModelica.git omlib-staging:omlib-staging & false)'
+    stage('publish') {
+      parallel {
+        stage('push-to-master') {
+          agent {
+            label 'linux'
+          }
+          when {
+            beforeAgent true
+            branch 'omlib-staging'
+            expression { return currentBuild.currentResult == 'SUCCESS' }
+          }
+          steps {
+            script { common.standardSetup() }
+            githubNotify status: 'SUCCESS', description: 'The staged library changes are working', context: 'continuous-integration/jenkins/pr-merge'
+            githubNotify status: 'SUCCESS', description: 'Skipping CLA checks on omlib-staging', context: 'license/CLA'
+            sshagent (credentials: ['Hudson-SSH-Key']) {
+              sh 'ssh-keyscan github.com >> ~/.ssh/known_hosts'
+              sh 'git push git@github.com:OpenModelica/OpenModelica.git omlib-staging:master || (echo "Trying to update the repository if that is the problem" ; git pull --rebase && git push --force  git@github.com:OpenModelica/OpenModelica.git omlib-staging:omlib-staging && false)'
+            }
+          }
+        }
+        stage('push-bibliography') {
+          agent {
+            node {
+              label 'linux'
+              customWorkspace 'ws/OpenModelica-Bibliography'
+            }
+          }
+          when {
+            beforeAgent true
+            branch 'master'
+            expression { return currentBuild.currentResult == 'SUCCESS' }
+          }
+          options {
+            skipDefaultCheckout true
+          }
+          steps {
+            git branch: 'main', credentialsId: 'Hudson-SSH-Key', url: 'git@github.com:OpenModelica/www.openmodelica.org.git'
+            script { common.standardSetup() }
+            unstash 'bibliography' // 'doc/bibliography/openmodelica.org-bibgen'
+            sh "git remote -v | grep www.openmodelica.org"
+            sh "mv doc/bibliography/openmodelica.org-bibgen/*.md content/research/"
+            sh "git add content/research/*.md"
+            sshagent (credentials: ['Hudson-SSH-Key']) {
+              sh """
+              if ! git diff-index --quiet HEAD; then
+                git commit -m 'Updated bibliography'
+                ssh-keyscan github.com >> ~/.ssh/known_hosts
+                git push --set-upstream origin main
+              fi
+              """
+            }
+          }
         }
       }
     }

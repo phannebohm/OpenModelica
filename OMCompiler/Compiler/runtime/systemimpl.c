@@ -52,9 +52,6 @@ extern "C" {
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#if defined(__MINGW32__)
-#define _POSIX_THREAD_SAFE_FUNCTIONS 200112L /* for ctime_r in time.h */
-#endif
 #include <time.h>
 #include <math.h>
 
@@ -2995,17 +2992,14 @@ int SystemImpl__fileContentsEqual(const char *file1, const char *file2)
 
 int SystemImpl__rename(const char *source, const char *dest)
 {
-#if defined(__MINGW32__) || defined(_MSC_VER)
-  return MoveFileEx(source, dest, MOVEFILE_REPLACE_EXISTING);
-#endif
-  return 0==rename(source,dest);
+   return (0 == omc_rename(source, dest));
 }
 
 char* SystemImpl__ctime(double time)
 {
   char buf[64] = {0}; /* needs to be >=26 char */
   time_t t = (time_t) time;
-#if defined(_MSC_VER)
+#if defined(__MINGW32__) || defined(_MSC_VER)
   errno_t e = ctime_s(buf, 64, t);
   assert(e == 0 && "ctime_s returned an error");
   return omc_alloc_interface.malloc_strdup(buf);

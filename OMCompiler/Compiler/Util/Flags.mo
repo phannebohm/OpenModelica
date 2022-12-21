@@ -1238,7 +1238,7 @@ constant ConfigFlag LOAD_MSL_MODEL = CONFIG_FLAG(115,
   "loadMSLModel", NONE(), INTERNAL(), BOOL_FLAG(false), NONE(),
   Gettext.gettext("Used to know loadFile doesn't need to be called in cpp-runtime (for labeled model reduction)."));
 
-constant ConfigFlag Load_PACKAGE_FILE = CONFIG_FLAG(116,
+constant ConfigFlag LOAD_PACKAGE_FILE = CONFIG_FLAG(116,
   "loadPackageFile", NONE(), INTERNAL(), BOOL_FLAG(false), NONE(),
   Gettext.gettext("used when the outside name is different with the inside name of the packge, in cpp-runtime (for labeled model reduction)."));
 
@@ -1375,7 +1375,7 @@ constant ConfigFlag NEW_BACKEND = CONFIG_FLAG(143, "newBackend",
 
 constant ConfigFlag PARMODAUTO = CONFIG_FLAG(144, "parmodauto",
   NONE(), EXTERNAL(), BOOL_FLAG(false), NONE(),
-  Gettext.gettext("Experimental: Enable parallelization of independent systems of equations in the translated model."));
+  Gettext.gettext("Experimental: Enable parallelization of independent systems of equations in the translated model. Only works on Linux systems."));
 
 constant ConfigFlag INTERACTIVE_PORT = CONFIG_FLAG(145, "interactivePort",
   NONE(), EXTERNAL(), INT_FLAG(0), NONE(),
@@ -1428,7 +1428,8 @@ constant ConfigFlag OBFUSCATE = CONFIG_FLAG(152, "obfuscate",
   NONE(), EXTERNAL(), STRING_FLAG("none"),
   SOME(STRING_DESC_OPTION({
     ("none", Gettext.gettext("No obfuscation.")),
-    ("protected", Gettext.gettext("Obfuscates everything except for public variables.")),
+    ("encrypted", Gettext.gettext("Obfuscates protected variables in encrypted models")),
+    ("protected", Gettext.gettext("Obfuscates protected variables in all models.")),
     ("full", Gettext.gettext("Obfuscates everything."))
   })),
   Gettext.gettext("Obfuscates identifiers in the simulation model"));
@@ -1446,6 +1447,9 @@ constant ConfigFlag FMU_RUNTIME_DEPENDS = CONFIG_FLAG(153, "fmuRuntimeDepends",
     })),
   Gettext.gettext("Defines if runtime library dependencies are included in the FMU. Only used when compiler flag fmuCMakeBuild=true."));
 
+constant ConfigFlag FRONTEND_INLINE = CONFIG_FLAG(154, "frontendInline",
+  NONE(), EXTERNAL(), BOOL_FLAG(false), NONE(),
+  Gettext.gettext("Enables inlining of functions in the frontend."));
 
 function getFlags
   "Loads the flags with getGlobalRoot. Assumes flags have been loaded."

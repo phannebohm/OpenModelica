@@ -800,6 +800,18 @@ algorithm
   end match;
 end varHasUncertainValueRefine;
 
+public function varHasUncertainValuePropagate
+  "Returns true if the specified variable has the attribute uncertain and the
+  value of it is Uncertainty.propagate, false otherwise."
+  input BackendDAE.Var var;
+  output Boolean b;
+algorithm
+  b := match (var)
+    case (BackendDAE.VAR(values=SOME(DAE.VAR_ATTR_REAL(uncertainOption=SOME(DAE.PROPAGATE()))))) then true;
+    else false;
+  end match;
+end varHasUncertainValuePropagate;
+
 public function varDistribution "author: Peter Aronsson, 2012-05
   Returns Distribution record of a variable."
   input BackendDAE.Var var;
@@ -2844,7 +2856,7 @@ protected
 algorithm
   BackendDAE.VARIABLES(indices, arr, buckets, num_vars) := inVariables;
   (arr, outVar as BackendDAE.VAR(varName = cr)) := vararrayDelete(arr, inIndex);
-  hash_idx := ComponentReference.hashComponentRefMod(cr, buckets) + 1;
+  hash_idx := intMod(ComponentReference.hashComponentRef(cr), buckets) + 1;
   cr_indices := indices[hash_idx];
   cr_indices := List.deleteMemberOnTrue(BackendDAE.CREFINDEX(cr, inIndex - 1), cr_indices, removeVar2);
   arrayUpdate(indices, hash_idx, cr_indices);
@@ -3029,7 +3041,7 @@ protected
   Integer hash_idx, arr_idx;
   list<BackendDAE.CrefIndex> indices;
 algorithm
-  hash_idx := ComponentReference.hashComponentRefMod(inVar.varName, inVariables.bucketSize) + 1;
+  hash_idx := intMod(ComponentReference.hashComponentRef(inVar.varName), inVariables.bucketSize) + 1;
   indices := arrayGet(inVariables.crefIndices, hash_idx);
 
   try
@@ -3074,7 +3086,7 @@ protected
   list<BackendDAE.CrefIndex> indices;
 algorithm
   BackendDAE.VARIABLES(hashvec, varr, bsize, num_vars) := inVariables;
-  idx := ComponentReference.hashComponentRefMod(inVar.varName, bsize) + 1;
+  idx := intMod(ComponentReference.hashComponentRef(inVar.varName), bsize) + 1;
   varr := vararrayAdd(varr, inVar);
   indices := hashvec[idx];
   arrayUpdate(hashvec, idx, (BackendDAE.CREFINDEX(inVar.varName, num_vars)::indices));
@@ -3250,7 +3262,7 @@ public function getVarSingle
   The indexes is enumerated from 1..n
   Normally a variable has only one index, but in case of an array variable
   it may have several indexes and several scalar variables,
-  therefore a list of variables and a list of  indexes is returned.
+  therefore a list of variables and a list of indexes is returned.
 
   This function fails if there are more than a single returned value"
   input DAE.ComponentRef cr;
@@ -3481,7 +3493,7 @@ protected
   DAE.ComponentRef cr;
 algorithm
   BackendDAE.VARIABLES(crefIndices=indices, varArr=arr, bucketSize=buckets) := inVariables;
-  hash_idx := ComponentReference.hashComponentRefMod(inCref, buckets) + 1;
+  hash_idx := intMod(ComponentReference.hashComponentRef(inCref), buckets) + 1;
   cr_indices := indices[hash_idx];
   BackendDAE.CREFINDEX(index=outIndex) := List.getMemberOnTrue(inCref, cr_indices, crefIndexEqualCref);
   outIndex := outIndex + 1;

@@ -525,6 +525,7 @@ algorithm
     case "given" then DAE.Uncertainty.GIVEN();
     case "sought" then DAE.Uncertainty.SOUGHT();
     case "refine" then DAE.Uncertainty.REFINE();
+    case "propagate" then DAE.Uncertainty.PROPAGATE();
     else
       algorithm
         Error.assertion(false, getInstanceName() + " got unknown Uncertainty literal " + name, sourceInfo());
@@ -1288,7 +1289,7 @@ algorithm
 
   binding := Component.getBinding(comp);
   binding := Binding.mapExp(binding, stripScopePrefixExp);
-  binding := Flatten.flattenBinding(binding, ComponentRef.EMPTY());
+  binding := Flatten.flattenBinding(binding, NFFlatten.EMPTY_PREFIX);
   bind_from_outside := Binding.source(binding) == NFBinding.Source.MODIFIER;
 
   ty := Component.getType(comp);

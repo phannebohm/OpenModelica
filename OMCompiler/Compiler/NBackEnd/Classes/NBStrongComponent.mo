@@ -85,8 +85,7 @@ public
 
     function hash
       input AliasInfo info;
-      input Integer mod;
-      output Integer i = intMod(System.systemTypeInteger(info.systemType) + info.partitionIndex*13 + info.componentIndex*31, mod);
+      output Integer i = System.systemTypeInteger(info.systemType) + info.partitionIndex*13 + info.componentIndex*31;
     end hash;
 
     function isEqual
@@ -217,17 +216,16 @@ public
   function hash
     "only hashes basic types, isEqual is used to differ between sliced/entwined loops"
     input StrongComponent comp;
-    input Integer mod;
     output Integer i;
   algorithm
     i := match comp
-      case SINGLE_COMPONENT()   then intMod(BVariable.hash(comp.var, mod) + Equation.hash(comp.eqn, mod), mod);
-      case MULTI_COMPONENT()    then intMod(Equation.hash(comp.eqn, mod), mod);
-      case SLICED_COMPONENT()   then intMod(ComponentRef.hash(comp.var_cref, mod) + Equation.hash(Slice.getT(comp.eqn), mod), mod);
-      case GENERIC_COMPONENT()  then Equation.hash(Slice.getT(comp.eqn), mod);
-      case ENTWINED_COMPONENT() then intMod(sum(hash(sub_comp, mod) for sub_comp in comp.entwined_slices), mod);
-      case ALGEBRAIC_LOOP()     then intMod(Tearing.hash(comp.strict, mod), mod);
-      case ALIAS()              then AliasInfo.hash(comp.aliasInfo, mod);
+      case SINGLE_COMPONENT()   then BVariable.hash(comp.var) + Equation.hash(comp.eqn);
+      case MULTI_COMPONENT()    then Equation.hash(comp.eqn);
+      case SLICED_COMPONENT()   then ComponentRef.hash(comp.var_cref) + Equation.hash(Slice.getT(comp.eqn));
+      case GENERIC_COMPONENT()  then Equation.hash(Slice.getT(comp.eqn));
+      case ENTWINED_COMPONENT() then sum(hash(sub_comp) for sub_comp in comp.entwined_slices);
+      case ALGEBRAIC_LOOP()     then Tearing.hash(comp.strict);
+      case ALIAS()              then AliasInfo.hash(comp.aliasInfo);
     end match;
   end hash;
 
@@ -344,8 +342,8 @@ public
     input list<SuperNode> nodes;
     output StrongComponent entwined;
   protected
-    UnorderedMap<Integer, Slice.IntLst> elem_map = UnorderedMap.new<Slice.IntLst>(intMod, intEq);
-    UnorderedMap<Integer, ComponentRef> cref_map = UnorderedMap.new<ComponentRef>(intMod, intEq);
+    UnorderedMap<Integer, Slice.IntLst> elem_map = UnorderedMap.new<Slice.IntLst>(Util.id, intEq);
+    UnorderedMap<Integer, ComponentRef> cref_map = UnorderedMap.new<ComponentRef>(Util.id, intEq);
     list<tuple<Integer, Slice.IntLst>> flat_map;
     Integer arr_idx;
     Slice.IntLst scal_indices;
@@ -677,9 +675,9 @@ public
         if size > 1 then
           // case 1: create the scalar variable and make sliced equation
           Variable.VARIABLE(name = cref, ty = ty) := Pointer.access(var);
-          sizes := list(Dimension.size(dim) for dim in Type.arrayDims(ty));
+          sizes := listReverse(list(Dimension.size(dim) for dim in Type.arrayDims(ty)));
           vals := Slice.indexToLocation(var_scal_idx-var_start_idx, sizes);
-          cref := ComponentRef.mergeSubscripts(list(Subscript.INDEX(Expression.INTEGER(val+1)) for val in vals), cref);
+          cref := ComponentRef.mergeSubscripts(list(Subscript.INDEX(Expression.INTEGER(val+1)) for val in vals), cref, true, true);
           comp := SLICED_COMPONENT(cref, Slice.SLICE(var, {}), Slice.SLICE(eqn, {}), NBSolve.Status.UNPROCESSED);
         else
           // case 2: just create a single strong component
@@ -697,8 +695,17 @@ public
         (comp_vars, comp_eqns) := getLoopVarsAndEqns(comp_indices, eqn_to_var, mapping, vars, eqns);
         comp := match (comp_vars, comp_eqns)
           local
+            Slice<VariablePointer> var_slice;
             Slice<EquationPointer> eqn_slice;
-          // if equations that are not algebraic loops are caught earlier! Any for equation
+
+          case ({var_slice}, {eqn_slice}) guard(not Equation.isForEquation(Slice.getT(eqn_slice)))
+          then SINGLE_COMPONENT(
+            var     = Slice.getT(var_slice),
+            eqn     = Slice.getT(eqn_slice),
+            status  = NBSolve.Status.UNPROCESSED
+          );
+
+          // for equations that are not algebraic loops are caught earlier! Any for equation
           // getting to this point is an actual algebraic loop
           case (_, {eqn_slice}) guard(not Equation.isForEquation(Slice.getT(eqn_slice)))
           then MULTI_COMPONENT(
@@ -706,6 +713,7 @@ public
             eqn     = Slice.getT(eqn_slice),
             status  = NBSolve.Status.UNPROCESSED
           );
+
           else algorithm
             tearingSet := Tearing.TEARING_SET(
               iteration_vars  = comp_vars,
@@ -749,8 +757,8 @@ protected
     list<Integer> idx_lst;
     Pointer<Variable> var;
     Pointer<Equation> eqn;
-    UnorderedMap<Integer, Slice.IntLst> var_map = UnorderedMap.new<Slice.IntLst>(intMod, intEq, listLength(comp_indices));
-    UnorderedMap<Integer, Slice.IntLst> eqn_map = UnorderedMap.new<Slice.IntLst>(intMod, intEq, listLength(comp_indices));
+    UnorderedMap<Integer, Slice.IntLst> var_map = UnorderedMap.new<Slice.IntLst>(Util.id, intEq, listLength(comp_indices));
+    UnorderedMap<Integer, Slice.IntLst> eqn_map = UnorderedMap.new<Slice.IntLst>(Util.id, intEq, listLength(comp_indices));
   algorithm
     // store all component var and eqn indices in maps
     for eqn_idx in comp_indices loop

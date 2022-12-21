@@ -1348,10 +1348,12 @@ protected
 algorithm
   (tokens, tree) := scan(tokens, tree, TokenId.LPAR);
   (tokens, tree, b) := scanOpt(tokens, tree, TokenId.RPAR); // Easier than checking First.expression, etc
+  (tokens, tree) := eatWhitespace(tokens, tree);
   if not b then
     (tokens, tree) := function_arguments(tokens, tree);
     (tokens, tree) := scan(tokens, tree, TokenId.RPAR);
   end if;
+  (tokens, tree) := eatWhitespace(tokens, tree);
   outTree := makeNodePrependTree(listReverse(tree), inTree);
 end function_call_args;
 
@@ -1392,7 +1394,7 @@ algorithm
   end while;
   outTree := inTree;
   for tree in listReverse(trees) loop
-    outTree := makeNodePrependTree(listReverse(tree), outTree);
+    outTree := makeNodePrependTree(listReverse(tree), outTree, label=LEAF(makeToken(TokenId.IDENT, "function_arguments")));
   end for;
 end function_arguments;
 
@@ -1439,11 +1441,13 @@ function named_argument
 protected
   TokenId id;
   Boolean b;
+  ParseTree label;
 algorithm
   (tokens, tree) := scan(tokens, tree, TokenId.IDENT);
+  label := List.first(tree);
   (tokens, tree) := scan(tokens, tree, TokenId.EQUALS);
   (tokens, tree) := expression(tokens, tree);
-  outTree := makeNodePrependTree(listReverse(tree), inTree);
+  outTree := makeNodePrependTree(listReverse(tree), inTree, label=label);
 end named_argument;
 
 function for_indices
@@ -2092,6 +2096,19 @@ algorithm
   if debug then
     print("nadd: " + String(nadd) + " ndel: " + String(ndel) + "\n");
     print(DiffAlgorithm.printDiffTerminalColor(res, parseTreeNodeStr) + "\n");
+    if nadd <> ndel then
+      for r in res loop
+        (d,ts) := r;
+        if d==Diff.Equal then
+          continue;
+        end if;
+        for t in ts loop
+          if isLabeledNode(t) then
+            print(String(d) + " " + parseTreeStr(nodeLabel(t)::{})+"\n");
+          end if;
+        end for;
+      end for;
+    end if;
   end if;
   if depth>300 then
     // Do nothing; it's a diff... Just not perfect and might be really slow to process...
@@ -2292,7 +2309,7 @@ algorithm
     // print(String(diffEnum) + ":\n");
     // print(parseTreeStr(tree));
     // print("\n");
-    (_, treeLast) := List.first(diffLocal);
+    (diffEnum, treeLast) := List.first(diffLocal);
     (firstTreeSecondLast, firstTreeLast) := match treeLast
       case {} then (EMPTY(),EMPTY());
       case {firstTreeLast} then (EMPTY(),firstTreeLast);
@@ -2406,6 +2423,14 @@ algorithm
       case ((diffEnum1,tree1)::(diffEnum2, tree2)::diffLocal)
         guard diffEnum1==diffEnum2
         then (diffEnum1, listAppend(tree1, tree2))::diffLocal;
+
+      // ADD(WS) NEWLINE => NEWLINE
+      case (Diff.Add,tree1)::(diffLocal as ((Diff.Equal,tree2)::_))
+        guard tokenId(lastToken(firstTreeLast))==TokenId.WHITESPACE and tokenId(firstToken(tree2))==TokenId.NEWLINE
+        algorithm
+          diff := (Diff.Add,removeLastTokenInTrees(tree1))::diff;
+        then diffLocal;
+
       // A normal tree :)
       case diff1::diffLocal
         algorithm
@@ -2421,7 +2446,7 @@ algorithm
   hasAddedWS := false;
   for d in diff loop
     _ := match d
-      case (Diff.Add,_)
+      case (Diff.Add,tree)
         algorithm
           for t in tree loop
             _ := match firstNTokensInTree_reverse(t, 2)
@@ -2817,7 +2842,7 @@ function lastToken
   output Token token;
 algorithm
   token := match t
-    case EMPTY() then fail();
+    case EMPTY() algorithm if debug then print("lastToken fail\n"); end if; then fail();
     case LEAF() then t.token;
     case NODE() then lastToken(List.last(t.nodes));
   end match;
@@ -2883,7 +2908,7 @@ function makeNode
   input ParseTree label = EMPTY();
   output ParseTree node;
 algorithm
-  node := match (nodes,label)
+  node := match (list(n for n guard not isEmpty(n) in nodes),label)
     case ({},EMPTY()) then EMPTY();
     case ({node},EMPTY()) then node;
     else NODE(label, nodes);

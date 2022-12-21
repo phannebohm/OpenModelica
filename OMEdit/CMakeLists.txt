@@ -1,8 +1,12 @@
 cmake_minimum_required (VERSION 3.14)
 
 project(OMEdit)
+## Anything installed from this directory and its subdirectories belongs
+## to the install component 'omedit' if it is not explicitly changed.
+set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME omedit)
 
 omc_option(OM_OMEDIT_INSTALL_RUNTIME_DLLS "Install the required runtime dll dependency DLLs to the binary directory. Valid only for Windows builds." ON)
+omc_option(OM_OMEDIT_ENABLE_TESTS "Enable building of OMEdit Testsuite tests." OFF)
 
 ## Set the C++ standard to use. OMEdit uses C++14
 set(CMAKE_CXX_STANDARD 14)
@@ -26,3 +30,6 @@ target_include_directories(omedit_config INTERFACE ${CMAKE_CURRENT_BINARY_DIR})
 omc_add_subdirectory(OMEditLIB)
 omc_add_subdirectory(OMEditGUI)
 
+if(OM_OMEDIT_ENABLE_TESTS)
+  omc_add_subdirectory(Testsuite)
+endif()

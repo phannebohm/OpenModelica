@@ -163,10 +163,10 @@ GraphicsView::GraphicsView(StringHandler::ViewType viewType, ModelWidget *pModel
     const qreal right = (mViewType == StringHandler::Icon) ? pGraphicalViewsPage->getIconViewExtentRight() : pGraphicalViewsPage->getDiagramViewExtentRight();
     const qreal top = (mViewType == StringHandler::Icon) ? pGraphicalViewsPage->getIconViewExtentTop() : pGraphicalViewsPage->getDiagramViewExtentTop();
     if (!qFuzzyCompare(left, -100) || !qFuzzyCompare(bottom, -100) || !qFuzzyCompare(right, 100) || !qFuzzyCompare(top, 100)) {
-      mCoOrdinateSystem.setLeft(left);
-      mCoOrdinateSystem.setBottom(bottom);
-      mCoOrdinateSystem.setRight(right);
-      mCoOrdinateSystem.setTop(top);
+      QVector<QPointF> extent;
+      extent.append(QPointF(left, bottom));
+      extent.append(QPointF(right, top));
+      mCoOrdinateSystem.setExtent(extent);
     }
 
     const bool preserveAspectRatio = (mViewType == StringHandler::Icon) ? pGraphicalViewsPage->getIconViewPreserveAspectRation() : pGraphicalViewsPage->getDiagramViewPreserveAspectRation();
@@ -182,8 +182,7 @@ GraphicsView::GraphicsView(StringHandler::ViewType viewType, ModelWidget *pModel
     const qreal horizontal = (mViewType == StringHandler::Icon) ? pGraphicalViewsPage->getIconViewGridHorizontal() : pGraphicalViewsPage->getDiagramViewGridHorizontal();
     const qreal vertical = (mViewType == StringHandler::Icon) ? pGraphicalViewsPage->getIconViewGridVertical() : pGraphicalViewsPage->getDiagramViewGridVertical();
     if (!qFuzzyCompare(horizontal, 2) || !qFuzzyCompare(vertical, 2)) {
-      mCoOrdinateSystem.setHorizontal(horizontal);
-      mCoOrdinateSystem.setVertical(vertical);
+      mCoOrdinateSystem.setGrid(QPointF(horizontal, vertical));
     }
     setExtentRectangle(mCoOrdinateSystem.getExtentRectangle());
   } else { // when opening a model use the default Modelica specification values
@@ -235,6 +234,35 @@ GraphicsView::GraphicsView(StringHandler::ViewType viewType, ModelWidget *pModel
   mAllItems.clear();
 }
 
+GraphicsView::~GraphicsView()
+{
+  /* When the scene is deleted it will delete all the items inside it.
+   * We need to delete the items that are not part of the scene.
+   */
+  foreach (Element *pElement, mOutOfSceneElementsList) {
+    if (pElement->getOriginItem()) {
+      delete pElement->getOriginItem();
+    }
+    delete pElement;
+  }
+
+  foreach (LineAnnotation *pConnectionLineAnnotation, mOutOfSceneConnectionsList) {
+    delete pConnectionLineAnnotation;
+  }
+
+  foreach (LineAnnotation *pTransitionLineAnnotation, mOutOfSceneTransitionsList) {
+    delete pTransitionLineAnnotation;
+  }
+
+  foreach (LineAnnotation *pInitialStateLineAnnotation, mOutOfSceneInitialStatesList) {
+    delete pInitialStateLineAnnotation;
+  }
+
+  foreach (ShapeAnnotation *pShapeAnnotation, mOutOfSceneShapesList) {
+    delete pShapeAnnotation;
+  }
+}
+
 void GraphicsView::setIsVisualizationView(bool visualizationView)
 {
   setItemsFlags(!visualizationView);
@@ -249,19 +277,13 @@ void GraphicsView::drawCoordinateSystem()
 {
   ModelInstance::CoordinateSystem coordinateSystem;
   if (mViewType == StringHandler::Icon && mpModelWidget->getLibraryTreeItem()->getAccess() >= LibraryTreeItem::icon) {
-    coordinateSystem = mpModelWidget->getModelInstance()->getIconAnnotation()->getCoordinateSystem();
+    coordinateSystem = mpModelWidget->getModelInstance()->getIconAnnotation()->mCoordinateSystem;
   } else if (mViewType == StringHandler::Diagram && mpModelWidget->getLibraryTreeItem()->getAccess() >= LibraryTreeItem::diagram) {
-    coordinateSystem = mpModelWidget->getModelInstance()->getDiagramAnnotation()->getCoordinateSystem();
+    coordinateSystem = mpModelWidget->getModelInstance()->getDiagramAnnotation()->mCoordinateSystem;
   }
 
   if (coordinateSystem.hasExtent()) {
-    ModelInstance::Extent extent = coordinateSystem.getExtent();
-    ModelInstance::Point leftBottom = extent.getExtent1();
-    mCoOrdinateSystem.setLeft(leftBottom.x());
-    mCoOrdinateSystem.setBottom(leftBottom.y());
-    ModelInstance::Point rightTop = extent.getExtent2();
-    mCoOrdinateSystem.setRight(rightTop.x());
-    mCoOrdinateSystem.setTop(rightTop.y());
+    mCoOrdinateSystem.setExtent(coordinateSystem.getExtent());
   }
   if (coordinateSystem.hasPreserveAspectRatio()) {
     mCoOrdinateSystem.setPreserveAspectRatio(coordinateSystem.getPreserveAspectRatio());
@@ -270,28 +292,20 @@ void GraphicsView::drawCoordinateSystem()
     mCoOrdinateSystem.setInitialScale(coordinateSystem.getInitialScale());
   }
   if (coordinateSystem.hasGrid()) {
-    ModelInstance::Point grid = coordinateSystem.getGrid();
-    mCoOrdinateSystem.setHorizontal(grid.x());
-    mCoOrdinateSystem.setVertical(grid.y());
+    mCoOrdinateSystem.setGrid(coordinateSystem.getGrid());
   }
   mMergedCoOrdinateSystem = mCoOrdinateSystem;
   // if local CoOrdinateSystem is not complete then try to complete the merged CoOrdinateSystem.
   if (!mCoOrdinateSystem.isComplete()) {
     ModelInstance::CoordinateSystem mergedCoordinateSystem;
     if (mViewType == StringHandler::Icon && mpModelWidget->getLibraryTreeItem()->getAccess() >= LibraryTreeItem::icon) {
-      mergedCoordinateSystem = mpModelWidget->getModelInstance()->getIconAnnotation()->getMergedCoordinateSystem();
+      mergedCoordinateSystem = mpModelWidget->getModelInstance()->getIconAnnotation()->mMergedCoOrdinateSystem;
     } else if (mViewType == StringHandler::Diagram && mpModelWidget->getLibraryTreeItem()->getAccess() >= LibraryTreeItem::diagram) {
-      mergedCoordinateSystem = mpModelWidget->getModelInstance()->getDiagramAnnotation()->getMergedCoordinateSystem();
+      mergedCoordinateSystem = mpModelWidget->getModelInstance()->getDiagramAnnotation()->mMergedCoOrdinateSystem;
     }
 
     if (mergedCoordinateSystem.hasExtent()) {
-      ModelInstance::Extent extent = mergedCoordinateSystem.getExtent();
-      ModelInstance::Point leftBottom = extent.getExtent1();
-      mMergedCoOrdinateSystem.setLeft(leftBottom.x());
-      mMergedCoOrdinateSystem.setBottom(leftBottom.y());
-      ModelInstance::Point rightTop = extent.getExtent2();
-      mMergedCoOrdinateSystem.setRight(rightTop.x());
-      mMergedCoOrdinateSystem.setTop(rightTop.y());
+      mMergedCoOrdinateSystem.setExtent(mergedCoordinateSystem.getExtent());
     }
     if (mergedCoordinateSystem.hasPreserveAspectRatio()) {
       mMergedCoOrdinateSystem.setPreserveAspectRatio(mergedCoordinateSystem.getPreserveAspectRatio());
@@ -300,9 +314,7 @@ void GraphicsView::drawCoordinateSystem()
       mMergedCoOrdinateSystem.setInitialScale(mergedCoordinateSystem.getInitialScale());
     }
     if (mergedCoordinateSystem.hasGrid()) {
-      ModelInstance::Point grid = mergedCoordinateSystem.getGrid();
-      mMergedCoOrdinateSystem.setHorizontal(grid.x());
-      mMergedCoOrdinateSystem.setVertical(grid.y());
+      mMergedCoOrdinateSystem.setGrid(mergedCoordinateSystem.getGrid());
     }
   }
 
@@ -320,10 +332,18 @@ void GraphicsView::drawCoordinateSystem()
 void GraphicsView::drawShapes(ModelInstance::Model *pModelInstance, bool inhertied, bool openingModel)
 {
   QList<ModelInstance::Shape*> shapes;
+  ModelInstance::Extend *pExtendModel = 0;
+  if (inhertied) {
+    pExtendModel = dynamic_cast<ModelInstance::Extend*>(pModelInstance);
+  }
   if (mViewType == StringHandler::Icon && mpModelWidget->getLibraryTreeItem()->getAccess() >= LibraryTreeItem::icon) {
-    shapes = pModelInstance->getIconAnnotation()->getGraphics();
+    if (!(pExtendModel && !pExtendModel->mIconMap.getprimitivesVisible())) {
+      shapes = pModelInstance->getIconAnnotation()->getGraphics();
+    }
   } else if (mViewType == StringHandler::Diagram && mpModelWidget->getLibraryTreeItem()->getAccess() >= LibraryTreeItem::diagram) {
-    shapes = pModelInstance->getDiagramAnnotation()->getGraphics();
+    if (!(pExtendModel && !pExtendModel->mDiagramMap.getprimitivesVisible())) {
+      shapes = pModelInstance->getDiagramAnnotation()->getGraphics();
+    }
   }
 
   // if inherited or openingModel then simply draw new shapes.
@@ -3044,7 +3064,7 @@ void GraphicsView::addConnection(Element *pElement)
           if (mpModelWidget->isNewApi() && pElement->getModel()) {
             QList<ModelInstance::Shape*> shapes = pElement->getModel()->getIconAnnotation()->getGraphics();
             if (!shapes.isEmpty()) {
-              mpConnectionLineAnnotation->setLineColor(shapes.at(0)->getLineColor().getColor());
+              mpConnectionLineAnnotation->setLineColor(shapes.at(0)->getLineColor());
             } else if (pElement->getShapesList().size() > 0) {
               ShapeAnnotation *pShapeAnnotation = pElement->getShapesList().at(0);
               mpConnectionLineAnnotation->setLineColor(pShapeAnnotation->getLineColor());
@@ -3172,7 +3192,7 @@ void GraphicsView::addConnection(Element *pElement)
         } else {
           if (mpModelWidget->isNewApi()) {
             if (!connectionExists(startElementName, endElementName, false)) {
-              mpConnectionLineAnnotation->setLine(new ModelInstance::Line);
+              mpConnectionLineAnnotation->setLine(new ModelInstance::Line(mpModelWidget->getModelInstance()));
               mpConnectionLineAnnotation->updateLine();
               mpConnectionLineAnnotation->drawCornerItems();
               mpConnectionLineAnnotation->setCornerItemsActiveOrPassive();
@@ -3229,7 +3249,7 @@ void GraphicsView::addTransition(Element *pComponent)
     mpTransitionLineAnnotation->setEndElement(pComponent);
     // Remove reduntant points so that Liang Barsky algorithm can work well.
     mpTransitionLineAnnotation->removeRedundantPointsGeometriesAndCornerItems();
-    QList<QPointF> points = mpTransitionLineAnnotation->getPoints();
+    QVector<QPointF> points = mpTransitionLineAnnotation->getPoints();
     // Find the start state intersection point.
     QRectF sceneRectF = mpTransitionLineAnnotation->getStartElement()->sceneBoundingRect();
     QList<QPointF> newPos = Utilities::liangBarskyClipper(sceneRectF.topLeft().x(), sceneRectF.topLeft().y(),
@@ -3865,11 +3885,12 @@ void GraphicsView::addClassAnnotation(bool alwaysAdd)
   MainWindow *pMainWindow = MainWindow::instance();
   // coordinate system
   QStringList coOrdinateSystemList;
-  qreal x1 = mCoOrdinateSystem.getLeft();
-  qreal y1 = mCoOrdinateSystem.getBottom();
-  qreal x2 = mCoOrdinateSystem.getRight();
-  qreal y2 = mCoOrdinateSystem.getTop();
-  if (mCoOrdinateSystem.hasLeft() && mCoOrdinateSystem.hasBottom() && mCoOrdinateSystem.hasRight() && mCoOrdinateSystem.hasTop()) {
+  if (mCoOrdinateSystem.hasExtent()) {
+    ExtentAnnotation extent = mCoOrdinateSystem.getExtent();
+    qreal x1 = extent.at(0).x();
+    qreal y1 = extent.at(0).y();
+    qreal x2 = extent.at(1).x();
+    qreal y2 = extent.at(1).y();
     coOrdinateSystemList.append(QString("extent={{%1, %2}, {%3, %4}}").arg(x1).arg(y1).arg(x2).arg(y2));
   }
   // add the preserveAspectRatio
@@ -3881,8 +3902,9 @@ void GraphicsView::addClassAnnotation(bool alwaysAdd)
     coOrdinateSystemList.append(QString("initialScale=%1").arg(mCoOrdinateSystem.getInitialScale()));
   }
   // add the grid
-  if (mCoOrdinateSystem.hasHorizontal() && mCoOrdinateSystem.hasVertical()) {
-    coOrdinateSystemList.append(QString("grid={%1, %2}").arg(mCoOrdinateSystem.getHorizontal()).arg(mCoOrdinateSystem.getVertical()));
+  if (mCoOrdinateSystem.hasGrid()) {
+    PointAnnotation grid = mCoOrdinateSystem.getGrid();
+    coOrdinateSystemList.append(QString("grid={%1, %2}").arg(grid.x()).arg(grid.y()));
   }
   // graphics annotations
   QStringList graphicsList;
@@ -4132,7 +4154,7 @@ void GraphicsView::setInitialState()
     mpTransitionLineAnnotation->setEndElementName("");
     mpTransitionLineAnnotation->setLineType(LineAnnotation::InitialStateType);
     if (mpModelWidget->isNewApi()) {
-      mpTransitionLineAnnotation->setLine(new ModelInstance::Line);
+      mpTransitionLineAnnotation->setLine(new ModelInstance::Line(mpModelWidget->getModelInstance()));
       mpTransitionLineAnnotation->updateLine();
       mpTransitionLineAnnotation->drawCornerItems();
       mpTransitionLineAnnotation->setCornerItemsActiveOrPassive();
@@ -5351,9 +5373,7 @@ ModelWidget::ModelWidget(LibraryTreeItem* pLibraryTreeItem, ModelWidgetContainer
 
     if (isNewApi()) {
       connect(this, SIGNAL(updateModel(QString)), MainWindow::instance(), SLOT(updateModel(QString)));
-      QJsonObject modelInstanceJson = MainWindow::instance()->getOMCProxy()->getModelInstance(mpLibraryTreeItem->getNameStructure(), true);
-      mpModelInstance = new ModelInstance::Model(modelInstanceJson);
-      drawModel(ModelInfo());
+      loadModelInstance(true, ModelInfo());
     } else {
 
       getModelInheritedClasses();
@@ -5420,6 +5440,13 @@ ModelWidget::ModelWidget(LibraryTreeItem* pLibraryTreeItem, ModelWidgetContainer
       file.close();
     }
     mpLibraryTreeItem->setClassText(contents);
+  }
+}
+
+ModelWidget::~ModelWidget()
+{
+  if (mpModelInstance) {
+    delete mpModelInstance;
   }
 }
 
@@ -5738,6 +5765,46 @@ void ModelWidget::drawModelIconDiagram(ModelInstance::Model *pModelInstance, boo
 }
 
 /*!
+ * \brief ModelWidget::loadModelInstance
+ * Calls getModelInstance and draws the model.
+ * \param icon
+ */
+void ModelWidget::loadModelInstance(bool icon, const ModelInfo &modelInfo)
+{
+  // save the current ModelInstance pointer so we can delete it later.
+  ModelInstance::Model *pOldModelInstance = mpModelInstance;
+  // set the new ModelInstance
+  mpModelInstance = new ModelInstance::Model(MainWindow::instance()->getOMCProxy()->getModelInstance(mpLibraryTreeItem->getNameStructure(), true, icon));
+  drawModel(modelInfo);
+  // delete the old ModelInstance
+  if (pOldModelInstance) {
+    delete pOldModelInstance;
+  }
+}
+
+/*!
+ * \brief ModelWidget::loadDiagramViewNAPI
+ * Loads the diagram view if its not loaded before.
+ */
+void ModelWidget::loadDiagramViewNAPI()
+{
+  if (!mDiagramViewLoaded) {
+    mDiagramViewLoaded = true;
+    // clear graphical views
+    clearGraphicsViews();
+    // reset the CoOrdinateSystem
+    if (mpIconGraphicsView) {
+      mpIconGraphicsView->setCoOrdinateSystem(CoOrdinateSystem());
+    }
+    if (mpDiagramGraphicsView) {
+      mpDiagramGraphicsView->setCoOrdinateSystem(CoOrdinateSystem());
+    }
+    loadModelInstance(false, ModelInfo());
+    mpLibraryTreeItem->handleIconUpdated();
+  }
+}
+
+/*!
  * \brief ModelWidget::loadDiagramView
  * Loads the diagram view components if they are not loaded before.
  */
@@ -5979,7 +6046,7 @@ void ModelWidget::createModelWidgetComponents()
     mpDocumentationViewToolButton->setToolTip(Helper::documentationView);
     mpDocumentationViewToolButton->setAutoRaise(true);
     // view buttons box
-    mpViewsButtonGroup = new QButtonGroup;
+    mpViewsButtonGroup = new QButtonGroup(this);
     mpViewsButtonGroup->setExclusive(true);
     mpViewsButtonGroup->addButton(mpDiagramViewToolButton);
     mpViewsButtonGroup->addButton(mpIconViewToolButton);
@@ -6217,7 +6284,7 @@ ShapeAnnotation* ModelWidget::drawOMSModelElement()
     // Text for name
     TextAnnotation *pTextAnnotation = new TextAnnotation(mpIconGraphicsView);
     if (mpLibraryTreeItem->isSystemElement() || mpLibraryTreeItem->isFMUComponent()) {
-      QList<QPointF> extents;
+      QVector<QPointF> extents;
       extents << QPointF(-100, 80) << QPointF(100, 40);
       pTextAnnotation->setExtents(extents);
       if (mpLibraryTreeItem->isSystemElement()) {
@@ -6234,7 +6301,7 @@ ShapeAnnotation* ModelWidget::drawOMSModelElement()
     // Text for further information
     if (mpLibraryTreeItem->isSystemElement() || mpLibraryTreeItem->isFMUComponent()) {
       TextAnnotation *pInfoTextAnnotation = new TextAnnotation(mpIconGraphicsView);
-      QList<QPointF> extents;
+      QVector<QPointF> extents;
       extents << QPointF(-100, -40) << QPointF(100, -80);
       pInfoTextAnnotation->setExtents(extents);
       if (mpLibraryTreeItem->isSystemElement()) {
@@ -6363,19 +6430,14 @@ void ModelWidget::reDrawModelWidget()
     if (mpIconGraphicsView) {
       mpIconGraphicsView->setCoOrdinateSystem(CoOrdinateSystem());
     }
-    /* remove everything from the diagram view */
     if (mpDiagramGraphicsView) {
       mpDiagramGraphicsView->setCoOrdinateSystem(CoOrdinateSystem());
     }
     if (isNewApi()) {
-      // save the current ModelInstance pointer so we can delete it later.
-      ModelInstance::Model *pOldModelInstance = mpModelInstance;
-      // set the new ModelInstance
-      mpModelInstance = new ModelInstance::Model(MainWindow::instance()->getOMCProxy()->getModelInstance(mpLibraryTreeItem->getNameStructure(), true));
-      drawModel(ModelInfo());
-      // delete the old ModelInstance
-      if (pOldModelInstance) {
-        delete pOldModelInstance;
+      if (mDiagramViewLoaded) {
+        loadModelInstance(false, ModelInfo());
+      } else {
+        loadModelInstance(true, ModelInfo());
       }
     } else {
       // Draw icon view
@@ -6425,7 +6487,7 @@ void ModelWidget::reDrawModelWidget()
   QApplication::restoreOverrideCursor();
 }
 
-void ModelWidget::reDrawModelWidget(const QJsonObject &modelInstanceJson, const ModelInfo &modelInfo)
+void ModelWidget::reDrawModelWidget(const ModelInfo &modelInfo)
 {
   QApplication::setOverrideCursor(Qt::WaitCursor);
   // Remove all elements from the scene
@@ -6451,19 +6513,10 @@ void ModelWidget::reDrawModelWidget(const QJsonObject &modelInstanceJson, const 
   if (mpIconGraphicsView) {
     mpIconGraphicsView->setCoOrdinateSystem(CoOrdinateSystem());
   }
-  /* remove everything from the diagram view */
   if (mpDiagramGraphicsView) {
     mpDiagramGraphicsView->setCoOrdinateSystem(CoOrdinateSystem());
   }
-  // save the current ModelInstance pointer so we can delete it later.
-  ModelInstance::Model *pOldModelInstance = mpModelInstance;
-  // set the new ModelInstance
-  mpModelInstance = new ModelInstance::Model(modelInstanceJson);
-  drawModel(modelInfo);
-  // delete the old ModelInstance
-  if (pOldModelInstance) {
-    delete pOldModelInstance;
-  }
+  loadModelInstance(false, modelInfo);
   // update the icon
   mpLibraryTreeItem->handleIconUpdated();
   // if documentation view is visible then update it
@@ -7644,7 +7697,7 @@ void ModelWidget::emitUpdateModel()
 void ModelWidget::updateModelIfDependsOn(const QString &modelName)
 {
   if (mDependsOnModelsList.contains(modelName)) {
-    reDrawModelWidget(MainWindow::instance()->getOMCProxy()->getModelInstance(mpLibraryTreeItem->getNameStructure(), true), createModelInfo());
+    reDrawModelWidget(createModelInfo());
   }
 }
 
@@ -7692,7 +7745,7 @@ void ModelWidget::createUndoStack()
       assert(mpUndoStack);
     }
   } else {
-    mpUndoStack = new UndoStack;
+    mpUndoStack = new UndoStack(this);
     connect(mpUndoStack, SIGNAL(canUndoChanged(bool)), SLOT(handleCanUndoChanged(bool)));
     connect(mpUndoStack, SIGNAL(canRedoChanged(bool)), SLOT(handleCanRedoChanged(bool)));
   }
@@ -7859,14 +7912,23 @@ void ModelWidget::getModelIconDiagramShapes(StringHandler::ViewType viewType)
    */
   if (list.size() >= 8) {
     CoOrdinateSystem coOrdinateSystem = pGraphicsView->getCoOrdinateSystem();
-    coOrdinateSystem.setLeft(list.at(0));
-    coOrdinateSystem.setBottom(list.at(1));
-    coOrdinateSystem.setRight(list.at(2));
-    coOrdinateSystem.setTop(list.at(3));
-    coOrdinateSystem.setPreserveAspectRatio(list.at(4));
-    coOrdinateSystem.setInitialScale(list.at(5));
-    coOrdinateSystem.setHorizontal(list.at(6));
-    coOrdinateSystem.setVertical(list.at(7));
+    ExtentAnnotation extent;
+    if (list.at(0) != '-' && list.at(1) != '-' && list.at(2) != '-' && list.at(3) != '-' &&
+        extent.parse(QString("{{%1, %2}, {%3, %4}}").arg(list.at(0), list.at(1), list.at(2), list.at(3)))) {
+      coOrdinateSystem.setExtent(extent);
+    }
+    BooleanAnnotation preserveAspectRatio;
+    if (list.at(4) != '-' && preserveAspectRatio.parse(list.at(4))) {
+      coOrdinateSystem.setPreserveAspectRatio(preserveAspectRatio);
+    }
+    RealAnnotation initialScale;
+    if (list.at(5) != '-' && initialScale.parse(list.at(5))) {
+      coOrdinateSystem.setInitialScale(initialScale);
+    }
+    PointAnnotation grid;
+    if (list.at(6) != '-' && list.at(7) != '-' && grid.parse(QString("{%1, %2}").arg(list.at(6), list.at(7)))) {
+      coOrdinateSystem.setGrid(grid);
+    }
     pGraphicsView->setCoOrdinateSystem(coOrdinateSystem);
   }
   // draw the CoOrdinateSystem
@@ -7911,17 +7973,8 @@ void ModelWidget::readCoOrdinateSystemFromInheritedClass(ModelWidget *pModelWidg
         pInheritedGraphicsView = pLibraryTreeItem->getModelWidget()->getDiagramGraphicsView();
       }
 
-      if (!pGraphicsView->mMergedCoOrdinateSystem.hasLeft() && pInheritedGraphicsView->mMergedCoOrdinateSystem.hasLeft()) {
-        pGraphicsView->mMergedCoOrdinateSystem.setLeft(pInheritedGraphicsView->mMergedCoOrdinateSystem.getLeft());
-      }
-      if (!pGraphicsView->mMergedCoOrdinateSystem.hasBottom() && pInheritedGraphicsView->mMergedCoOrdinateSystem.hasBottom()) {
-        pGraphicsView->mMergedCoOrdinateSystem.setBottom(pInheritedGraphicsView->mMergedCoOrdinateSystem.getBottom());
-      }
-      if (!pGraphicsView->mMergedCoOrdinateSystem.hasRight() && pInheritedGraphicsView->mMergedCoOrdinateSystem.hasRight()) {
-        pGraphicsView->mMergedCoOrdinateSystem.setRight(pInheritedGraphicsView->mMergedCoOrdinateSystem.getRight());
-      }
-      if (!pGraphicsView->mMergedCoOrdinateSystem.hasTop() && pInheritedGraphicsView->mMergedCoOrdinateSystem.hasTop()) {
-        pGraphicsView->mMergedCoOrdinateSystem.setTop(pInheritedGraphicsView->mMergedCoOrdinateSystem.getTop());
+      if (!pGraphicsView->mMergedCoOrdinateSystem.hasExtent() && pInheritedGraphicsView->mMergedCoOrdinateSystem.hasExtent()) {
+        pGraphicsView->mMergedCoOrdinateSystem.setExtent(pInheritedGraphicsView->mMergedCoOrdinateSystem.getExtent());
       }
       if (!pGraphicsView->mMergedCoOrdinateSystem.hasPreserveAspectRatio() && pInheritedGraphicsView->mMergedCoOrdinateSystem.hasPreserveAspectRatio()) {
         pGraphicsView->mMergedCoOrdinateSystem.setPreserveAspectRatio(pInheritedGraphicsView->mMergedCoOrdinateSystem.getPreserveAspectRatio());
@@ -7929,11 +7982,8 @@ void ModelWidget::readCoOrdinateSystemFromInheritedClass(ModelWidget *pModelWidg
       if (!pGraphicsView->mMergedCoOrdinateSystem.hasInitialScale() && pInheritedGraphicsView->mMergedCoOrdinateSystem.hasInitialScale()) {
         pGraphicsView->mMergedCoOrdinateSystem.setInitialScale(pInheritedGraphicsView->mMergedCoOrdinateSystem.getInitialScale());
       }
-      if (!pGraphicsView->mMergedCoOrdinateSystem.hasHorizontal() && pInheritedGraphicsView->mMergedCoOrdinateSystem.hasHorizontal()) {
-        pGraphicsView->mMergedCoOrdinateSystem.setHorizontal(pInheritedGraphicsView->mMergedCoOrdinateSystem.getHorizontal());
-      }
-      if (!pGraphicsView->mMergedCoOrdinateSystem.hasVertical() && pInheritedGraphicsView->mMergedCoOrdinateSystem.hasVertical()) {
-        pGraphicsView->mMergedCoOrdinateSystem.setVertical(pInheritedGraphicsView->mMergedCoOrdinateSystem.getVertical());
+      if (!pGraphicsView->mMergedCoOrdinateSystem.hasGrid() && pInheritedGraphicsView->mMergedCoOrdinateSystem.hasGrid()) {
+        pGraphicsView->mMergedCoOrdinateSystem.setGrid(pInheritedGraphicsView->mMergedCoOrdinateSystem.getGrid());
       }
     }
     break; // we only check the coordinate system of the first inherited class. See the comment in the start of the function i.e., "The coordinate systems of the first base-class ..."
@@ -8882,7 +8932,10 @@ void ModelWidget::handleCanRedoChanged(bool canRedo)
 void ModelWidget::closeEvent(QCloseEvent *event)
 {
   Q_UNUSED(event);
-  mpModelWidgetContainer->removeSubWindow(this);
+  QMdiSubWindow *pMdiSubWindow = mpModelWidgetContainer->getMdiSubWindow(this);
+  if (pMdiSubWindow) {
+    mpModelWidgetContainer->removeSubWindow(this);
+  }
 }
 
 /*!
@@ -8956,7 +9009,9 @@ void ModelWidgetContainer::addModelWidget(ModelWidget *pModelWidget, bool checkP
     ModelWidget *pSubModelWidget = qobject_cast<ModelWidget*>(subWindowsList.at(i)->widget());
     if (pSubModelWidget == pModelWidget) {
       if (pModelWidget->getLibraryTreeItem()->getLibraryType() == LibraryTreeItem::Modelica) {
-        if (!pModelWidget->isNewApi()) {
+        if (pModelWidget->isNewApi()) {
+          pModelWidget->loadDiagramViewNAPI();
+        } else {
           pModelWidget->loadDiagramView();
           pModelWidget->loadConnections();
         }
@@ -8974,7 +9029,9 @@ void ModelWidgetContainer::addModelWidget(ModelWidget *pModelWidget, bool checkP
     addCloseActionsToSubWindowSystemMenu(pSubWindow);
     pSubWindow->setWindowIcon(ResourceCache::getIcon(":/Resources/icons/modeling.png"));
     if (pModelWidget->getLibraryTreeItem()->getLibraryType() == LibraryTreeItem::Modelica) {
-      if (!pModelWidget->isNewApi()) {
+      if (pModelWidget->isNewApi()) {
+        pModelWidget->loadDiagramViewNAPI();
+      } else {
         pModelWidget->loadDiagramView();
         pModelWidget->loadConnections();
       }
@@ -9051,8 +9108,9 @@ ModelWidget* ModelWidgetContainer::getModelWidget(const QString& className)
 {
   foreach (QMdiSubWindow *pSubWindow, subWindowList()) {
     ModelWidget *pModelWidget = qobject_cast<ModelWidget*>(pSubWindow->widget());
-    if (className == pModelWidget->getLibraryTreeItem()->getNameStructure())
+    if (className == pModelWidget->getLibraryTreeItem()->getNameStructure()) {
       return pModelWidget;
+    }
   }
   return NULL;
 }
@@ -9832,10 +9890,10 @@ void ModelWidgetContainer::fitToDiagram()
         QString oldUsesAnnotationString = QString("annotate=$annotation(uses(%1))").arg(oldUsesAnnotation.join(","));
         // construct a new CoOrdinateSystem
         CoOrdinateSystem newCoOrdinateSystem = oldCoOrdinateSystem;
-        newCoOrdinateSystem.setLeft(adaptedRect.left());
-        newCoOrdinateSystem.setBottom(adaptedRect.bottom());
-        newCoOrdinateSystem.setRight(adaptedRect.right());
-        newCoOrdinateSystem.setTop(adaptedRect.top());
+        QVector<QPointF> extent;
+        extent.append(QPointF(adaptedRect.left(), adaptedRect.bottom()));
+        extent.append(QPointF(adaptedRect.right(), adaptedRect.top()));
+        newCoOrdinateSystem.setExtent(extent);
         // push the CoOrdinateSystem change to undo stack
         UpdateCoOrdinateSystemCommand *pUpdateCoOrdinateSystemCommand = new UpdateCoOrdinateSystemCommand(pGraphicsView, oldCoOrdinateSystem, newCoOrdinateSystem, false,
                                                                                                           oldVersion, oldVersion, oldUsesAnnotationString, oldUsesAnnotationString);

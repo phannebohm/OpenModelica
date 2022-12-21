@@ -253,6 +253,7 @@ File Menu
 -  *Load Encrypted Library* - Loads an encrypted library. see :ref:`encryption`
 -  *Open Result File(s)* - Opens a result file.
 -  *Open Transformations File* - Opens a transformational debugger file.
+-  *Unload All* - Unloads all loaded classes.
 -  *New Composite Model* - Creates a new composite model.
 -  *Open Composite Model(s)* - Loads an existing composite model.
 -  *Load External Model(s)* - Loads the external models that can be used within
@@ -676,8 +677,8 @@ will have a checkbox to plot them.
 
 CSV-File Data Input
 ~~~~~~~~~~~~~~~~~~~
-When simulating Modelica models with top-level inputs (input variables or input connectors), these inputs are assumed to be zero by default. However,
-it is possible to feed them with input signals obtained from CSV (Comma-Separated Value) input data files, by means of the
+When simulating Modelica models with top-level inputs (input variables or input connectors), these inputs are assumed to be equal to their start
+value by default. However, it is possible to feed them with input signals obtained from CSV (Comma-Separated Value) input data files, by means of the
 :ref:`-csvInput <simflag-csvInput>` simulation flag, that can be set in the *Additional Simulation Flags (Optional)* field of
 the Simulation Flags tab. For example, setting ``-csvInput=myinput.csv`` causes the runtime executable to read such input data from the ``myinput.csv``
 file.
@@ -690,6 +691,7 @@ character.
 For example, assume your model has three top-level inputs named ``u1``, ``u2``, and ``u3``. These are valid CSV input files:
 
 .. code-block:: none
+
   time, u3, u2, u1
   0.0, 0.0, 0.0, 0.0
   1.0, 0.0, 0.0, 0.0
@@ -1412,6 +1414,11 @@ Simulation
 
   -  *Use static linking* – if true then static linking is used for simulation executable.
      The default is dynamic linking. This option is only available on Windows.
+
+  -  *Post compilation command* - if not empty allows to run a command after the compilation step.
+     A possible use-case is to be able to sign the binaries before execution to comply with the security policy.
+     The command is run in the same folder where the simulation executable is created.
+     The interpreter executable must be passed to run shell scripts, eg on Windows: `powershell.exe -File C:\script.ps1`
 
   -  *Ignore __OpenModelica_commandLineOptions annotation* – if true then ignores the __OpenModelica_commandLineOptions
      annotation while running the simulation.

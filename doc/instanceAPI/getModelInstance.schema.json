@@ -33,7 +33,35 @@
           "type": "boolean"
         },
         "replaceable": {
-          "type": "boolean"
+          "oneOf": [
+            {
+              "description": "A replaceable prefix without a constrainedby clause",
+              "type": "boolean"
+            },
+            {
+              "description": "A replaceable prefix with a constrainedby clause",
+              "type": "object",
+              "properties": {
+                "constrainedby": {
+                  "description": "The name of the constraining class",
+                  "type": "string"
+                },
+                "modifiers": {
+                  "description": "The modifiers on the constrainedby clause",
+                  "type": "#/definitions/scodeModifier"
+                },
+                "comment": {
+                  "description": "The comment on the constrainedby clause",
+                  "$ref": "#/definitions/comment"
+                },
+                "annotation": {
+                  "description": "The annotation on the constrainedby clause",
+                  "$ref": "#/definitions/annotation"
+                }
+              },
+              "required": ["constrainedby"]
+            }
+          ]
         },
         "redeclare": {
           "type": "boolean"
@@ -67,19 +95,10 @@
     },
     "extends": {
       "description": "The extends clauses in the class instance",
-      "oneOf": [
-        {
-          "description": "The extends clauses in a long class definition",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/extends"
-          }
-        },
-        {
-          "description": "The extended class in a short class definition",
-          "$ref": "#/definitions/extends"
-        }
-      ]
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/extends"
+      }
     },
     "components": {
       "description": "The components in the class instance",

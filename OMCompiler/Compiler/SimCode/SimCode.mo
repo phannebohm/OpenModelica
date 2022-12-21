@@ -327,6 +327,8 @@ uniontype VarInfo "Number of variables of various types in a Modelica model."
     Integer numSetcVars;
     Integer numDataReconVars;
     Integer numRealInputVars "for fmi cs to interpolate inputs";
+    Integer numSetbVars "for data reconciliation setB vars";
+    Integer numRelatedBoundaryConditions "for data reconciliation count number of boundary conditions which failed the extraction algorithm";
   end VARINFO;
 end VarInfo;
 
@@ -551,20 +553,35 @@ end SimEqSystem;
 public uniontype SimGenericCall
   record SINGLE_GENERIC_CALL
     Integer index;
-    list<SimIterator> iters;
+    list<BackendDAE.SimIterator> iters;
     DAE.Exp lhs;
     DAE.Exp rhs;
   end SINGLE_GENERIC_CALL;
+
+  record IF_GENERIC_CALL
+    Integer index;
+    list<BackendDAE.SimIterator> iters;
+    list<SimBranch> branches;
+  end IF_GENERIC_CALL;
+
+  record WHEN_GENERIC_CALL
+    Integer index;
+    list<BackendDAE.SimIterator> iters;
+    list<SimBranch> branches;
+  end WHEN_GENERIC_CALL;
 end SimGenericCall;
 
-public uniontype SimIterator
-  record SIM_ITERATOR
-    DAE.ComponentRef name;
-    Integer start;
-    Integer step;
-    Integer size;
-  end SIM_ITERATOR;
-end SimIterator;
+public uniontype SimBranch
+  record SIM_BRANCH
+    Option<DAE.Exp> condition;
+    list<tuple<DAE.Exp, DAE.Exp>> body;
+  end SIM_BRANCH;
+
+  record SIM_BRANCH_STMT
+    Option<DAE.Exp> condition;
+    list<DAE.Statement> body;
+  end SIM_BRANCH_STMT;
+end SimBranch;
 
 public
 uniontype DerivativeMatrix
@@ -715,7 +732,7 @@ public uniontype FmiSimulationFlags
   end FMI_SIMULATION_FLAGS_FILE;
 end FmiSimulationFlags;
 
-constant FmiSimulationFlags defaultFmiSimulationFlags = FMI_SIMULATION_FLAGS({("solver","euler")});
+constant FmiSimulationFlags defaultFmiSimulationFlags = FMI_SIMULATION_FLAGS({("s","euler")});
 
 annotation(__OpenModelica_Interface="backend");
 end SimCode;

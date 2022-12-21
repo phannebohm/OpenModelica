@@ -740,7 +740,7 @@ public constant ErrorTypes.Message TERMINATE_TRIGGERED = ErrorTypes.MESSAGE(333,
   Gettext.gettext("terminate triggered: %s"));
 public constant ErrorTypes.Message EVAL_RECURSION_LIMIT_REACHED = ErrorTypes.MESSAGE(334, ErrorTypes.TRANSLATION(), ErrorTypes.ERROR(),
   Gettext.gettext("The recursion limit (--evalRecursionLimit=%s) was exceeded during evaluation of %s."));
-public constant ErrorTypes.Message UNASSIGNED_FUNCTION_OUTPUT = ErrorTypes.MESSAGE(335, ErrorTypes.TRANSLATION(), ErrorTypes.ERROR(),
+public constant ErrorTypes.Message UNASSIGNED_FUNCTION_OUTPUT = ErrorTypes.MESSAGE(335, ErrorTypes.TRANSLATION(), ErrorTypes.WARNING(),
   Gettext.gettext("Output parameter %s was not assigned a value"));
 public constant ErrorTypes.Message INVALID_WHEN_STATEMENT_CONTEXT = ErrorTypes.MESSAGE(336, ErrorTypes.TRANSLATION(), ErrorTypes.ERROR(),
   Gettext.gettext("A when-statement may not be used inside a function or a while, if, or for-clause."));
@@ -1112,7 +1112,7 @@ public constant ErrorTypes.Message NOTIFY_INITIALIZING_USER_LIBRARIES = ErrorTyp
 public constant ErrorTypes.Message NOTIFY_PKG_ALREADY_INSTALLED = ErrorTypes.MESSAGE(617, ErrorTypes.TRANSLATION(), ErrorTypes.NOTIFICATION(),
   Gettext.gettext("%s %s is already installed, skipping."));
 public constant ErrorTypes.Message REINIT_IN_ALGORITHM = ErrorTypes.MESSAGE(618, ErrorTypes.TRANSLATION(), ErrorTypes.ERROR(),
-  Gettext.gettext("Operator reinit may not be used in an algorithm section (use flag --allowNonStandardModelica=reinitInAlgorithms to ignore)."));
+  Gettext.gettext("Operator reinit may not be used in an algorithm section (use translation flag --allowNonStandardModelica=reinitInAlgorithms to ignore)."));
 
 public constant ErrorTypes.Message MATCH_SHADOWING = ErrorTypes.MESSAGE(5001, ErrorTypes.TRANSLATION(), ErrorTypes.ERROR(),
   Gettext.gettext("Local variable '%s' shadows another variable."));

@@ -71,7 +71,7 @@ TreeSearchFilters::TreeSearchFilters(QWidget *pParent)
   mpFilterTextBox->installEventFilter(this);
   connect(this, SIGNAL(clearFilter(QString)), mpFilterTextBox, SIGNAL(textEdited(QString)));
   // filter timer
-  mpFilterTimer = new QTimer;
+  mpFilterTimer = new QTimer(this);
   mpFilterTimer->setSingleShot(true);
   mpScrollToActiveButton = new QToolButton;
   QString scrollToActiveButtonText = tr("Scroll to Active");
@@ -439,6 +439,22 @@ void QDetachableProcess::start(const QString &program, const QStringList &argume
   setProcessState(QProcess::NotRunning);
 }
 
+#if (QT_VERSION < QT_VERSION_CHECK(5, 15, 0))
+/*!
+ * \brief QDetachableProcess::start
+ * Starts a process and detaches from it.
+ * \param command
+ * \param mode
+ */
+void QDetachableProcess::start(const QString &command, QIODevice::OpenMode mode)
+{
+  QProcess::start(command, mode);
+  waitForStarted();
+  setProcessState(QProcess::NotRunning);
+}
+#endif
+
+
 JsonDocument::JsonDocument(QObject *pParent)
   : QObject(pParent)
 {
@@ -540,8 +556,14 @@ QString& Utilities::tempDirectory()
     tmpPath = QDir::tempPath() + "/OpenModelica_" + QString(user ? user : "nobody") + "/OMEdit/";
 #endif
     tmpPath.remove("\"");
-    if (!QDir().exists(tmpPath))
-      QDir().mkpath(tmpPath);
+    if (!QDir().exists(tmpPath)) {
+      if (!QDir().mkpath(tmpPath)) {
+        qDebug() << "Failed to create the tempDirectory" << tmpPath
+                 << "will use" << QDir::tempPath() << "instead.";
+        tmpPath = QDir::tempPath();
+        tmpPath.remove("\"");
+      }
+    }
   }
   return tmpPath;
 }

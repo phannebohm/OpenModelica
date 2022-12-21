@@ -413,6 +413,7 @@ end makeRecordType;
 function typeComponent
   input InstNode component;
   input InstContext.Type context;
+  input Boolean typeChildren = true;
   output Type ty;
 protected
   InstNode node = InstNode.resolveOuter(component);
@@ -442,17 +443,19 @@ algorithm
           is_deleted := false;
         end if;
 
-        c_typed := Component.setType(ty, c);
-        InstNode.updateComponent(c_typed, node);
+        if typeChildren then
+          c_typed := Component.setType(ty, c);
+          InstNode.updateComponent(c_typed, node);
 
-        if not is_deleted then
-          // Check that flow/stream variables are Real.
-          checkComponentStreamAttribute(c.attributes.connectorType, ty, component);
+          if not is_deleted then
+            // Check that flow/stream variables are Real.
+            checkComponentStreamAttribute(c.attributes.connectorType, ty, component);
 
-          // Type the component's children.
-          typeComponents(c.classInst, context);
+            // Type the component's children.
+            typeComponents(c.classInst, context);
 
-          checkConnectorTypeBalance(node);
+            checkConnectorTypeBalance(node);
+          end if;
         end if;
       then
         ty;
@@ -840,7 +843,7 @@ algorithm
       (binding, parentDims) := getRecordElementBinding(parent);
     else
       // Otherwise type the binding, so we can safely look up the field name.
-      binding := typeBinding(parent_binding, NFInstContext.CLASS);
+      binding := typeBinding(parent_binding, InstContext.set(NFInstContext.CLASS, NFInstContext.DIMENSION));
 
       // If the binding wasn't typed before, update the parent component with it
       // so we don't have to type it again.
@@ -1001,6 +1004,8 @@ algorithm
         InstNode.updateComponent(c, node);
       then
         ();
+
+    case Component.UNTYPED_COMPONENT() then ();
 
     case Component.ENUM_LITERAL() then ();
     case Component.TYPE_ATTRIBUTE(modifier = Modifier.NOMOD()) then ();
@@ -1477,6 +1482,9 @@ function expandProxySubscripts
 protected
   Integer dim_count;
   Expression cr_exp;
+  Type ty;
+  list<Dimension> dims;
+  Dimension dim;
 algorithm
   for s in subscripts loop
     outSubscripts := match s
@@ -1504,10 +1512,18 @@ algorithm
 
             // Add size expressions to the list of fill dimensions.
             if dim_count > 0 then
-              cr_exp := Expression.fromCref(ComponentRef.fromNode(s.parent, InstNode.getType(s.parent)));
+              ty := InstNode.getType(s.parent);
+              cr_exp := Expression.fromCref(ComponentRef.fromNode(s.parent, ty));
+              dims := Type.arrayDims(ty);
 
               for i in 1:dim_count loop
-                fillDimensions := Expression.SIZE(cr_exp, SOME(Expression.INTEGER(i))) :: fillDimensions;
+                dim :: dims := dims;
+
+                if Dimension.isKnown(dim, allowExp = true) then
+                  fillDimensions := Dimension.sizeExp(dim) :: fillDimensions;
+                else
+                  fillDimensions := Expression.SIZE(cr_exp, SOME(Expression.INTEGER(i))) :: fillDimensions;
+                end if;
               end for;
             end if;
           end if;
@@ -1893,7 +1909,7 @@ algorithm
         // The context used when typing a component node depends on where the
         // component was declared, not where it's used. This can be different to
         // the given context, e.g. for package constants used in a function.
-        node_ty := typeComponent(cref.node, crefContext(cref.node));
+        node_ty := typeComponent(cref.node, crefContext(cref.node), typeChildren = firstPart or not InstContext.inDimension(context));
 
         (subs, subs_var) := typeSubscripts(cref.subscripts, node_ty, cref, context, info);
         (rest_cr, rest_var) := typeCref2(cref.restCref, context, info, false);
@@ -2879,8 +2895,8 @@ algorithm
       Integer next_context;
       SourceInfo info;
 
-    case Equation.EQUALITY() then typeEqualityEquation(eq.lhs, eq.rhs, context, eq.source);
-    case Equation.CONNECT()  then typeConnect(eq.lhs, eq.rhs, context, eq.source);
+    case Equation.EQUALITY() then typeEqualityEquation(eq.lhs, eq.rhs, context, eq.scope, eq.source);
+    case Equation.CONNECT()  then typeConnect(eq.lhs, eq.rhs, context, eq.scope, eq.source);
 
     case Equation.FOR()
       algorithm
@@ -2896,36 +2912,36 @@ algorithm
         next_context := InstContext.set(context, NFInstContext.FOR);
         body := list(typeEquation(e, next_context) for e in eq.body);
       then
-        Equation.FOR(eq.iterator, SOME(e1), body, eq.source);
+        Equation.FOR(eq.iterator, SOME(e1), body, eq.scope, eq.source);
 
-    case Equation.IF() then typeIfEquation(eq.branches, context, eq.source);
-    case Equation.WHEN() then typeWhenEquation(eq.branches, context, eq.source);
+    case Equation.IF() then typeIfEquation(eq.branches, context, eq.scope, eq.source);
+    case Equation.WHEN() then typeWhenEquation(eq.branches, context, eq.scope, eq.source);
 
     case Equation.ASSERT()
       algorithm
         info := ElementSource.getInfo(eq.source);
         (e1, e2, e3) := typeAssert(eq.condition, eq.message, eq.level, context, info);
       then
-        Equation.ASSERT(e1, e2, e3, eq.source);
+        Equation.ASSERT(e1, e2, e3, eq.scope, eq.source);
 
     case Equation.TERMINATE()
       algorithm
         info := ElementSource.getInfo(eq.source);
         e1 := typeOperatorArg(eq.message, Type.STRING(), context, "terminate", "message", 1, info);
       then
-        Equation.TERMINATE(e1, eq.source);
+        Equation.TERMINATE(e1, eq.scope, eq.source);
 
     case Equation.REINIT()
       algorithm
         (e1, e2) := typeReinit(eq.cref, eq.reinitExp, context, eq.source);
       then
-        Equation.REINIT(e1, e2, eq.source);
+        Equation.REINIT(e1, e2, eq.scope, eq.source);
 
     case Equation.NORETCALL()
       algorithm
         e1 := typeExp(eq.exp, context, ElementSource.getInfo(eq.source));
       then
-        Equation.NORETCALL(e1, eq.source);
+        Equation.NORETCALL(e1, eq.scope, eq.source);
 
     else eq;
   end match;
@@ -2935,6 +2951,7 @@ function typeConnect
   input Expression lhsConn;
   input Expression rhsConn;
   input InstContext.Type context;
+  input InstNode scope;
   input DAE.ElementSource source;
   output Equation connEq;
 protected
@@ -2977,7 +2994,7 @@ algorithm
     end if;
   end if;
 
-  connEq := Equation.CONNECT(lhs, rhs, source);
+  connEq := Equation.CONNECT(lhs, rhs, scope, source);
 end typeConnect;
 
 function typeConnector
@@ -3314,6 +3331,7 @@ function typeEqualityEquation
   input Expression lhsExp;
   input Expression rhsExp;
   input InstContext.Type context;
+  input InstNode scope;
   input DAE.ElementSource source;
   output Equation eq;
 protected
@@ -3342,7 +3360,7 @@ algorithm
     fail();
   end if;
 
-  eq := Equation.EQUALITY(e1, e2, ty, source);
+  eq := Equation.EQUALITY(e1, e2, ty, scope, source);
 
   if Expression.isExternalCall(e2) then
     Call.updateExternalRecordArgs(Expression.tupleElements(e1));
@@ -3381,6 +3399,7 @@ end typeCondition;
 function typeIfEquation
   input list<Equation.Branch> branches;
   input InstContext.Type context;
+  input InstNode scope;
   input DAE.ElementSource source;
   output Equation ifEq;
 protected
@@ -3427,12 +3446,13 @@ algorithm
     ErrorExt.delCheckpoint(getInstanceName());
   end for;
 
-  ifEq := Equation.IF(bl2, source);
+  ifEq := Equation.IF(bl2, scope, source);
 end typeIfEquation;
 
 function typeWhenEquation
   input list<Equation.Branch> branches;
   input InstContext.Type context;
+  input InstNode scope;
   input DAE.ElementSource source;
   output Equation whenEq;
 protected
@@ -3465,7 +3485,7 @@ algorithm
     accum_branches := Equation.makeBranch(cond, body, var) :: accum_branches;
   end for;
 
-  whenEq := Equation.WHEN(listReverseInPlace(accum_branches), source);
+  whenEq := Equation.WHEN(listReverseInPlace(accum_branches), scope, source);
 end typeWhenEquation;
 
 function typeWhenCondition

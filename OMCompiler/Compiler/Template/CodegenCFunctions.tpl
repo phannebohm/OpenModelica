@@ -289,13 +289,17 @@ end commonHeader;
 
 /* public */ template externalFunctionIncludes(list<String> includes)
  "Generates external includes part in function files.
-  used in Compiler/Template/CodegenFMU.tpl"
+  used in Compiler/Template/CodegenFMU.tpl.
+  Include openmodelica.h, because some Modelica libraries test if some tool depedent variable is set, e.g. TILMedia."
 ::=
   if includes then
   <<
   #ifdef __cplusplus
   extern "C" {
   #endif
+  #include "openmodelica.h"       // Defines OPENMODELICA_H_ for libraris to test if called from OpenModelica.
+  #include "ModelicaUtilities.h"  // Make Modelica C util functions available for external includes.
+
   <% (includes ;separator="\n") %>
   #ifdef __cplusplus
   }
@@ -2358,8 +2362,7 @@ template varOutput(Variable var)
       <<
       if (out<%funArgName(var)%>) {
         if (out<%funArgName(var)%>->info == NULL) {
-          FILE_INFO info = omc_dummyFileInfo;
-          omc_assert(threadData, info, "Unknown size parallel array.");
+          omc_assert(threadData, omc_dummyFileInfo, "Unknown size parallel array.");
         }
         else {
           <%expTypeShort(var.ty)%>_array_copy_data(<%funArgName(var)%>, *out<%funArgName(var)%>);
@@ -3502,7 +3505,7 @@ case RANGE(__) then
                     case "1"
                     case "((modelica_integer) 1)"
                     case "((modelica_integer) -1)" then ''
-                    else 'if(!<%stepVar%>) {<%\n%>  FILE_INFO info = omc_dummyFileInfo;<%\n%>  omc_assert<%AddionalFuncName%>(threadData, info, <%eqnsindx%>"assertion range step != 0 failed");<%\n%>} else '
+                    else 'if(!<%stepVar%>) {<%\n%>  omc_assert<%AddionalFuncName%>(threadData, omc_dummyFileInfo, <%eqnsindx%>"assertion range step != 0 failed");<%\n%>} else '
   <<
   <%preExp%>
   <%startVar%> = <%startValue%>; <%stepVar%> = <%stepValue%>; <%stopVar%> = <%stopValue%>;
@@ -4042,17 +4045,17 @@ template crefToOMSICStr(ComponentRef cref, HashTableCrefSimVar.HashTable hashTab
       case v as SIMVAR(index=-2) then
         match cref2simvar(componentRef, getSimCode())
           case v as SIMVAR(__) then
-            let c_comment = '/* <%CodegenUtil.escapeCComments(CodegenUtil.crefStrNoUnderscore(v.name))%> <%CodegenUtil.variabilityString(v.varKind)%> */'
+            let c_comment = CodegenUtil.crefCCommentWithVariability(v)
             let index = getValueReference(v, getSimCode(), false)
             <<
-            this_function->pre_vars-><%crefTypeOMSIC(name)%>[<%index%>] <%c_comment%> /* TODO: Check why pre variable  <%CodegenUtil.escapeCComments(CodegenUtil.crefStrNoUnderscore(v.name))%> is not in local hash table! */
+            this_function->pre_vars-><%crefTypeOMSIC(name)%>[<%index%>]<%c_comment%> /* TODO: Check why pre variable <%CodegenUtil.crefCComment(v, CodegenUtil.crefStrNoUnderscore(v.name))%> is not in local hash table! */
             >>
         end match
       case v as SIMVAR(__) then
-        let c_comment = '/* <%CodegenUtil.escapeCComments(CodegenUtil.crefStrNoUnderscore(v.name))%> <%CodegenUtil.variabilityString(v.varKind)%> */'
+        let c_comment = CodegenUtil.crefCCommentWithVariability(v)
         let index = getValueReference(v, getSimCode(), false)
         <<
-        this_function->pre_vars-><%crefTypeOMSIC(name)%>[<%index%>] <%c_comment%>
+        this_function->pre_vars-><%crefTypeOMSIC(name)%>[<%index%>]<%c_comment%>
         >>
       end match
     else
@@ -4063,9 +4066,9 @@ template crefToOMSICStr(ComponentRef cref, HashTableCrefSimVar.HashTable hashTab
         match cref2simvar(cref, getSimCode())
           case v as SIMVAR(__) then
           let index = getValueReference(v, getSimCode(), false)
-          let c_comment = '/* <%CodegenUtil.escapeCComments(CodegenUtil.crefStrNoUnderscore(v.name))%> <%CodegenUtil.variabilityString(varKind)%> */'
+          let c_comment = CodegenUtil.crefCCommentWithVariability(v)
            <<
-           model_vars_and_params-><%crefTypeOMSIC(name)%>[<%index%>] <%c_comment%>
+           model_vars_and_params-><%crefTypeOMSIC(name)%>[<%index%>]<%c_comment%>
            >>
         end match
 
@@ -4073,16 +4076,16 @@ template crefToOMSICStr(ComponentRef cref, HashTableCrefSimVar.HashTable hashTab
       case v as SIMVAR(varKind=JAC_VAR(__))
       case v as SIMVAR(varKind=JAC_DIFF_VAR(__))
       case v as SIMVAR(varKind=SEED_VAR(__)) then
-        let c_comment = '/* <%CodegenUtil.escapeCComments(CodegenUtil.crefStrNoUnderscore(v.name))%> <%CodegenUtil.variabilityString(v.varKind)%> */'
+        let c_comment = CodegenUtil.crefCCommentWithVariability(v)
         <<
-        this_function->local_vars-><%crefTypeOMSIC(name)%>[<%v.index%>] <%c_comment%>
+        this_function->local_vars-><%crefTypeOMSIC(name)%>[<%v.index%>]<%c_comment%>
         >>
 
       case v as SIMVAR(__) then
-        let c_comment = '/* <%CodegenUtil.escapeCComments(CodegenUtil.crefStrNoUnderscore(v.name))%> <%CodegenUtil.variabilityString(v.varKind)%> */'
+        let c_comment = CodegenUtil.crefCCommentWithVariability(v)
         let index = getValueReference(v, getSimCode(), false)
         <<
-        this_function->function_vars-><%crefTypeOMSIC(name)%>[<%index%>] <%c_comment%>
+        this_function->function_vars-><%crefTypeOMSIC(name)%>[<%index%>]<%c_comment%>
         >>
 
       else "CREF_NOT_FOUND"
@@ -4515,7 +4518,10 @@ template assertCommon(Exp condition, list<Exp> messages, Exp level, Context cont
   let AddionalFuncName = match context
             case FUNCTION_CONTEXT(__) then ''
             else '_withEquationIndexes'
-  let infoTextContext = '"The following assertion has been violated %sat time %f\n<%Util.escapeModelicaStringToCString(ExpressionDumpTpl.dumpExp(condition,"\""))%>", initial() ? "during initialization " : "", data->localData[0]->timeValue'
+  let assertExpStr = Util.escapeModelicaStringToCString(ExpressionDumpTpl.dumpExp(condition,"\""))
+  /* Note that our error/log functions split the message on new lines and indent it. So it is better to have one long string
+     and send it to them instead of calling them repeatedlly (avoids the 'assert', 'warning' labels printed for each call.) */
+  let infoTextContext = '"The following assertion has been violated %sat time %f\n(%s) --> \"%s\"", initial() ? "during initialization " : "", data->localData[0]->timeValue, assert_cond, <%msgVar%>'
   let omcAssertFunc = match level case ENUM_LITERAL(index=1) then 'omc_assert_warning<%AddionalFuncName%>(' else 'omc_assert<%AddionalFuncName%>(threadData, '
   let rethrow = match level case ENUM_LITERAL(index=1) then '' else '<%\n%>data->simulationInfo->needToReThrow = 1;'
   let assertCode = match context case FUNCTION_CONTEXT(__) then
@@ -4525,13 +4531,13 @@ template assertCommon(Exp condition, list<Exp> messages, Exp level, Context cont
     >>
     else
     <<
+    const char* assert_cond = "(<%assertExpStr%>)";
     if (data->simulationInfo->noThrowAsserts) {
-      infoStreamPrintWithEquationIndexes(LOG_ASSERT, 0, equationIndexes, <%infoTextContext%>);
-      infoStreamPrint(LOG_ASSERT, 0, "%s", <%msgVar%>);<%rethrow%>
+      FILE_INFO info = {<%infoArgs(info)%>};
+      infoStreamPrintWithEquationIndexes(LOG_ASSERT, info, 0, equationIndexes, <%infoTextContext%>);<%rethrow%>
     } else {
       FILE_INFO info = {<%infoArgs(info)%>};
-      omc_assert_warning(info, <%infoTextContext%>);
-      <%omcAssertFunc%>info, equationIndexes, <%msgVar%>);
+      <%omcAssertFunc%>info, equationIndexes, <%infoTextContext%>);
     }
     >>
   let warningTriggered = tempDeclZero("static int", &varDecls)
@@ -4566,8 +4572,7 @@ template assertCommonVar(Text condVar, Text msgVar, Context context, Text &varDe
     <<
     if(!(<%condVar%>))
     {
-      FILE_INFO info = omc_dummyFileInfo;
-      omc_assert(threadData, info, "Common assertion failed");
+      omc_assert(threadData, omc_dummyFileInfo, "Common assertion failed");
     }
     >>
   case FUNCTION_CONTEXT(__) then
@@ -4590,12 +4595,13 @@ template assertCommonVar(Text condVar, Text msgVar, Context context, Text &varDe
     if(!(<%condVar%>))
     {
       if (data->simulationInfo->noThrowAsserts) {
-        infoStreamPrintWithEquationIndexes(LOG_ASSERT, 0, equationIndexes, "The following assertion has been violated %sat time %f", initial() ? "during initialization " : "", data->localData[0]->timeValue);
+        FILE_INFO info = {<%infoArgs(info)%>};
+        infoStreamPrintWithEquationIndexes(LOG_ASSERT, info, 0, equationIndexes, "The following assertion has been violated %sat time %f", initial() ? "during initialization " : "", data->localData[0]->timeValue);
         data->simulationInfo->needToReThrow = 1;
       } else {
         FILE_INFO info = {<%infoArgs(info)%>};
         omc_assert_warning(info, "The following assertion has been violated %sat time %f", initial() ? "during initialization " : "", data->localData[0]->timeValue);
-        throwStreamPrintWithEquationIndexes(threadData, equationIndexes, <%msgVar%>);
+        throwStreamPrintWithEquationIndexes(threadData, info, equationIndexes, <%msgVar%>);
       }
     }
     >>
@@ -4744,9 +4750,9 @@ template jacCrefs(ComponentRef cr, Context context, Integer ix)
  match context
    case JACOBIAN_CONTEXT(jacHT=SOME(jacHT)) then
      match simVarFromHT(cr, jacHT)
-     case SIMVAR(varKind=BackendDAE.JAC_VAR()) then 'jacobian->resultVars[<%index%>] /* <%escapeCComments(crefStrNoUnderscore(name))%> <%variabilityString(varKind)%> */'
-     case SIMVAR(varKind=BackendDAE.JAC_DIFF_VAR()) then 'jacobian->tmpVars[<%index%>] /* <%escapeCComments(crefStrNoUnderscore(name))%> <%variabilityString(varKind)%> */'
-     case SIMVAR(varKind=BackendDAE.SEED_VAR()) then 'jacobian->seedVars[<%index%>] /* <%escapeCComments(crefStrNoUnderscore(name))%> <%variabilityString(varKind)%> */'
+     case v as SIMVAR(varKind=BackendDAE.JAC_VAR()) then 'jacobian->resultVars[<%index%>]<%crefCCommentWithVariability(v)%>'
+     case v as SIMVAR(varKind=BackendDAE.JAC_DIFF_VAR()) then 'jacobian->tmpVars[<%index%>]<%crefCCommentWithVariability(v)%>'
+     case v as SIMVAR(varKind=BackendDAE.SEED_VAR()) then 'jacobian->seedVars[<%index%>]<%crefCCommentWithVariability(v)%>'
      case SIMVAR(index=-2) then crefOld(cr, ix)
 end jacCrefs;
 
@@ -4860,11 +4866,11 @@ template crefToCStr(ComponentRef cr, Integer ix, Boolean isPre, Boolean isStart,
     case SIMVAR(aliasvar=ALIAS(varName=varName)) then crefToCStr(varName, ix, isPre, isStart, &sub)
     case SIMVAR(aliasvar=NEGATEDALIAS(varName=varName), type_=T_BOOL()) then '!(<%crefToCStr(varName, ix, isPre, isStart, &sub)%>)'
     case SIMVAR(aliasvar=NEGATEDALIAS(varName=varName)) then '-(<%crefToCStr(varName, ix, isPre, isStart, &sub)%>)'
-    case SIMVAR(varKind=JAC_VAR()) then '(parentJacobian->resultVars[<%index%>])<%&sub%> /* <%escapeCComments(crefStrNoUnderscore(name))%> <%variabilityString(varKind)%> */'
-    case SIMVAR(varKind=JAC_DIFF_VAR()) then '(parentJacobian->tmpVars[<%index%>])<%&sub%> /* <%escapeCComments(crefStrNoUnderscore(name))%> <%variabilityString(varKind)%> */'
-    case SIMVAR(varKind=SEED_VAR()) then '(parentJacobian->seedVars[<%index%>])<%&sub%> /* <%escapeCComments(crefStrNoUnderscore(name))%> <%variabilityString(varKind)%> */'
-    case SIMVAR(varKind=DAE_RESIDUAL_VAR()) then '(data->simulationInfo->daeModeData->residualVars[<%index%>])<%&sub%> /* <%escapeCComments(crefStrNoUnderscore(name))%> <%variabilityString(varKind)%> */'
-    case SIMVAR(varKind=DAE_AUX_VAR()) then '(data->simulationInfo->daeModeData->auxiliaryVars[<%index%>])<%&sub%> /* <%escapeCComments(crefStrNoUnderscore(name))%> <%variabilityString(varKind)%> */'
+    case v as SIMVAR(varKind=JAC_VAR()) then '(parentJacobian->resultVars[<%index%>])<%&sub%><%crefCCommentWithVariability(v)%>'
+    case v as SIMVAR(varKind=JAC_DIFF_VAR()) then '(parentJacobian->tmpVars[<%index%>])<%&sub%><%crefCCommentWithVariability(v)%>'
+    case v as SIMVAR(varKind=SEED_VAR()) then '(parentJacobian->seedVars[<%index%>])<%&sub%><%crefCCommentWithVariability(v)%>'
+    case v as SIMVAR(varKind=DAE_RESIDUAL_VAR()) then '(data->simulationInfo->daeModeData->residualVars[<%index%>])<%&sub%><%crefCCommentWithVariability(v)%>'
+    case v as SIMVAR(varKind=DAE_AUX_VAR()) then '(data->simulationInfo->daeModeData->auxiliaryVars[<%index%>])<%&sub%><%crefCCommentWithVariability(v)%>'
     case SIMVAR(index=-2) then
       (let s = (if isPre then crefNonSimVar(crefPrefixPre(cr)) else crefNonSimVar(cr))
       if intEq(ix,0) then s
@@ -4949,7 +4955,9 @@ end addRootsTempArray;
 
 template modelicaLine(builtin.SourceInfo info)
 ::=
-  if boolOr(acceptMetaModelicaGrammar(), Flags.isSet(Flags.GEN_DEBUG_SYMBOLS))
+  match info
+  case SOURCEINFO(fileName="") then ""
+  else if boolOr(acceptMetaModelicaGrammar(), Flags.isSet(Flags.GEN_DEBUG_SYMBOLS))
     then (if Flags.isSet(OMC_RECORD_ALLOC_WORDS)
     then '/*#modelicaLine <%infoStr(info)%>*/<%\n%><% match info case SOURCEINFO() then (if intEq(-1, stringFind(fileName,".interface.mo")) then 'mmc_set_current_pos("<%infoStr(info)%>");<%\n%>') %>'
     else '/*#modelicaLine <%infoStr(info)%>*/<%\n%>'
@@ -7367,8 +7375,7 @@ template daeExpReduction(Exp exp, Context context, Text &preExp,
       let check =
       <<
       if (<%stepVar%> == 0) {
-        FILE_INFO info = omc_dummyFileInfo;
-        omc_assert(threadData, info, "Range with a step of zero.");
+        omc_assert(threadData, omc_dummyFileInfo, "Range with a step of zero.");
       }<%\n%>
       >>
       match iter.exp
@@ -7847,11 +7854,11 @@ template varArrayNameValues(SimVar var, Integer ix, Boolean isPre, Boolean isSta
         case SIMVAR(varKind=EXTOBJ()) then
           "ERROR: Not implemented in varArrayNameValues"
         case SIMVAR(__) then
-          let c_comment = escapeCComments(crefStrNoUnderscore(name))
+          let c_comment = CodegenUtil.crefCCommentWithVariability(var)
           <<
           <%if isStart then '<%varAttributes(var, &sub)%>.start'
-             else if isPre then '(<%arr%>this_function->pre_vars-><%crefTypeOMSIC(name)%>[<%index%>]/* <%c_comment%> <%variabilityString(varKind)%> */)<%&sub%> '
-             else '(<%arr%>this_function->function_vars-><%crefTypeOMSIC(name)%>[<%index%>]/* <%c_comment%> <%variabilityString(varKind)%> */)<%&sub%> '
+            else if isPre then '(<%arr%>this_function->pre_vars-><%crefTypeOMSIC(name)%>[<%index%>]<%c_comment%>)<%&sub%>'
+            else '(<%arr%>this_function->function_vars-><%crefTypeOMSIC(name)%>[<%index%>]<%c_comment%>)<%&sub%>'
           %>
           >>
       end match
@@ -7859,11 +7866,14 @@ template varArrayNameValues(SimVar var, Integer ix, Boolean isPre, Boolean isSta
       match var
         case SIMVAR(varKind=PARAM())
         case SIMVAR(varKind=OPT_TGRID()) then
-          '(<%arr%>data->simulationInfo-><%crefShortType(name)%>Parameter[<%index%>]/* <%escapeCComments(crefStrNoUnderscore(name))%> <%variabilityString(varKind)%> */)<%&sub%> '
+          '(<%arr%>data->simulationInfo-><%crefShortType(name)%>Parameter[<%index%>]<%crefCCommentWithVariability(var)%>)<%&sub%>'
         case SIMVAR(varKind=EXTOBJ()) then
           '(<%arr%>data->simulationInfo->extObjs[<%index%>])<%&sub%>'
         case SIMVAR(__) then
-          '<%if isStart then '<%varAttributes(var, &sub)%>.start' else if isPre then '(<%arr%>data->simulationInfo-><%crefShortType(name)%>VarsPre[<%index%>]/* <%escapeCComments(crefStrNoUnderscore(name))%> <%variabilityString(varKind)%> */)<%&sub%> ' else '(<%arr%>data->localData[<%ix%>]-><%crefShortType(name)%>Vars[<%index%>]/* <%escapeCComments(crefStrNoUnderscore(name))%> <%variabilityString(varKind)%> */)<%sub%> '%>'
+          let c_comment = CodegenUtil.crefCCommentWithVariability(var)
+          '<%if isStart then '<%varAttributes(var, &sub)%>.start'
+             else if isPre then '(<%arr%>data->simulationInfo-><%crefShortType(name)%>VarsPre[<%index%>]<%c_comment%>)<%&sub%>'
+             else '(<%arr%>data->localData[<%ix%>]-><%crefShortType(name)%>Vars[<%index%>]<%c_comment%>)<%sub%>'%>'
       end match
   end match
 end varArrayNameValues;
@@ -7879,7 +7889,7 @@ template crefVarInfo(ComponentRef cr)
 ::=
   match cref2simvar(cr, getSimCode())
   case var as SIMVAR(__) then
-  'data->modelData-><%varArrayName(var)%>Data[<%index%>].info /* <%escapeCComments(crefStrNoUnderscore(name))%> */'
+  'data->modelData-><%varArrayName(var)%>Data[<%index%>].info /* <%crefCComment(var, crefStrNoUnderscore(name))%> */'
 end crefVarInfo;
 
 template varAttributes(SimVar var, Text &sub)
@@ -7888,7 +7898,7 @@ template varAttributes(SimVar var, Text &sub)
   match var
   case SIMVAR(index=-1) then crefAttributes(name) // input variable? pass subs!!!
   case SIMVAR(__) then
-  '(<%arr%>data->modelData-><%varArrayName(var)%>Data[<%index%>]/* <%escapeCComments(crefStrNoUnderscore(name))%> <%variabilityString(varKind)%> */)<%sub%>.attribute '
+  '(<%arr%>data->modelData-><%varArrayName(var)%>Data[<%index%>]<%crefCCommentWithVariability(var)%>)<%sub%>.attribute '
 end varAttributes;
 
 template crefAttributes(ComponentRef cr)
@@ -7897,7 +7907,7 @@ template crefAttributes(ComponentRef cr)
   case var as SIMVAR(index=-1, varKind=JAC_VAR()) then "dummyREAL_ATTRIBUTE"
   case var as SIMVAR(__) then
     if intLt(index,0) then error(sourceInfo(), 'varAttributes got negative index=<%index%> for <%crefStr(name)%>') else
-    'data->modelData-><%varArrayName(var)%>Data[<%index%>].attribute /* <%escapeCComments(crefStrNoUnderscore(name))%> */'
+    'data->modelData-><%varArrayName(var)%>Data[<%index%>].attribute /* <%crefCComment(var, crefStrNoUnderscore(name))%> */'
 end crefAttributes;
 
 template typeCastContext(Context context, Type ty)

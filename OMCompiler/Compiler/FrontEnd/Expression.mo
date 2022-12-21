@@ -7733,8 +7733,8 @@ algorithm
     // cosh(x)
     case DAE.CALL(path = Absyn.IDENT("cosh")) then true;
       /* literals */
-    case DAE.ICONST(i) then i>=0;
-    case DAE.RCONST(r) then realGe(r,0.0);
+    case DAE.ICONST(i) then i >= 0;
+    case DAE.RCONST(r) then r >= 0.0;
       /* e1 + e2 */
     case DAE.BINARY(e1,DAE.ADD(),e2)
       then isPositiveOrZero(e1) and isPositiveOrZero(e2);
@@ -7790,6 +7790,12 @@ algorithm
 
   end match;
 end isNegativeOrZero;
+
+function isGreaterOrEqual
+  input DAE.Exp exp1;
+  input DAE.Exp exp2;
+  output Boolean isGreaterOrEqual = isPositiveOrZero(ExpressionSimplify.simplify(expSub(exp1, exp2)));
+end isGreaterOrEqual;
 
 public function isHalf
 "Returns true if an expression is 0.5"
@@ -11062,16 +11068,6 @@ algorithm
 
   end match;
 end promoteExp3;
-
-public function hashExpMod "
-author: PA
-hash expression to value in range [0,mod-1]"
-  input DAE.Exp e;
-  input Integer mod;
-  output Integer hash;
-algorithm
-  hash := intMod(intAbs(hashExp(e)),mod);
-end hashExpMod;
 
 public function hashExp "help function to hashExpMod"
   input DAE.Exp e;

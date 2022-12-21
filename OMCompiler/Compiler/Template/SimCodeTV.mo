@@ -252,6 +252,7 @@ package SimCodeVar
       list<SimVar> sensitivityVars;
       list<SimVar> dataReconSetcVars;
       list<SimVar> dataReconinputVars;
+      list<SimVar> dataReconSetBVars;
     end SIMVARS;
   end SimVars;
 
@@ -838,29 +839,43 @@ package SimCode
       Integer numSetcVars;
       Integer numDataReconVars;
       Integer numRealInputVars "for fmi cs to interpolate inputs";
+      Integer numSetbVars "for data reconciliation setB vars";
+      Integer numRelatedBoundaryConditions "for data reconciliation count number of boundary conditions which failed the extraction algorithm";
     end VARINFO;
   end VarInfo;
 
   uniontype SimGenericCall
     record SINGLE_GENERIC_CALL
       Integer index;
-      list<SimIterator> iters;
+      list<BackendDAE.SimIterator> iters;
       DAE.Exp lhs;
       DAE.Exp rhs;
     end SINGLE_GENERIC_CALL;
 
-    record RESIDUAL_GENERIC_CALL
-    end RESIDUAL_GENERIC_CALL;
+    record IF_GENERIC_CALL
+      Integer index;
+      list<BackendDAE.SimIterator> iters;
+      list<SimBranch> branches;
+    end IF_GENERIC_CALL;
+
+    record WHEN_GENERIC_CALL
+      Integer index;
+      list<BackendDAE.SimIterator> iters;
+      list<SimBranch> branches;
+    end WHEN_GENERIC_CALL;
   end SimGenericCall;
 
-  uniontype SimIterator
-    record SIM_ITERATOR
-      DAE.ComponentRef name;
-      Integer start;
-      Integer step;
-      Integer size;
-    end SIM_ITERATOR;
-  end SimIterator;
+  uniontype SimBranch
+    record SIM_BRANCH
+      Option<DAE.Exp> condition;
+      list<tuple<DAE.Exp, DAE.Exp>> body;
+    end SIM_BRANCH;
+
+    record SIM_BRANCH_STMT
+      Option<DAE.Exp> condition;
+      list<DAE.Statement> body;
+    end SIM_BRANCH_STMT;
+  end SimBranch;
 
   uniontype DaeModeConfig
     record ALL_EQUATIONS end ALL_EQUATIONS;
@@ -1406,6 +1421,10 @@ package SimCodeUtil
     output Boolean b ;
   end jacobianColumnsAreEmpty;
 
+  function getSimIteratorSize
+    input list<BackendDAE.SimIterator> iters;
+    output Integer size ;
+  end getSimIteratorSize;
 end SimCodeUtil;
 
 package SimCodeFunctionUtil
@@ -1619,11 +1638,21 @@ package BackendDAE
 
   uniontype ZeroCrossing
     record ZERO_CROSSING
-      DAE.Exp relation_;
-      list<Integer> occurEquLst;
-      list<Integer> occurWhenLst;
+      Integer index                           "zero crossing index";
+      DAE.Exp relation_                       "function";
+      list<Integer> occurEquLst               "list of equations where the function occurs";
+      Option<list<SimIterator>> iter  "optional iterator for for-loops";
     end ZERO_CROSSING;
   end ZeroCrossing;
+
+  uniontype SimIterator
+    record SIM_ITERATOR
+      DAE.ComponentRef name;
+      Integer start;
+      Integer step;
+      Integer size;
+    end SIM_ITERATOR;
+  end SimIterator;
 
   uniontype TimeEvent
     record SIMPLE_TIME_EVENT "e.g. time > 0.5"
@@ -3997,7 +4026,7 @@ package Flags
   constant ConfigFlag REDUCE_TERMS;
   constant ConfigFlag LABELED_REDUCTION;
   constant ConfigFlag LOAD_MSL_MODEL;
-  constant ConfigFlag Load_PACKAGE_FILE;
+  constant ConfigFlag LOAD_PACKAGE_FILE;
   constant ConfigFlag SINGLE_INSTANCE_AGLSOLVER;
   constant ConfigFlag LINEARIZATION_DUMP_LANGUAGE;
   constant ConfigFlag USE_ZEROMQ_IN_SIM;
@@ -4008,6 +4037,7 @@ package Flags
   constant ConfigFlag ZEROMQ_CLIENT_ID;
   constant ConfigFlag FMI_FILTER;
   constant ConfigFlag EXPORT_CLOCKS_IN_MODELDESCRIPTION;
+  constant ConfigFlag OBFUSCATE;
 
   function isSet
     input DebugFlag inFlag;

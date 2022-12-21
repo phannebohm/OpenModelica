@@ -110,7 +110,6 @@ import NFSCodeEnv;
 import NFSCodeFlatten;
 import NFSCodeLookup;
 import Obfuscate;
-import OpenTURNS;
 import PackageManagement;
 import Parser;
 import Print;
@@ -1431,30 +1430,6 @@ algorithm
         (b,outCache,_,executable,_,_,initfilename,_,_,_) = buildModel(outCache,inEnv, vals, msg);
       then
         ValuesUtil.makeArray(if b then {Values.STRING(executable),Values.STRING(initfilename)} else {Values.STRING(""),Values.STRING("")});
-
-    case ("buildOpenTURNSInterface",vals)
-      equation
-        (outCache,scriptFile) = buildOpenTURNSInterface(outCache,inEnv,vals,msg);
-      then
-        Values.STRING(scriptFile);
-
-    case ("buildOpenTURNSInterface",_)
-      equation
-        Error.addMessage(Error.INTERNAL_ERROR,{"buildOpenTURNSInterface failed. Use getErrorString() to see why."});
-      then
-        fail();
-
-    case ("runOpenTURNSPythonScript",vals)
-      equation
-        (outCache,logFile) = runOpenTURNSPythonScript(outCache,inEnv,vals,msg);
-      then
-        Values.STRING(logFile);
-
-    case ("runOpenTURNSPythonScript",_)
-      equation
-        Error.addMessage(Error.INTERNAL_ERROR,{"runOpenTURNSPythonScript failed. Use getErrorString() to see why"});
-      then
-        fail();
 
     // adrpo: see if the model exists before simulation!
     case ("simulate",vals as Values.CODE(Absyn.C_TYPENAME(className))::_)
@@ -3108,6 +3083,9 @@ algorithm
     case ("getModelInstance", {Values.CODE(Absyn.C_TYPENAME(classpath)), Values.BOOL(b)})
       then NFApi.getModelInstance(classpath, b);
 
+    case ("getModelInstanceIcon", {Values.CODE(Absyn.C_TYPENAME(classpath)), Values.BOOL(b)})
+      then NFApi.getModelInstanceIcon(classpath, b);
+
     case ("storeAST", {})
       then Values.INTEGER(SymbolTable.storeAST());
 
@@ -3303,7 +3281,7 @@ algorithm
   (cache,env,dae) := matchcontinue (graph_inst, nf_inst)
     case (false, true)
       algorithm
-        (flat_model, nf_funcs, flatString) := runFrontEndWorkNF(className, dumpFlat);
+        (flat_model, nf_funcs, flatString) := runFrontEndWorkNF(className, relaxedFrontEnd, dumpFlat);
         (dae, funcs) := NFConvertDAE.convert(flat_model, nf_funcs);
 
         cache := FCore.emptyCache();
@@ -3347,20 +3325,30 @@ end runFrontEndWork;
 
 public function runFrontEndWorkNF
   input Absyn.Path className;
+  input Boolean relaxedFrontend = false;
   input Boolean dumpFlat = false;
   output NFFlatModel flatModel;
   output NFFlatten.FunctionTree functions;
   output String flatString;
 protected
   SCode.Program builtin_p, scode_p, annotation_p;
-  Boolean b;
+  Boolean nf_api, inst_failed;
   Absyn.Path cls_name = className;
   Obfuscate.Mapping obfuscate_map;
+  String obfuscate_mode;
 algorithm
   (_, builtin_p) := FBuiltin.getInitialFunctions();
   scode_p := SymbolTable.getSCode();
 
-  if not Flags.getConfigString(Flags.OBFUSCATE) == "none" then
+  obfuscate_mode := Flags.getConfigString(Flags.OBFUSCATE);
+
+  // Enable obfuscation of encrypted variables if a higher obfuscation hasn't
+  // been chosen and the AST contains encrypted classes.
+  if obfuscate_mode == "none" and Interactive.astContainsEncryptedClass(SymbolTable.getAbsyn()) then
+    FlagsUtil.setConfigString(Flags.OBFUSCATE, "encrypted");
+  end if;
+
+  if obfuscate_mode == "full" then
     (scode_p, cls_name, _, _, obfuscate_map) := Obfuscate.obfuscateProgram(scode_p, cls_name);
   end if;
 
@@ -3372,18 +3360,20 @@ algorithm
 
   // make sure we don't run the default instantiateModel using -d=nfAPI
   // only the stuff going via NFApi.mo should have this flag activated
-  b := FlagsUtil.set(Flags.NF_API, false);
+  nf_api := FlagsUtil.set(Flags.NF_API, false);
+  inst_failed := false;
+
   try
     (flatModel, functions, flatString) :=
-      NFInst.instClassInProgram(cls_name, scode_p, annotation_p, dumpFlat);
-    FlagsUtil.set(Flags.NF_API, b);
+      NFInst.instClassInProgram(cls_name, scode_p, annotation_p, relaxedFrontend, dumpFlat);
   else
-    FlagsUtil.set(Flags.NF_API, b);
-    fail();
+    inst_failed := true;
   end try;
 
-  if Flags.getConfigString(Flags.OBFUSCATE) == "protected" then
-    flatModel := FlatModel.deobfuscatePublicVars(flatModel, obfuscate_map);
+  FlagsUtil.set(Flags.NF_API, nf_api);
+
+  if inst_failed then
+    fail();
   end if;
 end runFrontEndWorkNF;
 
@@ -4065,12 +4055,7 @@ algorithm
   end if;
 
   // Check flag fmiFlags if we need additional 3rdParty runtime libs and files
-  fmiFlagsList := Flags.getConfigStringList(Flags.FMI_FLAGS);
-  if listLength(fmiFlagsList) >= 1 and not stringEqual(List.first(fmiFlagsList), "none") then
-    needs3rdPartyLibs := true;
-  else
-    needs3rdPartyLibs := false;
-  end if;
+  needs3rdPartyLibs := SimCodeUtil.cvodeFmiFlagIsSet(SimCodeUtil.createFMISimulationFlags(false));
 
   // Use CMake on Windows when cross-compiling with docker
   _ := match (Flags.getConfigString(Flags.FMU_CMAKE_BUILD), needs3rdPartyLibs)
@@ -4161,7 +4146,7 @@ algorithm
     ext := if Autoconf.os == "Windows_NT" then ".exe" else "";
     if encrypt then
       // create the path till packagetool
-      packageTool := stringAppendList({omhome,pd,"lib",pd,"omc",pd,"SEMLA",pd,"packagetool",ext});
+      packageTool := stringAppendList({omhome,pd,"bin",pd,"omc-semla",pd,"packagetool",ext});
       if System.regularFileExists(packageTool) then
         // create the list of arguments for packagetool
         packageToolArgs := "-librarypath \"" + System.dirname(fileName) + "\" -version \"1.0\" -language \"3.2\" -encrypt \"" + boolString(encrypt) + "\"";
@@ -5750,72 +5735,6 @@ algorithm
   end matchcontinue;
 end createSimulationResultFromcallModelExecutable;
 
-protected function buildOpenTURNSInterface "builds the OpenTURNS interface by calling the OpenTURNS module"
-  input FCore.Cache inCache;
-  input FCore.Graph inEnv;
-  input list<Values.Value> vals;
-  input Absyn.Msg inMsg;
-  output FCore.Cache outCache;
-  output String scriptFile;
-algorithm
-  (outCache,scriptFile):= match(inCache,inEnv,vals,inMsg)
-    local
-      String templateFile, str;
-      Absyn.Program p;
-      Absyn.Path className;
-      FCore.Cache cache;
-      DAE.DAElist dae;
-      FCore.Graph env;
-      BackendDAE.BackendDAE dlow;
-      DAE.FunctionTree funcs;
-      Boolean showFlatModelica;
-      String filenameprefix,description;
-
-    case(cache,_,{Values.CODE(Absyn.C_TYPENAME(className)),Values.STRING(templateFile),Values.BOOL(showFlatModelica)},_)
-      equation
-        (cache,env,SOME(dae),_) = runFrontEnd(cache,inEnv,className,false, transform = true);
-        //print("instantiated class\n");
-        funcs = FCore.getFunctionTree(cache);
-        if showFlatModelica then
-          print(DAEDump.dumpStr(dae, funcs));
-        end if;
-        // get all the variable names with a distribution
-        // TODO FIXME
-        // sort all variable names in the distribution order
-        // TODO FIXME
-        filenameprefix = AbsynUtil.pathString(className);
-        description = DAEUtil.daeDescription(dae);
-        dlow = BackendDAECreate.lower(dae,cache,env,BackendDAE.EXTRA_INFO(description,filenameprefix));
-        //print("lowered class\n");
-        //print("calling generateOpenTurnsInterface\n");
-        scriptFile = OpenTURNS.generateOpenTURNSInterface(dlow, className, SymbolTable.getAbsyn(), templateFile);
-      then
-        (cache,scriptFile);
-
-  end match;
-end buildOpenTURNSInterface;
-
-protected function runOpenTURNSPythonScript
-"runs OpenTURNS with the given python script returning the log file"
-  input FCore.Cache inCache;
-  input FCore.Graph inEnv;
-  input list<Values.Value> vals;
-  input Absyn.Msg inMsg;
-  output FCore.Cache outCache;
-  output String outLogFile;
-algorithm
-  (outCache,outLogFile):= match(inCache,inEnv,vals,inMsg)
-    local
-      String pythonScriptFile, logFile;
-      FCore.Cache cache;
-    case(cache,_,{Values.STRING(pythonScriptFile)},_)
-      equation
-        logFile = OpenTURNS.runPythonScript(pythonScriptFile);
-      then
-        (cache,logFile);
-  end match;
-end runOpenTURNSPythonScript;
-
 public function getFileDir "author: x02lucpo
   returns the dir where class file (.mo) was saved or
   $OPENMODELICAHOME/work if the file was not saved yet"
@@ -6317,7 +6236,7 @@ algorithm
         allClassPaths = getAllClassPathsRecursive(className, b, SymbolTable.getAbsyn());
         print("Number of classes to check: " + intString(listLength(allClassPaths)) + "\n");
         // print ("All paths: \n" + stringDelimitList(List.map(allClassPaths, AbsynUtil.pathString), "\n") + "\n");
-        failed = checkAll(cache, env, allClassPaths, msg, 0);
+        failed = checkAll(cache, env, allClassPaths, msg, not Testsuite.isRunning(), 0);
         ret = "Number of classes checked / failed: " + intString(listLength(allClassPaths)) + "/" + intString(failed);
       then
         (cache,Values.STRING(ret));
@@ -6360,6 +6279,7 @@ function checkAll
   input FCore.Graph inEnv;
   input list<Absyn.Path> allClasses;
   input Absyn.Msg inMsg;
+  input Boolean reportTimes;
   input output Integer failed;
 protected
   Absyn.Program p;
@@ -6401,23 +6321,29 @@ algorithm
         s = realString(elapsedTime);
         (smsg, f) = failOrSuccess(str);
         failed = if f then failed + 1 else failed;
-        print (s + " seconds -> " + smsg + "\n\t");
+
+        if reportTimes then
+          print (s + " seconds -> " + smsg + "\n\t");
+        else
+          print(smsg + "\n\t");
+        end if;
+
         print (System.stringReplace(str, "\n", "\n\t"));
         print ("\n");
         print ("Error String:\n" + Print.getErrorString() + "\n");
         print ("Error Buffer:\n" + ErrorExt.printMessagesStr(false) + "\n");
         print ("#" + (if f then "[-]" else "[+]") + ", " +
-          realString(elapsedTime) + ", " +
+          (if reportTimes then realString(elapsedTime) + ", " else "") +
           AbsynUtil.pathString(className) + "\n");
         print ("-------------------------------------------------------------------------\n");
-        failed = checkAll(cache, env, rest, msg, failed);
+        failed = checkAll(cache, env, rest, msg, reportTimes, failed);
       then ();
 
     case (cache,env,className::rest,msg)
       equation
         c = InteractiveUtil.getPathedClassInProgram(className, p);
         print("Checking skipped: " + Dump.unparseClassAttributesStr(c) + " " + AbsynUtil.pathString(className) + "... \n");
-        failed = checkAll(cache, env, rest, msg, failed);
+        failed = checkAll(cache, env, rest, msg, reportTimes, failed);
       then
         ();
   end matchcontinue;
