@@ -547,6 +547,15 @@ public
     print("\n");
   end dump;
 
+  public function unique_list<T>
+    "Takes a list of elements and returns a list with duplicates removed, so that
+     each element in the new list is unique."
+    input list<T> inList;
+    input UnorderedSet.Hash hashFunc;
+    input UnorderedSet.KeyEq keyEqFunc;
+    output list<T> outList = toList(fromList(inList, hashFunc, keyEqFunc));
+  end unique_list;
+
 protected
   function find
     "Tries to find a key in the set, returning the key as an option, and the

@@ -158,12 +158,12 @@ simulate(simpleNonlinearLoop); getErrorString();
 //
 // ### Columns ###
 // ----------------------------------------
-// (x)	 affects:	{$RES_SIM_0,$RES_SIM_1}
-// (y)	 affects:	{$RES_SIM_0,$RES_SIM_1}
+// (x)	 affects:	{$RES_SIM_1,$RES_SIM_0}
+// (y)	 affects:	{$RES_SIM_1,$RES_SIM_0}
 //
 // ##### Rows #####
 // ----------------------------------------
-// ($RES_SIM_0)	 depends on:	{y,x}
+// ($RES_SIM_0)	 depends on:	{x,y}
 // ($RES_SIM_1)	 depends on:	{x,y}
 //
 // ========================================
@@ -171,11 +171,11 @@ simulate(simpleNonlinearLoop); getErrorString();
 // ========================================
 // Color (1)
 //   - Column: {y}
-//   - Row:    {$RES_SIM_0,$RES_SIM_1}
+//   - Row:    {}
 //
 // Color (2)
 //   - Column: {x}
-//   - Row:    {$RES_SIM_0,$RES_SIM_1}
+//   - Row:    {}
 //
 //
 // ################################################################################
@@ -246,18 +246,18 @@ simulate(simpleNonlinearLoop); getErrorString();
 // ##### Rows #####
 // ----------------------------------------
 // ($RES_SIM_1)	 depends on:	{x,y}
-// ($RES_SIM_0)	 depends on:	{y,x}
+// ($RES_SIM_0)	 depends on:	{x,y}
 //
 // ========================================
 // Sparsity Coloring
 // ========================================
 // Color (1)
 //   - Column: {x}
-//   - Row:    {$RES_SIM_1,$RES_SIM_0}
+//   - Row:    {}
 //
 // Color (2)
 //   - Column: {y}
-//   - Row:    {$RES_SIM_1,$RES_SIM_0}
+//   - Row:    {}
 //
 //
 // record SimulationResult

@@ -430,7 +430,7 @@ constant DebugFlag DUMP_RTEARING = DEBUG_FLAG(128, "dumpRecursiveTearing", false
 constant DebugFlag DIS_SYMJAC_FMI20 = DEBUG_FLAG(129, "disableDirectionalDerivatives", true,
   Gettext.gettext("For FMI 2.0 only dependecy analysis will be perform."));
 constant DebugFlag EVAL_OUTPUT_ONLY = DEBUG_FLAG(130, "evalOutputOnly", false,
-  Gettext.gettext("Generates equations to calculate outputs only."));
+  Gettext.gettext("Generates equations to calculate top level outputs only."));
 constant DebugFlag HARDCODED_START_VALUES = DEBUG_FLAG(131, "hardcodedStartValues", false,
   Gettext.gettext("Embed the start values of variables and parameters into the c++ code and do not read it from xml file."));
 constant DebugFlag DUMP_FUNCTIONS = DEBUG_FLAG(132, "dumpFunctions", false,
@@ -555,6 +555,8 @@ constant DebugFlag DUMP_SLICE = DEBUG_FLAG(191, "dumpSlice", false,
   Gettext.gettext("Dumps information about the slicing process (pseudo-array causalization)."));
 constant DebugFlag VECTORIZE_BINDINGS = DEBUG_FLAG(192, "vectorizeBindings", false,
   Gettext.gettext("Turns on vectorization of bindings when scalarization is turned off."));
+constant DebugFlag DUMP_EVENTS = DEBUG_FLAG(193, "dumpEvents", false,
+  Gettext.gettext("Dumps information about the detected event functions."));
 
 public
 // CONFIGURATION FLAGS

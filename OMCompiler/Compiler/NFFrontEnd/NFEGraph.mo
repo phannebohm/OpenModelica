@@ -188,23 +188,21 @@ public
 
     function hash
       input ENode node;
-      input Integer mod;
       output Integer hash;
     algorithm
       hash := match node
         local
           EClassId id1, id2;
-        case NUM()               then stringHashDjb2Mod(realString(node.num), mod);
-        case SYMBOL()            then ComponentRef.hash(node.cref, mod);
-        case UNARY()             then intMod(node.id * 3 + 7 * hashUnaryOp(node.op) + 1, mod);
-        case BINARY(id1, id2, _) then intMod(div((id1 + id2) * (id1 + id2 + 1), 2) + id1 + hashBinaryOp(node.op), mod);
+        case NUM()               then stringHashDjb2(realString(node.num));
+        case SYMBOL()            then ComponentRef.hash(node.cref);
+        case UNARY()             then node.id * 3 + 7 * hashUnaryOp(node.op) + 1;
+        case BINARY(id1, id2, _) then div((id1 + id2) * (id1 + id2 + 1), 2) + id1 + hashBinaryOp(node.op);
       end match;
     end hash;
 
     function hashPtr
       input Pointer<ENode> node;
-      input Integer mod;
-      output Integer h = hash(Pointer.access(node), mod);
+      output Integer h = hash(Pointer.access(node));
     end hashPtr;
 
     function children
@@ -327,7 +325,7 @@ public
       egraph := EGRAPH(
         hashcons   = UnorderedMap.new<EClassId>(ENode.hashPtr, ENode.isEqualPtr),
         unionfind  = UnionFind.new(),
-        eclasses   = UnorderedMap.new<EClass>(intMod,intEq),
+        eclasses   = UnorderedMap.new<EClass>(Util.id,intEq),
         worklist   = {}
       );
     end new;
@@ -586,7 +584,7 @@ public
     protected
       UnorderedSet<EClassId> workset;
     algorithm
-      workset := UnorderedSet.new<EClassId>(intMod, intEq);
+      workset := UnorderedSet.new<EClassId>(Util.id, intEq);
       for eclassid in graph.worklist loop
         UnorderedSet.add(find(graph, eclassid, "rebuild"), workset);
       end for;
@@ -762,7 +760,7 @@ public
       print("!\n");
     end if;
     print(intString(find(egraph, baseId, "graphDump_base")) + "\n");
-    bias := UnorderedMap.new<EClassId>(intMod,intEq);
+    bias := UnorderedMap.new<EClassId>(Util.id,intEq);
     for cl in UnorderedMap.toList(egraph.eclasses) loop
       (classId, clazz) := cl;
       //classId := find(egraph, classId, "graphDump_id");
@@ -869,8 +867,8 @@ public
     algorithm
       extractor := EXTRACTOR(
         egraph     = egraph,
-        best_nodes = UnorderedMap.new<ENode>(intMod, intEq),
-        dist       = UnorderedMap.new<Integer>(intMod, intEq)
+        best_nodes = UnorderedMap.new<ENode>(Util.id, intEq),
+        dist       = UnorderedMap.new<Integer>(Util.id, intEq)
       );
     end new;
 
@@ -987,7 +985,7 @@ public
     function fromStringHelper
       "helper for parsing: String -> Rule"
       input output StringReader sr;
-      input output UnorderedMap<String,Integer> vars = UnorderedMap.new<Integer>(stringHashDjb2Mod, stringEqual);
+      input output UnorderedMap<String,Integer> vars = UnorderedMap.new<Integer>(stringHashDjb2, stringEqual);
       output Pattern pattern;
     protected
       Integer char;
@@ -1060,7 +1058,6 @@ public
 
     function hash
       input Pattern p;
-      input Integer mod;
       output Integer out;
     algorithm
       out := match p
@@ -1076,11 +1073,11 @@ public
         case NUM(num)
           then 13*(realInt(num) + 7);
         case SYMBOL(str)
-          then stringHashDjb2Mod(str, mod);
+          then stringHashDjb2(str);
         case BINARY(temp_pattern1, temp_pattern2, bop)
-          then hash(temp_pattern1, mod) + hash(temp_pattern2, mod) + EGraph.hashBinaryOp(bop);
+          then hash(temp_pattern1) + hash(temp_pattern2) + EGraph.hashBinaryOp(bop);
         case UNARY(temp_pattern1, uop)
-          then hash(temp_pattern1, mod) + EGraph.hashUnaryOp(uop);
+          then hash(temp_pattern1) + EGraph.hashUnaryOp(uop);
       end match;
     end hash;
 
@@ -1107,7 +1104,7 @@ public
       input EClassId id;
       input EGraph egraph;
       input Pattern pattern;
-      input list<UnorderedMap<Integer, EClassId>> subs_in = {UnorderedMap.new<EClassId>(intMod,intEq)};
+      input list<UnorderedMap<Integer, EClassId>> subs_in = {UnorderedMap.new<EClassId>(Util.id,intEq)};
       output list<UnorderedMap<Integer, EClassId>> subs_out;
     protected
       EClass eclass;
@@ -1211,10 +1208,7 @@ public
 
     function hash
       input Rule rule;
-      input Integer mod;
-      output Integer out;
-    algorithm
-      out :=  intMod(Pattern.hash(rule.pattern_in, mod) + 10*Pattern.hash(rule.pattern_out, mod) + 1, mod);
+      output Integer out = Pattern.hash(rule.pattern_in) + 10*Pattern.hash(rule.pattern_out) + 1;
     end hash;
 
     function fromString

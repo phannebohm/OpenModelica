@@ -154,12 +154,12 @@ void copyReferenceFile(DATA * data, const std::string & filename)
 int getRelatedBoundaryConditions(DATA * data)
 {
   // check for _relatedBoundaryConditionsEquations.txt file exists to map the nonReconciled Vars failing with condition-2 of extraction algorithm
-  std::string relatedBoundaryConditionsFilename = string(data->modelData->modelFilePrefix) +  "_relatedBoundaryConditionsEquations.txt";
+  std::string relatedBoundaryConditionsFilename = string(data->modelData->modelFilePrefix) +  "_relatedBoundaryConditionsEquations.html";
 
   if (omc_flag[FLAG_OUTPUT_PATH])
   {
     relatedBoundaryConditionsFilename = string(omc_flagValue[FLAG_OUTPUT_PATH]) + "/" + relatedBoundaryConditionsFilename;
-    copyReferenceFile(data, "_relatedBoundaryConditionsEquations.txt");
+    copyReferenceFile(data, "_relatedBoundaryConditionsEquations.html");
   }
 
   ifstream relatedBoundaryConditionsFilenameip(relatedBoundaryConditionsFilename);
@@ -224,7 +224,8 @@ void createErrorHtmlReport(DATA * data, int status = 0)
   myfile << "<h2> Analysis: </h2>\n";
   myfile << "<table> \n";
   myfile << "<tr> \n" << "<th align=right> Number of auxiliary conditions: </th> \n" << "<td>" << data->modelData->nSetcVars << "</td> </tr>\n";
-  myfile << "<tr> \n" << "<th align=right> Number of variables to be reconciled: </th> \n" << "<td>" << data->modelData->ndataReconVars << "</td> </tr>\n";
+  myfile << "<tr> \n" << "<th align=right> Number of measured variables: </th> \n" << "<td>" << data->modelData->ndataReconVars << "</td> </tr>\n";
+  myfile << "<tr> \n" << "<th align=right> Number of unmeasured variables: </th> \n" << "<td>" << data->modelData->nSetbVars << "</td> </tr>\n";
   myfile << "<tr> \n" << "<th align=right> Number of related boundary conditions: </th> \n" << "<td>" << data->modelData->nRelatedBoundaryConditions << "</td> </tr>\n";
   myfile << "</table> \n";
 
@@ -232,6 +233,17 @@ void createErrorHtmlReport(DATA * data, int status = 0)
   myfile << "<h3> <a href=" << data->modelData->modelFilePrefix << "_AuxiliaryConditions.html" << " target=_blank> Auxiliary conditions </a> </h3>\n";
   // Intermediate Conditions
   myfile << "<h3> <a href=" << data->modelData->modelFilePrefix << "_IntermediateEquations.html" << " target=_blank> Intermediate equations </a> </h3>\n";
+
+  if (data->modelData->nSetbVars > 0)
+  {
+    // Boundary Conditions
+    //myfile << "<h3> <a href=" << data->modelData->modelFilePrefix << "_BoundaryConditionsEquations.html" << " target=_blank> Boundary conditions </a> </h3>\n";
+    // Intermediate Conditions
+    myfile << "<h3> <a href=" << data->modelData->modelFilePrefix << "_BoundaryConditionIntermediateEquations.html" << " target=_blank> Intermediate equations for unmeasured variables </a> </h3>\n";
+  }
+
+  if (data->modelData->nRelatedBoundaryConditions > 0)
+    myfile << "<h3> <a href=" << data->modelData->modelFilePrefix << "_relatedBoundaryConditionsEquations.html" << " target=_blank> Related boundary conditions </a> </h3>\n";
 
   // Error log
   myfile << "<h2> <a href=" << data->modelData->modelFilePrefix << ".log" << " target=_blank> Errors </a> </h2>\n";
@@ -362,7 +374,7 @@ void createHtmlReportFordataReconciliation(DATA *data, csvData &csvinputs, matri
   {
     myfile << "<tr> \n" << "<th align=right> Result of global test : </th> \n" << "<td>" << "FALSE" << "</td> </tr>\n";
   }
-  myfile << "<tr> \n" << "<th align=right> Quality value (J/Chi-square) : </th> \n" << "<td>" << J/chisquaredvalue[data->modelData->nSetcVars - 1] << "</td> </tr>\n";
+  myfile << "<tr> \n" << "<th align=right> Quality (J/Chi-square) : </th> \n" << "<td>" << J/chisquaredvalue[data->modelData->nSetcVars - 1] << "</td> </tr>\n";
   myfile << "</table>\n";
 
   // Auxiliary Conditions
@@ -374,13 +386,13 @@ void createHtmlReportFordataReconciliation(DATA *data, csvData &csvinputs, matri
   if (data->modelData->nSetbVars > 0)
   {
     // Boundary Conditions
-    myfile << "<h3> <a href=" << data->modelData->modelFilePrefix << "_BoundaryConditionsEquations.html" << " target=_blank> Boundary conditions </a> </h3>\n";
+    //myfile << "<h3> <a href=" << data->modelData->modelFilePrefix << "_BoundaryConditionsEquations.html" << " target=_blank> Boundary conditions </a> </h3>\n";
     // Intermediate Conditions
     myfile << "<h3> <a href=" << data->modelData->modelFilePrefix << "_BoundaryConditionIntermediateEquations.html" << " target=_blank> Intermediate equations for unmeasured variables </a> </h3>\n";
   }
 
   if (data->modelData->nRelatedBoundaryConditions > 0)
-    myfile << "<h3> <a href=" << data->modelData->modelFilePrefix << "_relatedBoundaryConditionsEquations.txt" << " target=_blank> Related boundary conditions </a> </h3>\n";
+    myfile << "<h3> <a href=" << data->modelData->modelFilePrefix << "_relatedBoundaryConditionsEquations.html" << " target=_blank> Related boundary conditions </a> </h3>\n";
 
   // Debug log
   myfile << "<h3> <a href=" << data->modelData->modelName << "_debug.txt" << " target=_blank> Debug log </a> </h3>\n";
@@ -418,10 +430,38 @@ void createHtmlReportFordataReconciliation(DATA *data, csvData &csvinputs, matri
   /* Add Results data */
   myfile << "<h2> Results: </h2>\n";
   myfile << "<table border=2>\n";
-  myfile << "<tr>\n" << "<th> Variables to be Reconciled </th>\n" << "<th> Initial Measured Values </th>\n" << "<th> Reconciled Values </th>\n" << "<th> Initial Half-width Confidence Intervals </th>\n" <<"<th> Reconciled Half-width Confidence Intervals </th>\n";
-  csvfile << "Variables to be Reconciled ," << "Initial Measured Values ," << "Reconciled Values ," << "Initial Half-width Confidence Intervals ," << "Reconciled Half-width Confidence Intervals,";
-  myfile << "<th> Results of Local Tests </th>\n" << "<th> Values of Local Tests </th>\n" << "<th> Margin to Correctness(distance from 1.96) </th>\n" << "</tr>\n";
-  csvfile << "Results of Local Tests ," << "Values of Local Tests ," << "Margin to Correctness(distance from 1.96) ," << "\n";
+  myfile << "<tr>\n" << "<th> Variable to be Estimated </th>\n" << "<th> Unit </th>\n" << "<th> Description </th>\n" << "<th> Initial Measured Value </th>\n" << "<th> Estimated Value </th>\n" << "<th> Initial Uncertainty </th>\n" <<"<th> Estimated Uncertainty </th>\n";
+  csvfile << "Variable to be Estimated ," << "Initial Measured Value ," << "Estimated Value ," << "Initial Uncertainty ," << "Estimated Uncertainty,";
+  myfile << "<th> Result of Local Test </th>\n" << "<th> Local Quality  </th>\n" << "<th> Comment </th>\n" << "</tr>\n";
+  csvfile << "Result of Local Test ," << "Local Quality  ," << "\n";
+
+  // collect units and description
+
+  std::vector<std::string> unitString, unitStringUnMeasuredVariables;
+  std::vector<std::string> description, descriptionUnMeasuredVariables;
+  for (unsigned int r = 0; r < csvinputs.headers.size(); r++)
+  {
+    for (int i = 0; i < data->modelData->nVariablesReal; i++)
+    {
+      if (strcmp(data->modelData->realVarsData[i].info.name, csvinputs.headers[r].c_str())==0)
+      {
+        char *unitStr = MMC_STRINGDATA(data->modelData->realVarsData[i].attribute.displayUnit);
+        unitString.push_back(unitStr);
+        description.push_back(data->modelData->realVarsData[i].info.comment);
+      }
+      else
+      {
+        // check units and description for unmeasured variables of interest
+        auto it = find(boundaryconditiondata.boundaryConditionVars.begin(), boundaryconditiondata.boundaryConditionVars.end(), data->modelData->realVarsData[i].info.name);
+        if (it != boundaryconditiondata.boundaryConditionVars.end())
+        {
+          char *unitStr = MMC_STRINGDATA(data->modelData->realVarsData[i].attribute.displayUnit);
+          unitStringUnMeasuredVariables.push_back(unitStr);
+          descriptionUnMeasuredVariables.push_back(data->modelData->realVarsData[i].info.comment);
+        }
+      }
+    }
+  }
 
   for (unsigned int r = 0; r < csvinputs.headers.size(); r++)
   {
@@ -435,83 +475,65 @@ void createHtmlReportFordataReconciliation(DATA *data, csvData &csvinputs, matri
       }
     }
 
-    if (reconciled)
+    myfile << "<tr>\n";
+    // variables of interest
+    myfile << "<td>" << csvinputs.headers[r] << "</td>\n";
+    csvfile << csvinputs.headers[r] << ",";
+
+    // Unit
+    myfile << "<td>" << unitString[r] << "</td>\n";
+    //csvfile << unitString[r] << ",";
+
+    // description
+    myfile << "<td>" << description[r] << "</td>\n";
+    //csvfile << description[r] << ",";
+
+    // Initial Measured Values
+    myfile << "<td>" << xdiag.data[r] << "</td>\n";
+    csvfile << xdiag.data[r] << ",";
+
+    // Reconciled Values
+    myfile << "<td>" << reconciled_X.data[r] << "</td>\n";
+    csvfile << reconciled_X.data[r] << ",";
+
+    // Initial Uncertainty Values
+    myfile << "<td>" << csvinputs.sxdata[r] << "</td>\n";
+    csvfile << csvinputs.sxdata[r] << ",";
+
+    // Reconciled Uncertainty Values
+    myfile << "<td>" << copyreconSx_diag.data[r] << "</td>\n";
+    csvfile << copyreconSx_diag.data[r] << ",";
+
+    // Results of Local Tests
+    if (newX[r] < 1.96)
     {
-      myfile << "<tr>\n";
-      // variables of interest
-      myfile << "<td>" << csvinputs.headers[r] << "</td>\n";
-      csvfile << csvinputs.headers[r] << ",";
-
-      // Initial Measured Values
-      myfile << "<td>" << xdiag.data[r] << "</td>\n";
-      csvfile << xdiag.data[r] << ",";
-
-      // Reconciled Values
-      myfile << "<td>" << reconciled_X.data[r] << "</td>\n";
-      csvfile << reconciled_X.data[r] << ",";
-
-      // Initial Uncertainty Values
-      myfile << "<td>" << csvinputs.sxdata[r] << "</td>\n";
-      csvfile << csvinputs.sxdata[r] << ",";
-
-      // Reconciled Uncertainty Values
-      myfile << "<td>" << copyreconSx_diag.data[r] << "</td>\n";
-      csvfile << copyreconSx_diag.data[r] << ",";
-
-      // Results of Local Tests
-      if (newX[r] < 1.96)
-      {
-        myfile << "<td>" << "TRUE" << "</td>\n";
-        csvfile << "TRUE" << ",";
-      }
-      else
-      {
-        myfile << "<td>" << "FALSE" << "</td>\n";
-        csvfile << "FALSE" << ",";
-      }
-
-      // Values of Local Tests
-      myfile << "<td>" << newX[r] << "</td>\n";
-      csvfile << newX[r] << ",";
-
-      // Margin to Correctness(distance from 1.96)
-      myfile << "<td>" << (1.96 - newX[r]) << "</td>\n";
-      csvfile << (1.96 - newX[r]) << ",\n";
+      myfile << "<td>" << "TRUE" << "</td>\n";
+      csvfile << "TRUE" << ",";
     }
     else
     {
-      myfile << "<tr>\n";
-      // variables of interest
-      myfile << "<td>" << csvinputs.headers[r] << "</td>\n";
-      csvfile << csvinputs.headers[r] << ",";
+      myfile << "<td>" << "FALSE" << "</td>\n";
+      csvfile << "FALSE" << ",";
+    }
 
-      // Initial Measured Values
-      myfile << "<td>" << xdiag.data[r] << "</td>\n";
-      csvfile << xdiag.data[r] << ",";
+    // Values of Local Tests
+    myfile << "<td>" << newX[r]/1.96 << "</td>\n";
+    csvfile << newX[r]/1.96 << ",\n";
 
-      // Reconciled Values
+    // // Margin to Correctness(distance from 1.96)
+    // myfile << "<td>" << (1.96 - newX[r]) << "</td>\n";
+    // csvfile << (1.96 - newX[r]) << ",";
+
+    // comments
+    if (reconciled)
+    {
+      myfile << "<td>" << "" << "</td>\n";
+      //csvfile << "" << ",\n";
+    }
+    else
+    {
       myfile << "<td style=color:red>" << "Not reconciled" << "</td>\n";
-      csvfile << "Not reconciled" << ",";
-
-      // Initial Uncertainty Values
-      myfile << "<td>" << csvinputs.sxdata[r] << "</td>\n";
-      csvfile << csvinputs.sxdata[r] << ",";
-
-      // Reconciled Uncertainty Values
-      myfile << "<td style=color:red>" << "Not reconciled" << "</td>\n";
-      csvfile << "Not reconciled" << ",";
-
-      // Results of Local Tests
-      myfile << "<td style=color:red>" << "Not reconciled" << "</td>\n";
-      csvfile << "Not reconciled" << ",";
-
-      // Values of Local Tests
-      myfile << "<td style=color:red>" << "Not reconciled" << "</td>\n";
-      csvfile << "Not reconciled" << ",";
-
-      // Margin to Correctness(distance from 1.96)
-      myfile << "<td style=color:red>" << "Not reconciled" << "</td>\n";
-      csvfile << "Not reconciled" << ",\n";
+      //csvfile << "Not reconciled" << ",\n";
     }
     myfile << "</tr>\n";
   }
@@ -524,6 +546,14 @@ void createHtmlReportFordataReconciliation(DATA *data, csvData &csvinputs, matri
       myfile << "<tr>\n";
       myfile << "<td>" << boundaryconditiondata.boundaryConditionVars[i] << "</td>\n";
       csvfile << boundaryconditiondata.boundaryConditionVars[i] << ",";
+
+      // unit
+      myfile << "<td>" << unitStringUnMeasuredVariables[i] << "</td>\n";
+      //csvfile << unitStringUnMeasuredVariables[i] << ",";
+
+      // description
+      myfile << "<td>"<< descriptionUnMeasuredVariables[i] << "</td>\n";
+      //csvfile << descriptionUnMeasuredVariables[i] << ",";
 
       myfile << "<td> </td>\n";
       csvfile << "" << ",";
@@ -543,10 +573,10 @@ void createHtmlReportFordataReconciliation(DATA *data, csvData &csvinputs, matri
       csvfile << "" << ",";
 
       myfile << "<td>" << "" << "</td>\n";
-      csvfile << "" << ",";
+      csvfile << "" << ",\n";
 
       myfile << "<td>" << "" << "</td>\n";
-      csvfile << "" << ",\n";
+      //csvfile << "" << ",\n";
       myfile << "</tr>\n";
     }
   }
@@ -2429,17 +2459,6 @@ int RunReconciliation(DATA *data, threadData_t *threadData, inputData x, matrixD
     //cout << "array_setc_vars:=>" << t << ":" << data->simulationInfo->setcVars[i-1] << "\n";
   }
 
-  // allocate data for boundaryconditions vars simulation results
-  // double *boundaryConditionVarsResults = (double *)calloc(data->modelData->nSetbVars, sizeof(double));
-  // int t1 = 0;
-  // for (int i = 3; i > 0; i--)
-  // {
-  //   boundaryConditionVarsResults[t] = data->simulationInfo->setbVars[i - 1];
-  //   t1++;
-  //   cout << "setB_results:=>" << t1 << ":" << data->simulationInfo->setbVars[i-1] << "\n";
-  // }
-
-
   int nsetcvars = data->modelData->nSetcVars;
   matrixData vector_c = {nsetcvars, 1, tmpsetc};
 
@@ -2915,7 +2934,7 @@ int dataReconciliation(DATA * data, threadData_t * threadData, int status)
   {
     copyReferenceFile(data, "_AuxiliaryConditions.html");
     copyReferenceFile(data, "_IntermediateEquations.html");
-    copyReferenceFile(data, "_relatedBoundaryConditionsEquations.txt");
+    copyReferenceFile(data, "_relatedBoundaryConditionsEquations.html");
   }
 
   // report run time initialization and non linear convergence error to html

@@ -5752,25 +5752,18 @@ public
     end match;
   end hasNonArrayIteratorSubscript;
 
-  public function hash "help function to hashExpMod"
+  public function hash
     input Expression e;
-    input Integer mod;
     output Integer hash;
   algorithm
     hash := match e
-      local
-        Real r;
-        Integer i;
-        Boolean b;
-        String s;
-        ComponentRef cr;
-
-      case(REAL(r))       then stringHashDjb2Mod(realString(r),mod);
-      case(INTEGER(i))    then stringHashDjb2Mod(intString(i),mod);
-      case(BOOLEAN(b))    then stringHashDjb2Mod(boolString(b),mod);
-      case(STRING(s))     then stringHashDjb2Mod(s,mod);
-      case(CREF(cref=cr)) then ComponentRef.hash(cr,mod);
-                          else stringHashDjb2Mod(toString(e),mod);
+      case INTEGER() then stringHashDjb2(intString(e.value));
+      case REAL()    then stringHashDjb2(realString(e.value));
+      case STRING()  then stringHashDjb2(e.value);
+      case BOOLEAN() then stringHashDjb2(boolString(e.value));
+      case CREF()    then ComponentRef.hash(e.cref);
+      // TODO other cases
+                     else stringHashDjb2(toString(e));
     end match;
   end hash;
 
