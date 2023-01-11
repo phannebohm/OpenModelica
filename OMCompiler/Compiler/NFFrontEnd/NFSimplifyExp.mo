@@ -86,6 +86,7 @@ protected
   Integer dist, counter, sizestart;
   RuleApplier ruleApplier;
   Boolean saturated;
+  Boolean err1, err2;
 algorithm
   print("----simplifyEgraph-----\n");
   print("input: " + Expression.toString(exp) + "\n");
@@ -121,23 +122,18 @@ algorithm
   EGraph.graphDump(baseId, egraph, true);
   while not saturated and counter < sizestart loop
     (egraph, saturated) := RuleApplier.matchApplyRules(ruleApplier, egraph);
-    EGraph.graphDump(baseId, egraph, false);
-    if EGraph.checkInvariantsHashcons(egraph) then
-      print("invariants: TRUE\n");
-    else
-      print("invariants: FALSE\n");
-    end if;
-    if EGraph.checkInvariantsEClasses(egraph) then
-      print("invariants: TRUE\n");
-    else
-      print("invariants: FALSE\n");
+    err1 := EGraph.checkInvariantsHashcons(egraph);
+    err2 := EGraph.checkInvariantsEClasses(egraph);
+    if not (err1 and err2) then
+      EGraph.graphDump(baseId, egraph, false);
+      break;
     end if;
     counter := counter + 1;
   end while;
   //EGraph.printAll(baseId, egraph);
   if saturated then print("saturated!\n"); end if;
   print("Iterations: " + intString(counter) + "\n");
-  print("Size classes: " + intString(UnorderedMap.size(egraph.eclasses))+ "\n");
+  print("Size classes: " + intString(UnorderedMap.size(egraph.eclasses)) + "\n");
   extractor := Extractor.new(egraph);
   (extractor, dist) := Extractor.extract(baseId, extractor);
   print("Distance: " + intString(dist) + "\n");

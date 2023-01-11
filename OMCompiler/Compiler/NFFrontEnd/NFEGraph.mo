@@ -71,7 +71,7 @@ public
   algorithm
     op := match uop
       case UnaryOp.UMINUS then "-";
-      case UnaryOp.UDIV then "1/"; // doesn't really make sense since there is no unary 1/x op in Operator
+      case UnaryOp.UDIV   then "1/"; // doesn't really make sense since there is no unary 1/x op in Operator
     end match;
   end unaryOpToString;
 
@@ -92,7 +92,7 @@ public
   algorithm
     op := match uop
       case UnaryOp.UMINUS then Operator.makeUMinus(NFType.REAL());
-      case UnaryOp.UDIV then Operator.makeDiv(NFType.REAL()); // doesn't really make sense since there is no unary 1/x op in Operator
+      case UnaryOp.UDIV   then Operator.makeDiv(NFType.REAL()); // doesn't really make sense since there is no unary 1/x op in Operator
     end match;
   end unaryOpToOperator;
 
@@ -113,7 +113,7 @@ public
   algorithm
     hash := match uop
       case UnaryOp.UMINUS then 1;
-      case UnaryOp.UDIV then 2;
+      case UnaryOp.UDIV   then 2;
     end match;
   end hashUnaryOp;
 
@@ -133,10 +133,8 @@ public
     output ENode node;
   algorithm
     node := match bop
-      case BinaryOp.ADD
-        then ENode.NUM(0);
-      case BinaryOp.MUL
-        then ENode.NUM(1);
+      case BinaryOp.ADD then ENode.NUM(0);
+      case BinaryOp.MUL then ENode.NUM(1);
       else fail(); // later more e.g. unit matrix, operator record; use Type in general
     end match;
   end neutralElementBinaryOp;
@@ -316,7 +314,7 @@ public
       UnorderedMap<Pointer<ENode>, EClassId> hashcons "maps every ENode to its containing EClassId";
       UnionFind unionfind "forrest structure for equivalent EClasses";
       UnorderedMap<EClassId, EClass> eclasses;
-      list<EClassId> worklist;
+      list<EClassId> worklist "list of EClassIds that need to be repaired";
     end EGRAPH;
 
     function new
@@ -535,7 +533,7 @@ public
           case (SOME(num1), NONE()) then SOME(num1);
           case (SOME(num1), SOME(num2)) algorithm
             if num1 <> num2 then // error case
-              print("constants not equal error" + realString(num1) + " <> " + realString(num2) + "\n");
+              print("constants not equal error: " + realString(num1) + " <> " + realString(num2) + "\n");
               fail();
             end if;
             then SOME(num1);
@@ -551,7 +549,7 @@ public
     end union;
 
     function unionOrdered
-    "part of EGraph.union, id1 and id2 need to be roots, |class1.nodes| >= |class2.nodes|"
+      "part of EGraph.union, id1 and id2 need to be roots, |class1.nodes| >= |class2.nodes|"
       input EClassId id1, id2;
       input EClass class1, class2;
       input Option<Real> numNew;
@@ -753,31 +751,31 @@ public
       String nodeStr;
       UnorderedMap<EClassId, Integer> bias;
     algorithm
-    //print("\n-------------------------------\n");
-    //print("      Graph Dump \n");
-    //print("-------------------------------\n\n");
-    if not init then
-      print("!\n");
-    end if;
-    print(intString(find(egraph, baseId, "graphDump_base")) + "\n");
-    bias := UnorderedMap.new<EClassId>(Util.id,intEq);
-    for cl in UnorderedMap.toList(egraph.eclasses) loop
-      (classId, clazz) := cl;
-      //classId := find(egraph, classId, "graphDump_id");
-      biasValue := UnorderedMap.get(classId, bias);
-      nodeId := match biasValue
-        local
-          Integer b;
-        case SOME(b) then b;
-        else 0;
-      end match;
-      for node in UnorderedSet.toList(clazz.nodes) loop
-        nodeId := nodeId + 1;
-        nodeStr := nodeGraphDump(Pointer.access(node), egraph);
-        print(intString(classId) + "," + intString(nodeId) + "," + nodeStr + "\n");
+      //print("\n-------------------------------\n");
+      //print("      Graph Dump \n");
+      //print("-------------------------------\n\n");
+      if not init then
+        print("!\n");
+      end if;
+      print(intString(find(egraph, baseId, "graphDump_base")) + "\n");
+      bias := UnorderedMap.new<EClassId>(Util.id,intEq);
+      for cl in UnorderedMap.toList(egraph.eclasses) loop
+        (classId, clazz) := cl;
+        //classId := find(egraph, classId, "graphDump_id");
+        biasValue := UnorderedMap.get(classId, bias);
+        nodeId := match biasValue
+          local
+            Integer b;
+          case SOME(b) then b;
+          else 0;
+        end match;
+        for node in UnorderedSet.toList(clazz.nodes) loop
+          nodeId := nodeId + 1;
+          nodeStr := nodeGraphDump(Pointer.access(node), egraph);
+          print(intString(classId) + "," + intString(nodeId) + "," + nodeStr + "\n");
+        end for;
+        UnorderedMap.add(classId, nodeId, bias);
       end for;
-      UnorderedMap.add(classId, nodeId, bias);
-    end for;
     end graphDump;
 
     function nodeGraphDump
@@ -802,14 +800,11 @@ public
 
     function checkInvariantsHashcons
       input EGraph G;
-      output Boolean correct;
+      output Boolean correct = true;
     protected
       Integer rootId;
-      list<tuple<EClassId, EClassId>> err;
+      list<tuple<EClassId, EClassId>> err = {};
     algorithm
-      print("----------------------------\nINVARIANTSHASHCONS\n");
-      correct := true;
-      err := {};
       for node in UnorderedMap.keyList(G.hashcons) loop
         for childId in ENode.children(Pointer.access(node)) loop
           rootId := find(G, childId, "checkInvariantsHashcons");
@@ -820,20 +815,18 @@ public
           end if;
         end for;
       end for;
-      print("ERRLISTLEN: " + intString(listLength(err)) + "\n");
-      print("----------------------------\n");
+      if not correct then
+        print("HASHCONS ERRORS: " + intString(listLength(err)) + "\n");
+      end if;
     end checkInvariantsHashcons;
 
     function checkInvariantsEClasses
       input EGraph G;
-      output Boolean correct;
+      output Boolean correct = true;
     protected
       Integer rootId;
-      list<tuple<EClassId, EClassId>> err;
+      list<tuple<EClassId, EClassId>> err = {};
     algorithm
-      print("----------------------------\nINVARIANTSCLASSES\n");
-      correct := true;
-      err := {};
       for eclass in UnorderedMap.valueList(G.eclasses) loop
         for node in UnorderedSet.toList(eclass.nodes) loop
           for childId in ENode.children(Pointer.access(node)) loop
@@ -846,8 +839,9 @@ public
           end for;
         end for;
       end for;
-      print("ERRLISTLEN: " + intString(listLength(err)) + "\n");
-      print("----------------------------\n");
+      if not correct then
+        print("ECLASSES ERRORS: " + intString(listLength(err)) + "\n");
+      end if;
     end checkInvariantsEClasses;
   end EGraph;
 
