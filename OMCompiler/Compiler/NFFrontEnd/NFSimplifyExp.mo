@@ -78,9 +78,9 @@ end simplifyDump;
 function simplifyEgraph
   "egraph simplification"
   input Expression exp;
+  input EGraph egraph = EGraph.new();
   output Expression res;
 protected
-  EGraph egraph;
   EClassId baseId;
   Extractor extractor;
   Integer dist, counter, sizestart;
@@ -90,7 +90,7 @@ protected
 algorithm
   print("----simplifyEgraph-----\n");
   print("input: " + Expression.toString(exp) + "\n");
-  (egraph, baseId) := EGraph.newFromExp(exp, EGraph.new());
+  baseId := EGraph.fromExp(exp, egraph);
 
   ruleApplier := RuleApplier.RULE_APPLIER({});
   ruleApplier := RuleApplier.addRules(ruleApplier,
@@ -120,8 +120,9 @@ algorithm
   sizestart := UnorderedMap.size(egraph.eclasses);
   print("Size classes: " + intString(sizestart) + "\n");
   EGraph.graphDump(baseId, egraph, true);
-  while not saturated and counter < sizestart loop
-    (egraph, saturated) := RuleApplier.matchApplyRules(ruleApplier, egraph);
+  while not saturated and counter < sizestart and UnorderedMap.size(egraph.hashcons) < 1000 loop
+    saturated := RuleApplier.matchApplyRules(ruleApplier, egraph);
+    print("number of ENodes: " + intString(UnorderedMap.size(egraph.hashcons)) + "\n");
     err1 := EGraph.checkInvariantsHashcons(egraph);
     err2 := EGraph.checkInvariantsEClasses(egraph);
     if not (err1 and err2) then

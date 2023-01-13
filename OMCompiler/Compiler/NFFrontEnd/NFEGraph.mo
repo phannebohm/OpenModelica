@@ -253,25 +253,28 @@ public
 
   public
     record UNION_FIND
-      array<Integer> nodes;
-      Integer nodeCount;
+      Mutable<array<Integer>> nodes "for each index points to its rootId";
+      Mutable<Integer> nodeCount "number of indices in the unionfind";
     end UNION_FIND;
 
     function new
-      output UnionFind unionfind = UNION_FIND(arrayCreate(1, -1), 0);
+      output UnionFind unionfind = UNION_FIND(Mutable.create(arrayCreate(1, -1)), Mutable.create(0));
     end new;
 
     function make
       "Creates a new root node and returns its index. Might trigger an array expand."
       input output UnionFind unionfind;
       output Integer index;
+    protected
+      array<Integer> nodes = Mutable.access(unionfind.nodes);
     algorithm
-      unionfind.nodeCount := unionfind.nodeCount + 1;
-      index := unionfind.nodeCount;
-      if arrayLength(unionfind.nodes) < index then
-        unionfind.nodes := Array.expand(realInt(intReal(index) * 1.4), unionfind.nodes, -1);
+      index := Mutable.access(unionfind.nodeCount) + 1;
+      if arrayLength(nodes) < index then
+        nodes := Array.expand(realInt(intReal(index) * 1.4), nodes, -1);
+        Mutable.update(unionfind.nodes, nodes);
       end if;
-      unionfind.nodes[index] := index;
+      nodes[index] := index;
+      Mutable.update(unionfind.nodeCount, index);
     end make;
 
     function find
@@ -281,15 +284,16 @@ public
       input String origin "debug, origin of call";
       output Integer root = index;
     protected
-      Integer count = 0;
+      array<Integer> nodes = Mutable.access(unionfind.nodes);
+      //Integer count = 0;
     algorithm
-      // follow the path to the root
-      while root <> unionfind.nodes[root] loop
-        root := unionfind.nodes[root];
-        count := count + 1;
+      /* follow the path to the root */
+      while root <> nodes[root] loop
+        root := nodes[root];
+        //count := count + 1;
       end while;
-      // set to root for future calls so the trees don't grow so deep.
-      unionfind.nodes[index] := root;
+      /* set to root for future calls so the trees don't grow deep */
+      nodes[index] := root;
       // DEBUG
       //if count > 0 and substring(origin, 1, 6) == "repair" then
       //  print("[find] " + origin + ": " + intString(index) + " --> "+ intString(root) + " (" + intString(count) + " steps)\n");
@@ -297,12 +301,20 @@ public
     end find;
 
     function union
-      "Given two root ids, unions the classes making root1 the leader of root2"
+      "Given two root ids, makes index1 the root of index2"
       input Integer index1;
       input Integer index2;
       input UnionFind unionfind;
+    protected
+      array<Integer> nodes = Mutable.access(unionfind.nodes);
     algorithm
-      unionfind.nodes[index2] := index1;
+      if nodes[index1] <> index1 then
+        Error.addInternalError(getInstanceName() + " failed: id1=" + intString(index1) + " is not a root id.", sourceInfo());
+      end if;
+      if nodes[index2] <> index2 then
+        Error.addInternalError(getInstanceName() + " failed: id2=" + intString(index2) + " is not a root id.", sourceInfo());
+      end if;
+      nodes[index2] := index1;
     end union;
   end UnionFind;
 
@@ -314,7 +326,7 @@ public
       UnorderedMap<Pointer<ENode>, EClassId> hashcons "maps every ENode to its containing EClassId";
       UnionFind unionfind "forrest structure for equivalent EClasses";
       UnorderedMap<EClassId, EClass> eclasses;
-      list<EClassId> worklist "list of EClassIds that need to be repaired";
+      UnorderedSet<EClassId> workset "list of EClassIds that need to be repaired";
     end EGRAPH;
 
     function new
@@ -324,40 +336,40 @@ public
         hashcons   = UnorderedMap.new<EClassId>(ENode.hashPtr, ENode.isEqualPtr),
         unionfind  = UnionFind.new(),
         eclasses   = UnorderedMap.new<EClass>(Util.id,intEq),
-        worklist   = {}
+        workset    = UnorderedSet.new<EClassId>(Util.id,intEq)
       );
     end new;
 
     function binaryByOperator
       input Expression exp1, exp2;
       input Operator op;
-      input output EGraph graph;
+      input EGraph graph;
       output EClassId id;
     algorithm
-      (graph, id) :=  match op.op
+      id := match op.op
         local
           EClassId id1, id2, id3;
         case Op.ADD algorithm
-          (graph, id1) := newFromExp(exp1, graph);
-          (graph, id2) := newFromExp(exp2, graph);
+          id1 := fromExp(exp1, graph);
+          id2 := fromExp(exp2, graph);
         then add(ENode.BINARY(id1, id2, BinaryOp.ADD), graph);
         case Op.SUB algorithm
-          (graph, id1) := newFromExp(exp1, graph);
-          (graph, id2) := newFromExp(exp2, graph);
-          (graph, id3) := add(ENode.UNARY(id2, UnaryOp.UMINUS), graph);
+          id1 := fromExp(exp1, graph);
+          id2 := fromExp(exp2, graph);
+          id3 := add(ENode.UNARY(id2, UnaryOp.UMINUS), graph);
         then add(ENode.BINARY(id1, id3, BinaryOp.ADD), graph);
         case Op.MUL algorithm
-          (graph, id1) := newFromExp(exp1, graph);
-          (graph, id2) := newFromExp(exp2, graph);
+          id1 := fromExp(exp1, graph);
+          id2 := fromExp(exp2, graph);
         then EGraph.add(ENode.BINARY(id1, id2, BinaryOp.MUL), graph);
         case Op.DIV algorithm
-          (graph, id1) := newFromExp(exp1, graph);
-          (graph, id2) := newFromExp(exp2, graph);
-          (graph, id3) := add(ENode.UNARY(id2, UnaryOp.UDIV), graph);
+          id1 := fromExp(exp1, graph);
+          id2 := fromExp(exp2, graph);
+          id3 := add(ENode.UNARY(id2, UnaryOp.UDIV), graph);
         then add(ENode.BINARY(id1, id3, BinaryOp.MUL), graph);
         case Op.POW algorithm
-          (graph, id1) := newFromExp(exp1, graph);
-          (graph, id2) := newFromExp(exp2, graph);
+          id1 := fromExp(exp1, graph);
+          id2 := fromExp(exp2, graph);
         then add(ENode.BINARY(id1, id2, BinaryOp.POW), graph);
         else algorithm
           Error.addInternalError(getInstanceName() + " failed for:\n" + Expression.toString(exp1) + "\n" + Operator.toDebugString(op) + "\n" + Expression.toString(exp2), sourceInfo());
@@ -368,14 +380,14 @@ public
     function unaryByOperator
       input Expression exp;
       input Operator op;
-      input output EGraph graph;
+      input EGraph graph;
       output EClassId id;
     algorithm
-      (graph, id) :=  match op.op
+      id := match op.op
         local
           EClassId tmpId;
         case Op.UMINUS algorithm
-          (graph, tmpId) := newFromExp(exp, graph);
+          tmpId := fromExp(exp, graph);
         then add(ENode.UNARY(tmpId, UnaryOp.UMINUS), graph);
         else algorithm
           Error.addInternalError(getInstanceName() + " failed for:\n" + Operator.toDebugString(op) + "\n" + Expression.toString(exp), sourceInfo());
@@ -386,7 +398,7 @@ public
     function multaryByOperator
       input list<Expression> arguments, inv_arguments;
       input Operator op;
-      input output EGraph graph;
+      input EGraph graph;
       output EClassId id;
     protected
       EClassId idNew;
@@ -399,41 +411,41 @@ public
         else fail();
       end match;
 
-      (graph, id) := match (arguments, inv_arguments)
+      id := match (arguments, inv_arguments)
         local
           Expression exp;
         case ({}, {}) then add(neutralElementBinaryOp(chainOp), graph);
-        case ({exp}, {}) then newFromExp(exp, graph);
-        case ({}, {exp}) then newFromExp(exp, graph); // is this correct? there should be an inversion
+        case ({exp}, {}) then fromExp(exp, graph);
+        case ({}, {exp}) then fromExp(exp, graph); // is this correct? there should be an inversion
         else algorithm
           id := -1;
           for arg in arguments loop
-            (graph, idNew) :=  newFromExp(arg, graph);
+            idNew :=  fromExp(arg, graph);
             if id == -1 then
               id := idNew;
             else
-              (graph, id) := add(ENode.BINARY(id, idNew, chainOp), graph);
+              id := add(ENode.BINARY(id, idNew, chainOp), graph);
             end if;
           end for;
           for inv_arg in inv_arguments loop
-            (graph, idNew) := newFromExp(inv_arg, graph);
-            (graph, idNew) := add(ENode.UNARY(idNew, invOp), graph);
+            idNew := fromExp(inv_arg, graph);
+            idNew := add(ENode.UNARY(idNew, invOp), graph);
             if id == -1 then
               id := idNew;
             else
-              (graph, id) := add(ENode.BINARY(id, idNew, chainOp), graph);
+              id := add(ENode.BINARY(id, idNew, chainOp), graph);
             end if;
           end for;
-        then (graph, id);
+        then id;
       end match;
     end multaryByOperator;
 
-    function newFromExp
+    function fromExp
       input Expression exp;
-      input output EGraph graph = new();
+      input EGraph graph;
       output EClassId id;
     algorithm
-      (graph, id) := match exp
+      id := match exp
         local
           Expression exp1, exp2;
           Operator op;
@@ -451,13 +463,13 @@ public
           Error.addInternalError(getInstanceName() + " failed for expression: " + Expression.toString(exp), sourceInfo());
         then fail();
       end match;
-    end newFromExp;
+    end fromExp;
 
     function add
       "Adds an ENode to the EGraph. If the node is already in the EGraph, returns the ENode's id,
       otherwise adds the id to both maps and extends the unionfind."
       input ENode node;
-      input output EGraph graph;
+      input EGraph graph;
       output EClassId id;
     protected
       Pointer<ENode> node_ptr;
@@ -470,7 +482,7 @@ public
       type ENodePointer = Pointer<ENode>;
     algorithm
       node_ptr := Pointer.create(node);
-      EGraph.canonicalize(graph, node_ptr);
+      canonicalize(graph, node_ptr);
       try
         SOME(id) := UnorderedMap.get(node_ptr, graph.hashcons);
         id := find(graph, id, "add_try");
@@ -482,7 +494,7 @@ public
         nodeSet := UnorderedSet.new<ENodePointer>(ENode.hashPtr, ENode.isEqualPtr);
         UnorderedSet.add(node_ptr, nodeSet);
         UnorderedMap.add(id, ECLASS(nodeSet, {}, optnum), graph.eclasses);
-        for child_id in ENode.children(Pointer.access(node_ptr)) loop
+        for child_id in ENode.children(node) loop
           child_id := find(graph, child_id, "add_else");
           child_class := UnorderedMap.getSafe(child_id, graph.eclasses, sourceInfo());
           child_class.parents := (node_ptr, id) :: child_class.parents;
@@ -492,9 +504,9 @@ public
         // analysis part
         if isSome(optnum) then
           SOME(num) := optnum;
-          (graph, numid) := add(ENode.NUM(num), graph);
+          numid := add(ENode.NUM(num), graph);
           //print("ANALYSIS UNION: " + intString(id) + "-> " + intString(EGraph.find(graph,numid)) + "\n");
-          (graph, _) := union(id, numid, graph);
+          _ := union(id, numid, graph);
         end if;
       end try;
     end add;
@@ -511,7 +523,7 @@ public
     function union
       input EClassId id1;
       input EClassId id2;
-      input output EGraph graph;
+      input EGraph graph;
       output Boolean changed;
     protected
       EClassId newId1, newId2;
@@ -523,8 +535,8 @@ public
       newId2 := EGraph.find(graph, id2, "union2");
       changed := newId1 <> newId2;
       if changed then
-        class1 :=  UnorderedMap.getSafe(newId1, graph.eclasses, sourceInfo());
-        class2 :=  UnorderedMap.getSafe(newId2, graph.eclasses, sourceInfo());
+        class1 := UnorderedMap.getSafe(newId1, graph.eclasses, sourceInfo());
+        class2 := UnorderedMap.getSafe(newId2, graph.eclasses, sourceInfo());
         // short part for the analysis
         numNew := match (class1.num, class2.num)
           local
@@ -541,9 +553,9 @@ public
         end match;
         // end of analysis part
         if listLength(class1.parents) >= listLength(class2.parents) then
-          graph := unionOrdered(newId1, newId2, class1, class2, numNew, graph);
+          unionOrdered(newId1, newId2, class1, class2, numNew, graph);
         else
-          graph := unionOrdered(newId2, newId1, class2, class1, numNew, graph);
+          unionOrdered(newId2, newId1, class2, class1, numNew, graph);
         end if;
       end if;
     end union;
@@ -553,7 +565,7 @@ public
       input EClassId id1, id2;
       input EClass class1, class2;
       input Option<Real> numNew;
-      input output EGraph graph;
+      input EGraph graph;
     algorithm
       UnionFind.union(id1, id2, graph.unionfind);
       class1.parents := listAppend(class1.parents, class2.parents);
@@ -561,7 +573,7 @@ public
         UnorderedSet.add(node, class1.nodes);
       end for;
       class1.num := numNew;
-      graph.worklist := id1 :: graph.worklist;
+      UnorderedSet.add(id1, graph.workset);
       UnorderedMap.remove(id2, graph.eclasses); // non-root class is unneeded
       UnorderedMap.add(id1, class1, graph.eclasses);
     end unionOrdered;
@@ -578,21 +590,21 @@ public
     end canonicalize;
 
     function rebuild
-      input output EGraph graph;
+      input EGraph graph;
     protected
       UnorderedSet<EClassId> workset;
     algorithm
-      workset := UnorderedSet.new<EClassId>(Util.id, intEq);
-      for eclassid in graph.worklist loop
-        UnorderedSet.add(find(graph, eclassid, "rebuild"), workset);
-      end for;
-      graph := UnorderedSet.fold(workset, repair, graph);
-      graph.worklist := {};
+      while not UnorderedSet.isEmpty(graph.workset) loop
+        workset := UnorderedSet.map<EClassId>(graph.workset, function find(graph=graph, origin="rebuild"), Util.id, intEq);
+        UnorderedSet.clear(graph.workset);
+        true := UnorderedSet.all(workset, function repair(graph=graph));
+      end while;
     end rebuild;
 
     function repair
       input EClassId eclassid; // must be a root id
-      input output EGraph graph;
+      input EGraph graph;
+      output Boolean ret = true "unused";
     protected
       EClass elem, node_elem;
       Pointer<ENode> node;
@@ -604,7 +616,7 @@ public
         (node, id) := tup;
         node_elem := UnorderedMap.getSafe(find(graph, id, "repair1"), graph.eclasses, sourceInfo());
         UnorderedSet.remove(node, node_elem.nodes);
-        node := canonicalize(graph, node);
+        canonicalize(graph, node);
         UnorderedMap.add(node, find(graph, id, "repair2"), graph.hashcons);
         UnorderedSet.add(node, node_elem.nodes);
       end for;
@@ -612,7 +624,7 @@ public
       elem := UnorderedMap.getSafe(find(graph, eclassid, "repair3"), graph.eclasses, sourceInfo()); // get it again in case it changed as its own parent?
       for tup in elem.parents loop
         (node, id) := tup;
-        node := canonicalize(graph, node);
+        canonicalize(graph, node);
         if UnorderedMap.contains(node, new_parents) then
           _ := union(id, UnorderedMap.getOrFail(node, new_parents), graph);
         end if;
@@ -670,6 +682,7 @@ public
       end match;
     end getNum;
 
+/*
     function printAll
     "function to print all expressions of the egraph"
       input EClassId id;
@@ -738,6 +751,7 @@ public
         end match;
       end for;
     end allExpressions;
+*/
 
     function graphDump
       input EClassId baseId;
@@ -1055,23 +1069,11 @@ public
       output Integer out;
     algorithm
       out := match p
-        local
-          Integer varId;
-          Real num;
-          BinaryOp bop;
-          UnaryOp uop;
-          Pattern temp_pattern1,temp_pattern2;
-          String str;
-        case VAR(varId)
-          then 17*varId + 1000;
-        case NUM(num)
-          then 13*(realInt(num) + 7);
-        case SYMBOL(str)
-          then stringHashDjb2(str);
-        case BINARY(temp_pattern1, temp_pattern2, bop)
-          then hash(temp_pattern1) + hash(temp_pattern2) + EGraph.hashBinaryOp(bop);
-        case UNARY(temp_pattern1, uop)
-          then hash(temp_pattern1) + EGraph.hashUnaryOp(uop);
+        case NUM()    then 13*(realInt(p.value) + 7);
+        case VAR()    then 17*p.id + 1000;
+        case SYMBOL() then stringHashDjb2(p.str);
+        case BINARY() then hash(p.child1) + hash(p.child2) + EGraph.hashBinaryOp(p.op);
+        case UNARY()  then hash(p.child) + EGraph.hashUnaryOp(p.op);
       end match;
     end hash;
 
@@ -1163,13 +1165,13 @@ public
     function apply
       input Pattern pattern;
       input UnorderedMap<Integer, EClassId> sub;
-      input output EGraph egraph;
+      input EGraph egraph;
       output EClassId eclassid;
     protected
       ENode temp_node;
       list<ENode> node_list;
     algorithm
-      (egraph, eclassid) := match pattern
+      eclassid := match pattern
         local
           Integer varId;
           EClassId id1, id2;
@@ -1178,15 +1180,15 @@ public
         //case Pattern.SYMBOL(str) then EGraph.add(ENode.SYMBOL(str), egraph); TODO MAYBE
 
         case Pattern.BINARY() algorithm
-          (egraph, id1) := apply(pattern.child1, sub, egraph);
-          (egraph, id2) := apply(pattern.child2, sub, egraph);
+          id1 := apply(pattern.child1, sub, egraph);
+          id2 := apply(pattern.child2, sub, egraph);
         then EGraph.add(ENode.BINARY(EGraph.find(egraph,id1, "apply1"), EGraph.find(egraph,id2, "apply2"), pattern.op), egraph);
 
         case Pattern.UNARY() algorithm
-          (egraph, id1) := apply(pattern.child, sub, egraph);
+          id1 := apply(pattern.child, sub, egraph);
         then EGraph.add(ENode.UNARY(EGraph.find(egraph,id1, "apply3"), pattern.op), egraph);
 
-        case Pattern.VAR(varId) then (egraph, UnorderedMap.getOrFail(varId, sub));
+        case Pattern.VAR(varId) then UnorderedMap.getOrFail(varId, sub);
       end match;
     end apply;
   end Pattern;
@@ -1196,7 +1198,8 @@ public
   public
 
     record RULE
-      Pattern pattern_in, pattern_out;
+      Pattern pattern_in;
+      Pattern pattern_out;
       String name;
     end RULE;
 
@@ -1235,7 +1238,7 @@ public
 
     function matchApplyRules
       input RuleApplier ruleapplier;
-      input output EGraph egraph;
+      input EGraph egraph;
       output Boolean saturated;
     protected
       list<tuple<Rule, EClassId, list<UnorderedMap<Integer, EClassId>>>> subs;
@@ -1267,8 +1270,8 @@ public
       for sub in subs loop
         (rule, exId, subs_part) := sub;
         for map in subs_part loop
-          (egraph, newId) := Pattern.apply(rule.pattern_out, map, egraph);
-          (egraph, changed) := EGraph.union(exId, newId, egraph);
+          newId := Pattern.apply(rule.pattern_out, map, egraph);
+          changed := EGraph.union(exId, newId, egraph);
           if debug and changed then
             print("apply rule name: " + rule.name + "\n");
           end if;
@@ -1276,7 +1279,7 @@ public
         end for;
       end for;
       // 3rd phase: rebuild the invariants of the egraph
-      egraph := EGraph.rebuild(egraph);
+      EGraph.rebuild(egraph);
     end matchApplyRules;
 
     function addRule

@@ -178,6 +178,14 @@ public
     end if;
   end remove;
 
+  function clear
+    input UnorderedSet<T> set;
+    input Integer bucket_count = 13;
+  algorithm
+    Mutable.update(set.buckets, arrayCreate(bucket_count, {}));
+    Mutable.update(set.size, 0);
+  end clear;
+
   function get
     "Returns SOME(key) if the key exists in the set, otherwise NONE()."
     input T key;
@@ -296,7 +304,6 @@ public
     end for;
   end fold;
 
-/*
   function map<OT>
     "Applies a function to all keys in the given set and returns a new set
      with the new keys."
@@ -312,7 +319,6 @@ public
     end MapFn;
     partial function OutHash
       input OT key;
-      input Integer mod;
       output Integer hash;
     end OutHash;
     partial function OutKeyEq
@@ -328,7 +334,6 @@ public
       end for;
     end for;
   end map;
-*/
 
   function apply
     "Replaces all keys in the given set with the results of the given function
