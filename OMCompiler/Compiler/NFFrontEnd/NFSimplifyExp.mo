@@ -93,36 +93,59 @@ algorithm
   baseId := EGraph.fromExp(exp, egraph);
 
   ruleApplier := RuleApplier.RULE_APPLIER({});
-  ruleApplier := RuleApplier.addRules(ruleApplier,
-   {("(+ ?a 0)", "?a", "neutral-add"),
-    ("(* ?a 1)", "?a", "neutral-mul"),
-    ("(+ ?a (- ?a))", "0", "inv-add"),
-    ("(* ?a (/ ?a))", "1", "inv-mul"),
-    ("(+ ?a ?b)", "(+ ?b ?a)", "comm-add"),
-    ("(* ?a ?b)", "(* ?b ?a)", "comm-mul"),
-    ("(+ ?a (+ ?b ?c))", "(+ (+ ?a ?b) ?c))", "assoc-add"),
-    ("(+ ?a ?a)", "(* 2 ?a)", "a+a->2a"),
-    ("(* 2 ?a)", "(+ ?a ?a)", "2*a->a+a"),
-    ("(+ ?a (* ?b ?a))", "(* (+ ?b 1) ?a)", "a + b*a-> (b+1)a"),
-    ("(+ (* ?c ?a) (* ?b ?a))", "(* (+ ?b ?c) ?a)", "distrib1"),
-    ("(* (+ ?b ?c) ?a)", "(+ (* ?c ?a) (* ?b ?a))", "distrib2"),
-    ("(* ?a (* ?b ?c))", "(* (* ?a ?b) ?c))", "assoc-mul"),
-    ("(* 0 ?a)", "0", "0-mul"),
-    ("(* ?a ?a)", "(^ ?a 2)", "xx->x^2"),
-    ("(^ ?a 0)", "1", "pow-0"),
-    ("(^ ?a 1)", "?a", "pow-1"),
-    ("(* (^ ?a ?b) (^ ?a ?c))", "(^ ?a (+ ?b ?c))", "pow-rule1"),
-    ("(/ (^ ?a ?c))", "(^ ?a (- ?c))", "pow-rule2"),
-    ("(- ?a)", "(* -1 ?a)", "uminus=-1")});
+  ruleApplier := RuleApplier.addRules(ruleApplier, {
+    /* abelian group ADD */
+    ("(+ ?a (+ ?b ?c))", "(+ (+ ?a ?b) ?c))", "add-assoc"), // TODO add reverse rule, or is a canonical form better?
+    ("(+ ?a ?b)", "(+ ?b ?a)", "add-comm"), // symmetric
+    ("(+ ?a 0)", "?a", "add-neutral"), // reverse rule might explode the graph
+    ("(+ ?a (- ?a))", "0", "add-inv"),
+    /* corollaries */
+    //("(- 0)", "0", "add-neutral-inv"),
+    //("(- (- ?a))", "a", "add-inv-idemp"),
+
+    /* abelian group MUL */
+    ("(* ?a (* ?b ?c))", "(* (* ?a ?b) ?c))", "mul-assoc"), // TODO add reverse rule, or is a canonical form better?
+    ("(* ?a ?b)", "(* ?b ?a)", "mul-comm"), // symmetric
+    ("(* ?a 1)", "?a", "mul-neutral"), // reverse rule might explode the graph, except in special cases (see below)
+    ("(* ?a (/ ?a))", "1", "mul-inv"),
+    /* corollaries  */
+    //("(/ 1)", "1", "mul-neutral-inv"),
+    //("(/ (/ ?a))", "a", "mul-inv-idemp"),
+
+    /* distributivity ADD-MUL */
+    // left and right versions if MUL is not commutative
+    ("(+ (* ?c ?a) (* ?b ?a))", "(* (+ ?b ?c) ?a)", "distrib-factor"),
+    ("(* (+ ?b ?c) ?a)", "(+ (* ?c ?a) (* ?b ?a))", "distrib-multiply"), // reverse of distrib-factor
+
+    /* POW (homomorphism from ADD to MUL) */
+    ("(* (^ ?a ?b) (^ ?a ?c))", "(^ ?a (+ ?b ?c))", "pow-hom-merge"),
+    //("(^ ?a (+ ?b ?c))", "(* (^ ?a ?b) (^ ?a ?c))", "pow-hom-split"), // reverse of pow-hom-merge
+    ("(^ ?a 0)", "1", "pow-hom-neutral"), // TODO assuming ?a is not zero
+    ("(/ (^ ?a ?c))", "(^ ?a (- ?c))", "pow-hom-inv"),
+
+    /* consequences of the definitions */
+    ("(* 0 ?a)", "0", "mul-absorb"),
+    ("(- ?a)", "(* -1 ?a)", "uminus=-1"),
+
+    /* special cases for neutral elements */
+    ("(+ ?a ?a)", "(* 2 ?a)", "a+a -> 2a"), // distrib. base case
+    ("(* 2 ?a)", "(+ ?a ?a)", "2a -> a+a"), // is this useful?
+    ("(+ ?a (* ?b ?a))", "(* (+ 1 ?b) ?a)", "a + ba-> (1+b)a"), // distrib. recursive case
+
+    ("(^ ?a 1)", "?a", "pow-1"), // omit exponent one
+    ("(* ?a ?a)", "(^ ?a 2)", "a*a -> a^2") // pow base case
+    }
+  );
 
   saturated := false;
   counter := 0;
   sizestart := UnorderedMap.size(egraph.eclasses);
   print("Size classes: " + intString(sizestart) + "\n");
-  EGraph.graphDump(baseId, egraph, true);
-  while not saturated and counter < sizestart and UnorderedMap.size(egraph.hashcons) < 1000 loop
+  //EGraph.graphDump(baseId, egraph, true);
+  while not saturated and counter < 2*sizestart and UnorderedMap.size(egraph.hashcons) < 1000 loop
     saturated := RuleApplier.matchApplyRules(ruleApplier, egraph);
-    print("number of ENodes: " + intString(UnorderedMap.size(egraph.hashcons)) + "\n");
+    print("number of ENodes: " + intString(UnorderedMap.size(egraph.hashcons)) + "\t");
+    print("number of EClasses: " + intString(UnorderedMap.size(egraph.eclasses)) + "\n");
     err1 := EGraph.checkInvariantsHashcons(egraph);
     err2 := EGraph.checkInvariantsEClasses(egraph);
     if not (err1 and err2) then
