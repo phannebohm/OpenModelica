@@ -5817,6 +5817,7 @@ algorithm
     BackendDAE.EQSYSTEM(orderedVars = vars) := syst;
     varLst := BackendVariable.varList(vars);
     varLst := List.filterOnTrue(varLst,BackendVariable.isVarOnTopLevelAndOutput);
+    // TODO change this to check against a regex
 
     if not listEmpty(varLst) then
 
