@@ -606,14 +606,14 @@ QList<QPointF> ShapeAnnotation::getExtentsForInheritedShapeFromIconDiagramMap(Gr
   bool preserveAspectRatio = false;
 
   if (MainWindow::instance()->isNewApi()) {
-    ModelInstance::Extend *pExtend = dynamic_cast<ModelInstance::Extend*>(getParentModel());
+    ModelInstance::Extend *pExtend = dynamic_cast<ModelInstance::Extend*>(getExtend());
     if (pExtend) {
       if (pGraphicsView->getViewType() == StringHandler::Icon) {
-        extent = pExtend->mIconMap.getExtent();
-        preserveAspectRatio = pExtend->getIconAnnotation()->mMergedCoOrdinateSystem.getPreserveAspectRatio();
+        extent = pExtend->getExtendsAnnotation()->getIconMap().getExtent();
+        preserveAspectRatio = pExtend->getModel()->getAnnotation()->getIconAnnotation()->mMergedCoOrdinateSystem.getPreserveAspectRatio();
       } else {
-        extent = pExtend->mDiagramMap.getExtent();
-        preserveAspectRatio = pExtend->getDiagramAnnotation()->mMergedCoOrdinateSystem.getPreserveAspectRatio();
+        extent = pExtend->getExtendsAnnotation()->getDiagramMap().getExtent();
+        preserveAspectRatio = pExtend->getModel()->getAnnotation()->getDiagramAnnotation()->mMergedCoOrdinateSystem.getPreserveAspectRatio();
       }
     }
   } else {
@@ -1144,6 +1144,7 @@ void ShapeAnnotation::updateDynamicSelect(double time)
     updated |= mTextString.update(time, mpParentComponent);
 
     if (updated) {
+      applyTransformation();
       update();
     }
   }

@@ -21,6 +21,7 @@ checkAllModelsRecursive1.mos \
 choicesAllMatching.mos \
 ConvertUnits.mos \
 ConversionVersions.mos \
+ConnectionList.mos \
 CopyClass.mos \
 DefaultComponentName.mos \
 DeleteConnection.mos \
@@ -34,6 +35,7 @@ ForStatement5fail.mos \
 ForStatement6.mos \
 ForStatement7.mos \
 ForStatement8.mos \
+getClassComment.mos \
 getClassNames.mos \
 getCommandLineOptions.mos \
 GetComponents.mos \
@@ -72,6 +74,7 @@ saveShort.mos \
 saveTotalModel.mos \
 setComponentComment.mos \
 setComponentModifierValue.mos \
+setElementModifierValue.mos \
 setSourceFileListFile.mos \
 showDoc.mos \
 showStructuralAnnotations.mos \

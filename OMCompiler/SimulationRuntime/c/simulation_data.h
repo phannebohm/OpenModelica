@@ -65,6 +65,7 @@
 /* Forward declarations */
 struct DATA;
 typedef struct DATA DATA;
+typedef struct VALUES_LIST VALUES_LIST;
 
 /* Model info structures */
 typedef struct VAR_INFO
@@ -150,6 +151,27 @@ typedef struct SPARSE_PATTERN
   unsigned int numberOfNonZeros;  /* Number of non-zero elements in matrix */
   unsigned int maxColors;         /* Number of colors */
 } SPARSE_PATTERN;
+
+/* NONLINEAR_PATTERN
+ *
+ * nonlinear pattern used for initial stability analysis.
+ * The rows and columns are represented in a single vector
+ * with index vectors pointing to the start of each
+ * individual row and column.
+ *
+ * Use freeNonlinearPattern(NONLINEAR_PATTERN *nlp) for "destruction" (see util/jacobian_util.c/h).
+ *
+ */
+typedef struct NONLINEAR_PATTERN
+{
+  unsigned int numberOfVars;           // number of variables
+  unsigned int numberOfEqns;           // number of equations
+  unsigned int numberOfNonlinear;      // number of all nonlinear entries
+  unsigned int* indexVar;              // size: numberOfVars      - starting index of each column for each variable
+  unsigned int* indexEqn;              // size: numberOfEqns      - starting index of each row for each equation
+  unsigned int* columns;               // size: numberOfNonlinear - all columns appended in one vector
+  unsigned int* rows;                  // size: numberOfNonlinear - all rows appended in one vector
+} NONLINEAR_PATTERN;
 
 /**
  * @brief Analytic jacobian struct
@@ -311,10 +333,11 @@ typedef struct NONLINEAR_SYSTEM_DATA
 
   SPARSE_PATTERN *sparsePattern;       /* sparse pattern if no jacobian is available */
   modelica_boolean isPatternAvailable;
+  NONLINEAR_PATTERN* nonlinearPattern;
 
   void (*residualFunc)(RESIDUAL_USERDATA* userData, const double* x, double* res, const int* flag);
   int (*residualFuncConstraints)(RESIDUAL_USERDATA* userData, const double*, double*, const int*);
-  void (*initializeStaticNLSData)(DATA* data, threadData_t *threadData, struct NONLINEAR_SYSTEM_DATA* nonlinsys, modelica_boolean initSparsePattern);
+  void (*initializeStaticNLSData)(DATA* data, threadData_t *threadData, struct NONLINEAR_SYSTEM_DATA* nonlinsys, modelica_boolean initSparsePattern, modelica_boolean initNonlinearPattern);
   int (*strictTearingFunctionCall)(DATA* data, threadData_t *threadData);
   void (*getIterationVars)(DATA* data, double* array);
   int (*checkConstraints)(DATA* data, threadData_t *threadData);
@@ -327,7 +350,7 @@ typedef struct NONLINEAR_SYSTEM_DATA
   modelica_real *nlsxOld;              /* previous x */
   modelica_real *nlsxExtrapolation;    /* extrapolated values for x from old and old2 - used as initial guess */
 
-  void *oldValueList;                  /* old values organized in a sorted list for extrapolation and interpolate, respectively */
+  VALUES_LIST *oldValueList;           /* old values organized in a sorted list for extrapolation and interpolate, respectively */
   modelica_real *resValues;            /* memory space for evaluated residual values */
 
   NLS_SOLVER_STATUS solved;            /* Specifiex if the NLS could be solved (with less accuracy) or failed */

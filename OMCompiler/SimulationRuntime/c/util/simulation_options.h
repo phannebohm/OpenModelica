@@ -123,6 +123,7 @@ enum _FLAG
   FLAG_MAX_ORDER,
   FLAG_MAX_STEP_SIZE,
   FLAG_MEASURETIMEPLOTFORMAT,
+  FLAG_NEWTON_DIAGNOSTICS,
   FLAG_NEWTON_FTOL,
   FLAG_NEWTON_MAX_STEP_FACTOR,
   FLAG_NEWTON_XTOL,
@@ -245,6 +246,8 @@ enum GB_METHOD {
   RK_DOPRI45,         /* dopri45*/
   RK_DOPRISSC1,       /* dopriSsc1*/
   RK_DOPRISSC2,       /* dopriSsc2*/
+  RK_TSIT5,           /* tsit5*/
+  RK_RUNGEKUTTA,      /* rungekutta*/
   RK_RKSSC,           /* rungekuttaSsc */
 
 

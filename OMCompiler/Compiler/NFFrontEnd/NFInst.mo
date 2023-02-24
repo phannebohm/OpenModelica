@@ -70,6 +70,7 @@ import Array;
 import Error;
 import FlagsUtil;
 import Flatten = NFFlatten;
+import Connections = NFConnections;
 import InstUtil = NFInstUtil;
 import List;
 import Lookup = NFLookup;
@@ -236,6 +237,46 @@ algorithm
   //(var_count, eq_count) := CheckModel.checkModel(flatModel);
   //print(name + " has " + String(var_count) + " variable(s) and " + String(eq_count) + " equation(s).\n");
 end instClassInProgram;
+
+function instClassForConnection
+  "Instantiates a class given by its fully qualified path, with the result being
+   a list of all connections."
+  input Absyn.Path classPath;
+  input SCode.Program program;
+  input SCode.Program annotationProgram;
+  output list<list<String>> connList = {};
+protected
+  Connections conns;
+  InstNode top, cls, inst_cls;
+  String name;
+  InstContext.Type context;
+algorithm
+  resetGlobalFlags();
+  context := if Flags.getConfigBool(Flags.CHECK_MODEL) or Flags.isSet(Flags.NF_API) then
+    NFInstContext.RELAXED else NFInstContext.NO_CONTEXT;
+
+  // Create a top scope from the given top-level classes.
+  top := makeTopNode(program, annotationProgram);
+  name := AbsynUtil.pathString(classPath);
+
+  // Look up the class to instantiate.
+  cls := lookupRootClass(classPath, top, context);
+
+  // Instantiate the class.
+  inst_cls := instantiateRootClass(cls, context);
+
+  // Instantiate expressions (i.e. anything that can contains crefs, like
+  // bindings, dimensions, etc). This is done as a separate step after
+  // instantiation to make sure that lookup is able to find the correct nodes.
+  instExpressions(inst_cls, context = context);
+
+  // Type the class.
+  Typing.typeClass(inst_cls, context);
+
+  // Flatten the model and get connections
+  conns := Flatten.flattenConnection(inst_cls, name);
+  connList := Connections.toStringList(conns);
+end instClassForConnection;
 
 function resetGlobalFlags
   "Resets the global flags that the frontend uses."
@@ -2997,12 +3038,10 @@ function instAlgorithmSection
   output Algorithm alg;
 protected
   list<Statement> statements;
-  list<ComponentRef> inputs_lst;
-  list<ComponentRef> outputs_lst;
 algorithm
+  // collect inputs and outputs later when types are computed properly
   statements := instStatements(algorithmSection.statements, scope, context);
-  (inputs_lst, outputs_lst) := Algorithm.getInputsOutputs(statements);
-  alg := Algorithm.ALGORITHM(statements, inputs_lst, outputs_lst, scope, DAE.emptyElementSource);
+  alg := Algorithm.ALGORITHM(statements, {}, {}, scope, DAE.emptyElementSource);
 end instAlgorithmSection;
 
 function instStatements

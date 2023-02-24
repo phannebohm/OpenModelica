@@ -2456,6 +2456,7 @@ function importFMU "Imports the Functional Mockup Unit
   input Boolean debugLogging = false "When true the FMU's debug output is printed.";
   input Boolean generateInputConnectors = true "When true creates the input connector pins.";
   input Boolean generateOutputConnectors = true "When true creates the output connector pins.";
+  input TypeName modelName = $TypeName(Default) "Name of the generated model. If default then the name is auto generated using FMU information.";
   output String generatedFileName "Returns the full path of the generated file.";
 external "builtin";
 annotation(preferredView="text");
@@ -3279,6 +3280,18 @@ function getNthConnection "Returns the Nth connection.
 external "builtin";
 annotation(preferredView="text");
 end getNthConnection;
+
+function getConnectionList "returns an array of all connections including those within loops"
+  input TypeName className;
+  output String[:,:] result;
+external "builtin";
+annotation(
+  Documentation(info="<html>
+Returns a list of all connect equations including those in loops. For example:
+<pre>{{\"connection1.lhs\",\"connection1.rhs\"}, {\"connection2.lhs\",\"connection2.rhs\"}}</pre>
+</html>"),
+  preferredView="text");
+end getConnectionList;
 
 function getAlgorithmCount "Counts the number of Algorithm sections in a class."
   input TypeName class_;

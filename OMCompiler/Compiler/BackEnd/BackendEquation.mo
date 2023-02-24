@@ -1914,10 +1914,32 @@ algorithm
     case BackendDAE.COMPLEX_EQUATION(attr=BackendDAE.EQUATION_ATTRIBUTES(kind=kind)) then kind;
     case BackendDAE.IF_EQUATION(attr=BackendDAE.EQUATION_ATTRIBUTES(kind=kind)) then kind;
     else equation
-      Error.addInternalError("BackendEquation.equationKind failed!", sourceInfo());
+      Error.addInternalError(getInstanceName() + " failed!", sourceInfo());
     then fail();
   end match;
 end equationKind;
+
+public function setEquationKind
+  input output BackendDAE.Equation eq;
+  input output BackendDAE.EquationKind k;
+algorithm
+  eq := match eq
+    local
+      BackendDAE.EquationAttributes a;
+    case BackendDAE.EQUATION(attr=a)          algorithm a.kind := k; eq.attr := a; then eq;
+    case BackendDAE.ARRAY_EQUATION(attr=a)    algorithm a.kind := k; eq.attr := a; then eq;
+    case BackendDAE.FOR_EQUATION(attr=a)      algorithm a.kind := k; eq.attr := a; then eq;
+    case BackendDAE.SOLVED_EQUATION(attr=a)   algorithm a.kind := k; eq.attr := a; then eq;
+    case BackendDAE.RESIDUAL_EQUATION(attr=a) algorithm a.kind := k; eq.attr := a; then eq;
+    case BackendDAE.WHEN_EQUATION(attr=a)     algorithm a.kind := k; eq.attr := a; then eq;
+    case BackendDAE.ALGORITHM(attr=a)         algorithm a.kind := k; eq.attr := a; then eq;
+    case BackendDAE.COMPLEX_EQUATION(attr=a)  algorithm a.kind := k; eq.attr := a; then eq;
+    case BackendDAE.IF_EQUATION(attr=a)       algorithm a.kind := k; eq.attr := a; then eq;
+    else algorithm
+      Error.addInternalError(getInstanceName() + " failed!", sourceInfo());
+    then fail();
+  end match;
+end setEquationKind;
 
 public function setEvalStageDynamic
   input output BackendDAE.EvaluationStages evalStage;
@@ -2243,7 +2265,7 @@ algorithm
 
     case (_, DAE.RELATION(e1, DAE.LESS(_), e2, _, _)) equation
       lhs = ComponentReference.makeCrefIdent(conCrefName, DAE.T_REAL_DEFAULT, {});
-      dummyVar = BackendDAE.VAR(lhs, conKind, DAE.OUTPUT(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false);
+      dummyVar = BackendDAE.VAR(lhs, conKind, DAE.OUTPUT(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false, false);
       rhs = Expression.expSub(e1,e2);
       (rhs, _) = ExpressionSimplify.simplify1(rhs);
       expNull = DAE.RCONST(0.0);
@@ -2253,7 +2275,7 @@ algorithm
 
     case (_, DAE.RELATION(e1, DAE.LESSEQ(_), e2, _, _)) equation
       lhs = ComponentReference.makeCrefIdent(conCrefName, DAE.T_REAL_DEFAULT, {});
-      dummyVar = BackendDAE.VAR(lhs, conKind, DAE.OUTPUT(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false);
+      dummyVar = BackendDAE.VAR(lhs, conKind, DAE.OUTPUT(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false, false);
       rhs = Expression.expSub(e1,e2);
       (rhs, _) = ExpressionSimplify.simplify1(rhs);
       expNull = DAE.RCONST(0.0);
@@ -2263,7 +2285,7 @@ algorithm
 
     case (_, DAE.RELATION(e1, DAE.GREATER(_), e2, _, _)) equation
       lhs = ComponentReference.makeCrefIdent(conCrefName, DAE.T_REAL_DEFAULT, {});
-      dummyVar = BackendDAE.VAR(lhs, conKind, DAE.OUTPUT(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false);
+      dummyVar = BackendDAE.VAR(lhs, conKind, DAE.OUTPUT(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false, false);
       rhs =  Expression.expSub(e2,e1);
       (rhs, _) = ExpressionSimplify.simplify1(rhs);
       expNull = DAE.RCONST(0.0);
@@ -2273,7 +2295,7 @@ algorithm
 
     case (_, DAE.RELATION(e1, DAE.GREATEREQ(_), e2, _, _)) equation
       lhs = ComponentReference.makeCrefIdent(conCrefName, DAE.T_REAL_DEFAULT, {});
-      dummyVar = BackendDAE.VAR(lhs, conKind, DAE.OUTPUT(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false);
+      dummyVar = BackendDAE.VAR(lhs, conKind, DAE.OUTPUT(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false, false);
       rhs =  Expression.expSub(e2,e1);
       (rhs, _) = ExpressionSimplify.simplify(rhs);
       expNull = DAE.RCONST(0.0);
@@ -2283,7 +2305,7 @@ algorithm
 
     case (_, DAE.RELATION(e1, DAE.EQUAL(_), e2, _, _)) equation
       lhs = ComponentReference.makeCrefIdent(conCrefName, DAE.T_REAL_DEFAULT, {});
-      dummyVar = BackendDAE.VAR(lhs, conKind, DAE.OUTPUT(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false);
+      dummyVar = BackendDAE.VAR(lhs, conKind, DAE.OUTPUT(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false, false);
       rhs =  Expression.expSub(e2,e1);
       (rhs, _) = ExpressionSimplify.simplify(rhs);
       expNull = DAE.RCONST(0.0);
@@ -2298,7 +2320,7 @@ algorithm
       end try;
 
       lhs := ComponentReference.makeCrefIdent(conCrefName, DAE.T_REAL_DEFAULT, {});
-      dummyVar := BackendDAE.VAR(lhs, conKind, DAE.OUTPUT(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false);
+      dummyVar := BackendDAE.VAR(lhs, conKind, DAE.OUTPUT(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false, false);
       dummyVar := BackendVariable.mergeAliasVars(dummyVar, v, false, knvars);
       eqn := BackendDAE.SOLVED_EQUATION(lhs, e1, Source, BackendDAE.EQ_ATTR_DEFAULT_UNKNOWN);
 

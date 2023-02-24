@@ -185,12 +185,14 @@ public
       then str;
 
       case ENTWINED_COMPONENT() algorithm
-        str := StringUtil.headline_3("BLOCK" + indexStr + ": Entwined Component (status = Solve.UNPROCESSED)");
+        str := StringUtil.headline_3("BLOCK" + indexStr + ": Entwined Component (status = Solve.EXPLICIT)");
+        str := str + "call order: " + List.toString(list(Equation.getEqnName(Util.tuple21(e)) for e in comp.entwined_tpl_lst), ComponentRef.toString, "", "{", ", ", "}", true, 10) + "\n";
         str := str + List.toString(comp.entwined_slices, function toString(index = -2), "", "", "", "");
       then str;
 
       case GENERIC_COMPONENT() algorithm
         str := StringUtil.headline_3("BLOCK" + indexStr + ": Generic Component (status = Solve.EXPLICIT)");
+        str := str + "### Variable:\n\t" + ComponentRef.toString(comp.var_cref) + "\n";
         str := str + "### Equation:\n" + Slice.toString(comp.eqn, function Equation.pointerToString(str = "\t")) + "\n";
       then str;
 
@@ -245,62 +247,6 @@ public
       else false;
     end match;
   end isEqual;
-
-  function create
-    input list<Integer> comp_indices;
-    input Matching matching;
-    input VariablePointers vars;
-    input EquationPointers eqns;
-    output StrongComponent comp;
-  algorithm
-    comp := match matching
-
-      case Causalize.ARRAY_MATCHING() algorithm
-        Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because array strong components are not yet supported."});
-      then fail();
-
-      else algorithm
-        Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed."});
-      then fail();
-    end match;
-  end create;
-
-  function createPseudo
-    input list<Integer> comp_indices;
-    input array<Integer> eqn_to_var;
-    input VariablePointers vars;
-    input EquationPointers eqns;
-    input Adjacency.Mapping mapping;
-    input Adjacency.CausalizeModes modes;
-    input PseudoBucket bucket;
-    output Option<StrongComponent> comp;
-  algorithm
-    comp := match comp_indices
-      local
-        Integer i, mode;
-        PseudoBucketValue val;
-        PseudoBucketKey key;
-        ComponentRef cref_to_solve;
-        list<Integer> eqn_scal_indices;
-        list<tuple<Pointer<Equation>, Integer>> entwined_tpl_lst;
-        list<StrongComponent> entwined = {};
-
-      case {i} guard(Adjacency.CausalizeModes.contains(i, modes)) algorithm
-        if bucket.marks[i] then
-          // has already been created
-          comp := NONE();
-        else
-          // get mode and bucket
-          mode := Adjacency.CausalizeModes.get(i, eqn_to_var[i], modes);
-          val  := PseudoBucket.get(i, mapping.eqn_StA[i], mode, bucket);
-          comp := SOME(createPseudoSlice(mapping.eqn_StA[i], val.cref_to_solve, val.eqn_scal_indices, eqns, mapping));
-        end if;
-      then comp;
-
-      // if it is no array structure just use scalar
-      else SOME(createPseudoScalar(comp_indices, eqn_to_var, mapping, vars, eqns));
-    end match;
-  end createPseudo;
 
   function createPseudoSlice
     input Integer eqn_arr_idx;
@@ -367,7 +313,7 @@ public
     // create individual slices
     for tpl in UnorderedMap.toList(elem_map) loop
       (arr_idx, scal_indices) := tpl;
-      entwined_slices := createPseudoSlice(arr_idx, UnorderedMap.getSafe(arr_idx, cref_map, sourceInfo()), listReverse(scal_indices), eqns, mapping) :: entwined_slices;
+      entwined_slices := createPseudoSlice(arr_idx, UnorderedMap.getSafe(arr_idx, cref_map, sourceInfo()), scal_indices, eqns, mapping) :: entwined_slices;
     end for;
 
     // create scalar list for fallback
@@ -485,8 +431,9 @@ public
     input Boolean pseudo                                      "true if arrays are unscalarized";
     input JacobianType jacType                                "sets the context";
   algorithm
-    _ := match comp
+    () := match comp
       local
+        Pointer<Equation> eqn_ptr;
         ComponentRef cref;
         list<ComponentRef> dependencies = {}, loop_vars = {}, tmp;
         list<tuple<ComponentRef, list<ComponentRef>>> scalarized_dependencies;
@@ -508,13 +455,13 @@ public
 
       case SINGLE_COMPONENT() algorithm
         dependencies := Equation.collectCrefs(Pointer.access(comp.eqn), function Slice.getDependentCrefCausalized(set = set));
-        cref := BVariable.getVarName(comp.var);
         dependencies := List.flatten(list(ComponentRef.scalarizeAll(dep) for dep in dependencies));
-        updateDependencyMap(cref, dependencies, map, jacType);
+        updateDependencyMap(BVariable.getVarName(comp.var), dependencies, map, jacType);
       then ();
 
       case MULTI_COMPONENT() algorithm
         dependencies := Equation.collectCrefs(Pointer.access(comp.eqn), function Slice.getDependentCrefCausalized(set = set));
+        dependencies := List.flatten(list(ComponentRef.scalarizeAll(dep) for dep in dependencies));
         for var in comp.vars loop
           updateDependencyMap(BVariable.getVarName(var), dependencies, map, jacType);
         end for;
@@ -529,7 +476,7 @@ public
         else
           cref := comp.var_cref;
         end if;
-        scalarized_dependencies := Slice.getDependentCrefsPseudoForCausalized(cref, dependencies, var_rep, eqn_rep, var_rep_mapping, eqn_rep_mapping, iter, comp.eqn.indices);
+        scalarized_dependencies := Slice.getDependentCrefsPseudoForCausalized(cref, dependencies, var_rep, eqn_rep, var_rep_mapping, eqn_rep_mapping, iter, comp.eqn.indices, false);
         for tpl in listReverse(scalarized_dependencies) loop
           (cref, dependencies) := tpl;
           updateDependencyMap(cref, dependencies, map, jacType);
@@ -564,7 +511,7 @@ public
         else
           cref := comp.var_cref;
         end if;
-        scalarized_dependencies := Slice.getDependentCrefsPseudoForCausalized(cref, dependencies, var_rep, eqn_rep, var_rep_mapping, eqn_rep_mapping, iter, comp.eqn.indices);
+        scalarized_dependencies := Slice.getDependentCrefsPseudoForCausalized(cref, dependencies, var_rep, eqn_rep, var_rep_mapping, eqn_rep_mapping, iter, comp.eqn.indices, false);
         for tpl in listReverse(scalarized_dependencies) loop
           (cref, dependencies) := tpl;
           updateDependencyMap(cref, dependencies, map, jacType);
@@ -582,6 +529,15 @@ public
         for slice in strict.residual_eqns loop
           // ToDo: does this work properly for arrays?
           tmp := Equation.collectCrefs(Pointer.access(Slice.getT(slice)), function Slice.getDependentCrefCausalized(set = set));
+          eqn_ptr := Slice.getT(slice);
+          if Equation.isForEquation(eqn_ptr) then
+            // if its a for equation get all dependencies corresponding to their residual.
+            // we do not really care for order and assume full dependency anyway
+            eqn as Equation.FOR_EQUATION(iter = iter, body = {body}) := Pointer.access(eqn_ptr);
+            cref := Equation.getEqnName(eqn_ptr);
+            scalarized_dependencies := Slice.getDependentCrefsPseudoForCausalized(cref, tmp, var_rep, eqn_rep, var_rep_mapping, eqn_rep_mapping, iter, slice.indices, true);
+            tmp := List.flatten(list(Util.tuple22(tpl) for tpl in scalarized_dependencies));
+          end if;
           dependencies := listAppend(tmp, dependencies);
         end for;
 

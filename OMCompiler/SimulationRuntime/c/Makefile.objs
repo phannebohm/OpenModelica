@@ -174,10 +174,12 @@ ifeq ($(OMC_MINIMAL_RUNTIME),)
               linearSolverKlu$(OBJ_EXT) \
               linearSolverLis$(OBJ_EXT) \
               linearSolverUmfpack$(OBJ_EXT) \
+              newton_diagnostics$(OBJ_EXT) \
               newtonIteration$(OBJ_EXT) \
               nonlinearSolverNewton$(OBJ_EXT) \
               radau$(OBJ_EXT) \
               sundials_error$(OBJ_EXT) \
+              sundials_util$(OBJ_EXT) \
               sym_solver_ssc$(OBJ_EXT)
 else
   SOLVER_OBJS=$(SOLVER_OBJS_MINIMAL)
@@ -202,6 +204,7 @@ SOLVER_HFILES = cvode_solver.h \
                 spatialDistribution.h \
                 stateset.h \
                 sundials_error.h \
+                sundials_util.h \
                 sym_solver_ssc.h
 
 INITIALIZATION_OBJS = initialization$(OBJ_EXT)

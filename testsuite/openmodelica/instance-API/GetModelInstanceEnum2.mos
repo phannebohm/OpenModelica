@@ -20,22 +20,26 @@ getModelInstance(M, prettyPrint=true);
 // "{
 //   \"name\": \"M\",
 //   \"restriction\": \"model\",
-//   \"components\": [
+//   \"elements\": [
 //     {
+//       \"$kind\": \"component\",
 //       \"name\": \"e\",
 //       \"type\": {
 //         \"name\": \"E2\",
 //         \"restriction\": \"enumeration\",
-//         \"components\": [
+//         \"elements\": [
 //           {
+//             \"$kind\": \"component\",
 //             \"name\": \"a\",
 //             \"comment\": \"a\"
 //           },
 //           {
+//             \"$kind\": \"component\",
 //             \"name\": \"b\",
 //             \"comment\": \"b\"
 //           },
 //           {
+//             \"$kind\": \"component\",
 //             \"name\": \"c\",
 //             \"comment\": \"c\"
 //           }
