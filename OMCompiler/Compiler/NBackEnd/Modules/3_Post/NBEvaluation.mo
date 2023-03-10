@@ -45,6 +45,29 @@ protected
   import OldBackendDAE = BackendDAE;
 
 public
+  function main
+    extends Module.wrapper;
+  algorithm
+    bdae := match bdae
+
+      case BackendDAE.MAIN() algorithm
+        createDependencyGraph(bdae);
+      then bdae;
+
+      else algorithm
+        // maybe add failtrace here and allow failing
+        Error.addInternalError(getInstanceName() + " failed for: " + BackendDAE.toString(bdae), sourceInfo());
+      then fail();
+
+    end match;
+  end main;
+
+  function createDependencyGraph
+    input BackendDAE bdae;
+  algorithm
+    // TODO build dependency graph
+  end createDependencyGraph;
+
   uniontype Stages
     record STAGES
       Boolean dynamicEval;

@@ -6000,6 +6000,7 @@ template equation_call_context(SimEqSystem eq, String modelNamePrefix, Context c
   end match
 end equation_call_context;
 
+// PH use this for the eval-graph
 template equation_call(SimEqSystem eq, String modelNamePrefix)
  "Generates an equation.
   This template should not be used for a SES_RESIDUAL.

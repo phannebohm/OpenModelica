@@ -52,6 +52,7 @@ encapsulated package NBModule
 
   *** POST (Mandatory)
    - jacobianInterface
+   - evaluationInterface
 
   *** POST (Optional)
    - tearingInterface
@@ -242,6 +243,18 @@ public
     output Option<Jacobian> jacobian                      "Resulting jacobian";
     input output FunctionTree funcTree                    "Function call bodies";
   end jacobianInterface;
+
+//                               EVALUATION
+// *************************************************************************
+  partial function evaluationInterface
+    "TODO"
+    input Adjacency.Matrix adjacency "TODO";
+    input Matching matching "TODO";
+    input array<StrongComponent> nodes "TODO";
+    input EventInfo eventInfo "TODO";
+    input VariablePointers states "TODO";
+    output Evaluation.Graph evalGraph "TODO";
+  end evaluationInterface;
 
 // =========================================================================
 //                         Optional POST-OPT MODULES

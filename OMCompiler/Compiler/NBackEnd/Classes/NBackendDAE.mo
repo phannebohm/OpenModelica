@@ -71,6 +71,7 @@ protected
   import Causalize = NBCausalize;
   import DetectStates = NBDetectStates;
   import DAEMode = NBDAEMode;
+  import Evaluation = NBEvaluation;
   import Initialization = NBInitialization;
   import NBJacobian.JacobianType;
   import Module = NBModule;
@@ -241,10 +242,11 @@ public
       mainModules := (DAEMode.main, "DAE-Mode") :: mainModules;
     end if;
 
-    // (do not change order SOLVE -> JACOBIAN)
+    // (do not change order EVALUATION -> SOLVE -> JACOBIAN)
     postOptModules := {
       (function Tearing.main(systemType = NBSystem.SystemType.ODE),   "Tearing"),
       (Partitioning.categorize,                                       "Categorize"),
+      (Evaluation.main,                                               "Evaluation"),
       (Solve.main,                                                    "Solve"),
       (function Jacobian.main(systemType = NBSystem.SystemType.ODE),  "Jacobian")
     };
