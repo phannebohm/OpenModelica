@@ -407,6 +407,27 @@ void MainWindow::setUpMainWindow(threadData_t *threadData)
   }
 }
 
+/*!
+ * \brief MainWindow::setNewApiProfiling
+ * Sets the new api profiling flag.
+ * If flag is enabled then creates a file for it.
+ * \param newApiProfiling
+ */
+void MainWindow::setNewApiProfiling(bool newApiProfiling)
+{
+  mNewApiProfiling = newApiProfiling;
+  if (mNewApiProfiling) {
+    QString& tmpPath = Utilities::tempDirectory();
+    /* create a file to write OMEdit communication log */
+    QString profilingFilePath = QString("%1instanceApiProfiling.txt").arg(tmpPath);
+#ifdef Q_OS_WIN
+    mpNewApiProfilingFile = _wfopen((wchar_t*)profilingFilePath.utf16(), L"w");
+#else
+    mpNewApiProfilingFile = fopen(profilingFilePath.toUtf8().constData(), "w");
+#endif
+  }
+}
+
 #if !defined(WITHOUT_OSG)
 /*!
  * \brief MainWindow::isThreeDViewerInitialized
@@ -677,6 +698,10 @@ void MainWindow::beforeClosingMainWindow()
   GitCommands::destroy();
   // delete the searchwidget object to call the destructor, to cancel the search operation running on seperate thread
   delete mpSearchWidget;
+  // if new api profiling file is open then close it.
+  if (mpNewApiProfilingFile) {
+    fclose(mpNewApiProfilingFile);
+  }
 }
 
 /*!
@@ -1537,6 +1562,19 @@ void MainWindow::addSystemLibraries()
 QString MainWindow::getLibraryIndexFilePath() const
 {
   return QString("%1/.openmodelica/libraries/index.json").arg(Helper::userHomeDirectory);
+}
+
+/*!
+ * \brief MainWindow::writeNewApiProfiling
+ * Writes to new api profiling file.
+ * \param str
+ */
+void MainWindow::writeNewApiProfiling(const QString &str)
+{
+  if (mpNewApiProfilingFile) {
+    fputs(QString("%1\n").arg(str).toUtf8().constData(), mpNewApiProfilingFile);
+    fflush(mpNewApiProfilingFile);
+  }
 }
 
 /*!
@@ -3153,25 +3191,6 @@ void MainWindow::enableReSimulationToolbar(bool visible)
     mpReSimulationToolBar->setEnabled(!mpVariablesWidget->getVariablesTreeView()->selectionModel()->selectedIndexes().isEmpty());
   } else {
     mpReSimulationToolBar->setEnabled(false);
-  }
-}
-
-void MainWindow::updateModel(const QString &modelName)
-{
-  updateModelHelper(MainWindow::instance()->getLibraryWidget()->getLibraryTreeModel()->getRootLibraryTreeItem(), modelName);
-}
-
-void MainWindow::updateModelHelper(LibraryTreeItem *pLibraryTreeItem, const QString &modelName)
-{
-  for (int i = 0; i < pLibraryTreeItem->childrenSize(); i++) {
-    LibraryTreeItem *pChildLibraryTreeItem = pLibraryTreeItem->child(i);
-    if (pChildLibraryTreeItem
-        && !pChildLibraryTreeItem->isSystemLibrary()
-        && pChildLibraryTreeItem->getLibraryType() == LibraryTreeItem::Modelica
-        && pChildLibraryTreeItem->getModelWidget()) {
-      pChildLibraryTreeItem->getModelWidget()->updateModelIfDependsOn(modelName);
-      updateModelHelper(pChildLibraryTreeItem, modelName);
-    }
   }
 }
 

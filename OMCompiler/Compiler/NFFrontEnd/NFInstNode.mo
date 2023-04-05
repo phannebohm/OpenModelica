@@ -102,6 +102,7 @@ uniontype InstNodeType
   record REDECLARED_CLASS
     InstNode parent;
     InstNodeType originalType;
+    Option<InstNode> originalNode;
   end REDECLARED_CLASS;
 
   record GENERATED_INNER
@@ -647,7 +648,10 @@ uniontype InstNode
      the enclosing class. In the case of a component it is the enclosing class of
      the component's type."
     input InstNode node;
+    input Boolean ignoreRedeclare = false;
     output InstNode scope;
+  protected
+    InstNode orig_node;
   algorithm
     scope := match node
       case CLASS_NODE(nodeType = InstNodeType.DERIVED_CLASS())
@@ -664,6 +668,10 @@ uniontype InstNode
           else
             parentScope(scope);
 
+      case CLASS_NODE(nodeType = InstNodeType.REDECLARED_CLASS(originalNode = SOME(orig_node)))
+        guard ignoreRedeclare
+        then parentScope(orig_node);
+
       case CLASS_NODE() then node.parentScope;
       case COMPONENT_NODE() then parentScope(Component.classInstance(Pointer.access(node.component)));
       case IMPLICIT_SCOPE() then node.parentScope;
@@ -673,22 +681,24 @@ uniontype InstNode
   function enclosingScopePath
     "Returns the enclosing scopes of a node as a path."
     input InstNode node;
+    input Boolean ignoreRedeclare = false;
     output Absyn.Path path;
   algorithm
     path := AbsynUtil.stringListPath(
-      list(InstNode.name(n) for n in enclosingScopeList(node)));
+      list(InstNode.name(n) for n in enclosingScopeList(node, ignoreRedeclare)));
   end enclosingScopePath;
 
   function enclosingScopeList
     "Returns the enclosing scopes of a node as a list of nodes."
     input InstNode node;
+    input Boolean ignoreRedeclare = false;
     output list<InstNode> res = {};
   protected
     InstNode scope = node;
   algorithm
     while not isTopScope(scope) loop
       res := scope :: res;
-      scope := classScope(parentScope(scope));
+      scope := classScope(parentScope(scope, ignoreRedeclare));
     end while;
   end enclosingScopeList;
 
@@ -825,14 +835,27 @@ uniontype InstNode
 
   function getDerivedNode
     input InstNode node;
+    input Boolean recursive = true;
     output InstNode derived;
   algorithm
     derived := match node
-      case CLASS_NODE(nodeType = InstNodeType.BASE_CLASS(parent = derived))
-        then getDerivedNode(derived);
+      case CLASS_NODE() then getDerivedNode2(node, node.nodeType, recursive);
       else node;
     end match;
   end getDerivedNode;
+
+  function getDerivedNode2
+    input InstNode node;
+    input InstNodeType ty;
+    input Boolean recursive;
+    output InstNode derived;
+  algorithm
+    derived := match ty
+      case InstNodeType.BASE_CLASS() then if recursive then getDerivedNode(ty.parent) else ty.parent;
+      case InstNodeType.DERIVED_CLASS() then getDerivedNode2(node, ty.ty, recursive);
+      else node;
+    end match;
+  end getDerivedNode2;
 
   function updateClass
     input Class cls;
@@ -1568,6 +1591,16 @@ uniontype InstNode
       else false;
     end match;
   end isRedeclared;
+
+  function getRedeclaredNode
+    input InstNode node;
+    output InstNode outNode;
+  algorithm
+    outNode := match node
+      case InstNode.CLASS_NODE(nodeType = InstNodeType.REDECLARED_CLASS(originalNode = SOME(outNode))) then outNode;
+      else node;
+    end match;
+  end getRedeclaredNode;
 
   function isReplaceable
     input InstNode node;

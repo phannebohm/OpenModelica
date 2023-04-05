@@ -1,22 +1,25 @@
 // name:     ExportCvodeFmu_dynamic
 // keywords: fmu export simulation flags
 // status: correct
-// teardown_command: rm -rf Modelica_Mechanics_MultiBody_Examples_Elementary_Pendulum* Modelica.Mechanics.MultiBody.Examples.Elementary.Pendulum*  Pendulum-dynamic* Pendulum_dynamic* Pendulum_cs_systemCall* Pendulum_flags_dynamic.json
+// teardown_command: rm -rf *.fmu Pendulum* Pendulum-dynamic* Pendulum_dynamic* Pendulum_cs_systemCall* Pendulum_flags_dynamic.json
 // cflags: -d=-newInst
 //
-// Export Modelica.Mechanics.MultiBody.Examples.Elementary.Pendulum as 2.0 CS FMU with CVODE solver
+// Export Pendulum as 2.0 CS FMU with CVODE solver
 
 // Generate FMU
 loadModel(Modelica, {"3.2.3"}); getErrorString();
+loadString("model Pendulum
+extends Modelica.Mechanics.MultiBody.Examples.Elementary.Pendulum;
+end Pendulum;"); getErrorString();
 setCommandLineOptions("--fmiFlags=s:cvode"); getErrorString();
-buildModelFMU(Modelica.Mechanics.MultiBody.Examples.Elementary.Pendulum, version = "2.0", fmuType="cs", platforms={"dynamic"}); getErrorString();
+buildModelFMU(Pendulum, version = "2.0", fmuType="cs", platforms={"dynamic"}); getErrorString();
 
 // Check _flags.json for simulation flags
-system("unzip -cqq Modelica.Mechanics.MultiBody.Examples.Elementary.Pendulum.fmu resources/Modelica_Mechanics_MultiBody_Examples_Elementary_Pendulum_flags.json > Pendulum_flags_dynamic.json"); getErrorString();
+system("unzip -cqq Pendulum.fmu resources/Pendulum_flags.json > Pendulum_flags_dynamic.json"); getErrorString();
 readFile("Pendulum_flags_dynamic.json"); getErrorString();
 
 // Simulate with OMSimulator
-system(getInstallationDirectoryPath() + "/bin/OMSimulator Modelica.Mechanics.MultiBody.Examples.Elementary.Pendulum.fmu --mode=cs --tolerance=1e-6 --resultFile=\"Pendulum_dynamic_res.mat\" --stopTime=1.0 --suppressPath=true --tempDir=\"Pendulum-dynamic-tmp\"", "Pendulum_cs_systemCall.log"); getErrorString();
+system(getInstallationDirectoryPath() + "/bin/OMSimulator Pendulum.fmu --mode=cs --tolerance=1e-6 --resultFile=\"Pendulum_dynamic_res.mat\" --stopTime=1.0 --suppressPath=true --tempDir=\"Pendulum-dynamic-tmp\"", "Pendulum_cs_systemCall.log"); getErrorString();
 readFile("Pendulum_cs_systemCall.log");
 
 // Check results
@@ -32,7 +35,9 @@ val(rev.w, 1.0, "Pendulum_dynamic_res.mat"); getErrorString();
 // ""
 // true
 // ""
-// "Modelica.Mechanics.MultiBody.Examples.Elementary.Pendulum.fmu"
+// true
+// ""
+// "Pendulum.fmu"
 // ""
 // 0
 // ""
@@ -55,8 +60,8 @@ val(rev.w, 1.0, "Pendulum_dynamic_res.mat"); getErrorString();
 // LOG_SOLVER        | info    | CVODE maximum number of nonlinear convergence failures permitted during one step 10
 // LOG_SOLVER        | info    | CVODE BDF stability limit detection algorithm OFF
 // info:    Result file: Pendulum_dynamic_res.mat (bufferSize=1)
-// info:    Parameter model.root.fmu.world.label1 will not be stored in the result file, because the signal type is not supported
-// info:    Parameter model.root.fmu.world.label2 will not be stored in the result file, because the signal type is not supported
+// info:    Parameter model.root.Pendulum.world.label1 will not be stored in the result file, because the signal type is not supported
+// info:    Parameter model.root.Pendulum.world.label2 will not be stored in the result file, because the signal type is not supported
 // "
 // 0.0
 // ""

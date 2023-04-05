@@ -118,7 +118,7 @@ end translateModel;
     #include "simulation/simulation_runtime.h"
     #include "util/omc_error.h"
     #include "util/parallel_helper.h"
-    #include "util/jacobian_util.h"
+    #include "simulation/jacobian_util.h"
     #include "simulation/simulation_omc_assert.h"
     #include "simulation/solver/model_help.h"
     #include "simulation/solver/delay.h"
@@ -630,7 +630,7 @@ template simulationFile_nls(SimCode simCode)
     /* Non Linear Systems */
     <%simulationFileHeader(simCode.fileNamePrefix)%>
     #include "<%simCode.fileNamePrefix%>_12jac.h"
-    #include "util/jacobian_util.h"
+    #include "simulation/jacobian_util.h"
     #if defined(__cplusplus)
     extern "C" {
     #endif
@@ -743,7 +743,7 @@ template simulationFile_inz(SimCode simCode)
     <%functionInitialEquations_lambda0(initialEquations_lambda0, modelNamePrefix(simCode))%>
     <%functionRemovedInitialEquations(removedInitialEquations, modelNamePrefix(simCode))%>
 
-    <%if intGt(varInfo.numMixedSystems,0) then functionInitialMixedSystems(initialEquations, initialEquations_lambda0, parameterEquations, allEquations, jacobianMatrixes, modelNamePrefix(simCode))%>
+    <%if intGt(varInfo.numMixedSystems,0) then functionInitialMixedSystems(initialEquations, initialEquations_lambda0, parameterEquations, allEquations, jacobianMatrices, modelNamePrefix(simCode))%>
 
     #if defined(__cplusplus)
     }
@@ -883,7 +883,7 @@ template simulationFile_mix(SimCode simCode, Text &header)
     /* Mixed Systems */
     <%simulationFileHeader(simCode.fileNamePrefix)%>
     #include "<%simCode.fileNamePrefix%>_11mix.h"
-    <%functionSetupMixedSystems(initialEquations, initialEquations_lambda0, parameterEquations, allEquations, jacobianMatrixes, &header, modelNamePrefixStr)%>
+    <%functionSetupMixedSystems(initialEquations, initialEquations_lambda0, parameterEquations, allEquations, jacobianMatrices, &header, modelNamePrefixStr)%>
 
     <%\n%>
     >>
@@ -897,11 +897,12 @@ template simulationFile_jac(SimCode simCode)
   match simCode
     case simCode as SIMCODE(__) then
     <<
-    /* Jacobians <%listLength(jacobianMatrixes)%> */
+    /* Jacobians <%listLength(jacobianMatrices)%> */
     <%simulationFileHeader(simCode.fileNamePrefix)%>
     #include "<%fileNamePrefix%>_12jac.h"
-    #include "util/jacobian_util.h"
-    <%functionAnalyticJacobians(jacobianMatrixes, modelNamePrefix(simCode))%>
+    #include "simulation/jacobian_util.h"
+    #include "util/omc_file.h"
+    <%functionAnalyticJacobians(jacobianMatrices, modelNamePrefix(simCode), simCode.fileNamePrefix)%>
 
     <%\n%>
     >>
@@ -917,7 +918,8 @@ template simulationFile_jac_header(SimCode simCode)
     <<
     /* Jacobians */
     static const REAL_ATTRIBUTE dummyREAL_ATTRIBUTE = omc_dummyRealAttribute;
-    <%symJacDefinition(jacobianMatrixes, modelNamePrefix(simCode))%>
+
+    <%symJacDefinition(jacobianMatrices, modelNamePrefix(simCode))%>
     <%\n%>
     >>
     /* adrpo: leave a newline at the end of file to get rid of the warning */
@@ -1425,53 +1427,56 @@ template populateModelInfo(ModelInfo modelInfo, String fileNamePrefix, String gu
     data->modelData->modelGUID = "{<%guid%>}";
     <% match isModelExchangeFMU
     case "1.0" then
-    <<
-    data->modelData->initXMLData = NULL;
-    data->modelData->modelDataXml.infoXMLData =
-    #if defined(OMC_MINIMAL_METADATA)
-      NULL;
-    #else
-    #include "<%fileNamePrefix%>_info.c"
-    #endif
-    ;
-    >>
+      <<
+      data->modelData->initXMLData = NULL;
+      data->modelData->modelDataXml.infoXMLData =
+      #if defined(OMC_MINIMAL_METADATA)
+        NULL;
+      #else
+        #include "<%fileNamePrefix%>_info.c"
+        ;
+      #endif
+      data->modelData->modelDataXml.fileName = NULL;
+      >>
     case "" then
-    <<
-    #if defined(OPENMODELICA_XML_FROM_FILE_AT_RUNTIME)
-    data->modelData->initXMLData = NULL;
-    data->modelData->modelDataXml.infoXMLData = NULL;
-    #else
-    #if defined(_MSC_VER) /* handle joke compilers */
-    {
-    /* for MSVC we encode a string like char x[] = {'a', 'b', 'c', '\0'} */
-    /* because the string constant limit is 65535 bytes */
-    static const char contents_init[] =
+      <<
+      #if defined(OPENMODELICA_XML_FROM_FILE_AT_RUNTIME)
+      data->modelData->initXMLData = NULL;
+      data->modelData->modelDataXml.infoXMLData = NULL;
+      #else
+      #if defined(_MSC_VER) /* handle joke compilers */
+      {
+      /* for MSVC we encode a string like char x[] = {'a', 'b', 'c', '\0'} */
+      /* because the string constant limit is 65535 bytes */
+      static const char contents_init[] =
+        #include "<%fileNamePrefix%>_init.c"
+        ;
+      static const char contents_info[] =
+        #include "<%fileNamePrefix%>_info.c"
+        ;
+        data->modelData->initXMLData = contents_init;
+        data->modelData->modelDataXml.infoXMLData = contents_info;
+      }
+      #else /* handle real compilers */
+      data->modelData->initXMLData =
       #include "<%fileNamePrefix%>_init.c"
-      ;
-    static const char contents_info[] =
+        ;
+      data->modelData->modelDataXml.infoXMLData =
       #include "<%fileNamePrefix%>_info.c"
-      ;
-      data->modelData->initXMLData = contents_init;
-      data->modelData->modelDataXml.infoXMLData = contents_info;
-    }
-    #else /* handle real compilers */
-    data->modelData->initXMLData =
-    #include "<%fileNamePrefix%>_init.c"
-      ;
-    data->modelData->modelDataXml.infoXMLData =
-    #include "<%fileNamePrefix%>_info.c"
-      ;
-    #endif /* defined(_MSC_VER) */
-    #endif /* defined(OPENMODELICA_XML_FROM_FILE_AT_RUNTIME) */
-    >>
+        ;
+      #endif /* defined(_MSC_VER) */
+      #endif /* defined(OPENMODELICA_XML_FROM_FILE_AT_RUNTIME) */
+      data->modelData->modelDataXml.fileName = "<%fileNamePrefix%>_info.json";
+      data->modelData->resourcesDir = NULL;
+      >>
     else
-    <<
-    data->modelData->initXMLData = NULL;
-    data->modelData->modelDataXml.infoXMLData = NULL;
-    >>
+      <<
+      data->modelData->initXMLData = NULL;
+      data->modelData->modelDataXml.infoXMLData = NULL;
+      GC_asprintf(&data->modelData->modelDataXml.fileName, "%s/<%fileNamePrefix%>_info.json", data->modelData->resourcesDir);
+      >>
     %>
     data->modelData->runTestsuite = <%if Testsuite.isRunning() then "1" else "0"%>;
-
     data->modelData->nStates = <%varInfo.numStateVars%>;
     data->modelData->nVariablesReal = <%nVariablesReal(varInfo)%>;
     data->modelData->nDiscreteReal = <%varInfo.numDiscreteReal%>;
@@ -1484,23 +1489,15 @@ template populateModelInfo(ModelInfo modelInfo, String fileNamePrefix, String gu
     data->modelData->nParametersString = <%varInfo.numStringParamVars%>;
     data->modelData->nInputVars = <%varInfo.numInVars%>;
     data->modelData->nOutputVars = <%varInfo.numOutVars%>;
-
     data->modelData->nAliasReal = <%varInfo.numAlgAliasVars%>;
     data->modelData->nAliasInteger = <%varInfo.numIntAliasVars%>;
     data->modelData->nAliasBoolean = <%varInfo.numBoolAliasVars%>;
     data->modelData->nAliasString = <%varInfo.numStringAliasVars%>;
-
     data->modelData->nZeroCrossings = <%varInfo.numZeroCrossings%>;
     data->modelData->nSamples = <%varInfo.numTimeEvents%>;
     data->modelData->nRelations = <%varInfo.numRelations%>;
     data->modelData->nMathEvents = <%varInfo.numMathEventFunctions%>;
     data->modelData->nExtObjs = <%varInfo.numExternalObjects%>;
-
-    <% match isModelExchangeFMU
-    case "1.0" then "data->modelData->modelDataXml.fileName = NULL;"
-    case "" then 'data->modelData->modelDataXml.fileName = "<%fileNamePrefix%>_info.json";'
-    else 'GC_asprintf(&data->modelData->modelDataXml.fileName, "%s/<%fileNamePrefix%>_info.json", data->modelData->resourcesDir);'
-    %>
     data->modelData->modelDataXml.modelInfoXmlLength = 0;
     data->modelData->modelDataXml.nFunctions = <%listLength(functions)%>;
     data->modelData->modelDataXml.nProfileBlocks = 0;
@@ -1512,22 +1509,17 @@ template populateModelInfo(ModelInfo modelInfo, String fileNamePrefix, String gu
     data->modelData->nJacobians = <%varInfo.numJacobians%>;
     data->modelData->nOptimizeConstraints = <%varInfo.numOptimizeConstraints%>;
     data->modelData->nOptimizeFinalConstraints = <%varInfo.numOptimizeFinalConstraints%>;
-
     data->modelData->nDelayExpressions = <%match delayed case
      DELAYED_EXPRESSIONS(__) then maxDelayedIndex%>;
-
     data->modelData->nBaseClocks = <%nClocks%>;
-
     data->modelData->nSpatialDistributions = <%nSpatialDistributions%>;
-
     data->modelData->nSensitivityVars = <%listLength(vars.sensitivityVars)%>;
     data->modelData->nSensitivityParamVars = <%varInfo.numSensitivityParameters%>;
     data->modelData->nSetcVars = <%varInfo.numSetcVars%>;
     data->modelData->ndataReconVars = <%varInfo.numDataReconVars%>;
     data->modelData->nSetbVars = <%varInfo.numSetbVars%>;
     data->modelData->nRelatedBoundaryConditions = <%varInfo.numRelatedBoundaryConditions%>;
-    data->modelData->linearizationDumpLanguage =
-    <%
+    data->modelData->linearizationDumpLanguage = <%
     if stringEq(Flags.getConfigString(LINEARIZATION_DUMP_LANGUAGE),"modelica") then 'OMC_LINEARIZE_DUMP_LANGUAGE_MODELICA'
     else if stringEq(Flags.getConfigString(LINEARIZATION_DUMP_LANGUAGE),"matlab") then 'OMC_LINEARIZE_DUMP_LANGUAGE_MATLAB'
     else if stringEq(Flags.getConfigString(LINEARIZATION_DUMP_LANGUAGE),"julia") then 'OMC_LINEARIZE_DUMP_LANGUAGE_JULIA'
@@ -1764,28 +1756,29 @@ template globalDataAliasVarArray(String _type, String _name, list<SimVar> items)
   end match
 end globalDataAliasVarArray;
 
-template symJacDefinition(list<JacobianMatrix> JacobianMatrixes, String modelNamePrefix) "template variableDefinitionsJacobians
+template symJacDefinition(list<JacobianMatrix> JacobianMatrices, String modelNamePrefix) "template variableDefinitionsJacobians
   Generates defines for jacobian vars."
 ::=
-  let symbolicJacsDefine = (JacobianMatrixes |> jac as JAC_MATRIX(columns=jacColumn, seedVars=seedVars, matrixName=name, jacobianIndex=indexJacobian)  =>
+  let symbolicJacsDefine = (JacobianMatrices |> jac as JAC_MATRIX(columns=jacColumn, seedVars=seedVars, matrixName=name, jacobianIndex=indexJacobian)  =>
     <<
-    #if defined(__cplusplus)
-    extern "C" {
-    #endif
-      #define <%symbolName(modelNamePrefix,"INDEX_JAC_")%><%name%> <%indexJacobian%>
-      int <%symbolName(modelNamePrefix,"functionJac")%><%name%>_column(DATA* data, threadData_t *threadData, ANALYTIC_JACOBIAN *thisJacobian, ANALYTIC_JACOBIAN *parentJacobian);
-      int <%symbolName(modelNamePrefix,"initialAnalyticJacobian")%><%name%>(DATA* data, threadData_t *threadData, ANALYTIC_JACOBIAN *jacobian);
-      <%genericCallHeaders(jac.generic_loop_calls, createJacContext(jac.crefsHT))%>
-    #if defined(__cplusplus)
-    }
-    #endif
+    #define <%symbolName(modelNamePrefix,"INDEX_JAC_")%><%name%> <%indexJacobian%>
+    int <%symbolName(modelNamePrefix,"functionJac")%><%name%>_column(DATA* data, threadData_t *threadData, ANALYTIC_JACOBIAN *thisJacobian, ANALYTIC_JACOBIAN *parentJacobian);
+    int <%symbolName(modelNamePrefix,"initialAnalyticJacobian")%><%name%>(DATA* data, threadData_t *threadData, ANALYTIC_JACOBIAN *jacobian);
+    <%genericCallHeaders(jac.generic_loop_calls, createJacContext(jac.crefsHT))%>
     >>
-    ;separator="\n";empty)
+    ;separator="\n\n";empty)
 
   <<
+  #if defined(__cplusplus)
+  extern "C" {
+  #endif
+
   /* Jacobian Variables */
   <%symbolicJacsDefine%>
 
+  #if defined(__cplusplus)
+  }
+  #endif
   >>
 end symJacDefinition;
 
@@ -2059,14 +2052,14 @@ template functionInitSample(list<BackendDAE.TimeEvent> timeEvents, String modelN
 end functionInitSample;
 
 
-template functionInitialMixedSystems(list<SimEqSystem> initialEquations, list<SimEqSystem> initialEquations_lambda0, list<SimEqSystem> parameterEquations, list<SimEqSystem> allEquations, list<JacobianMatrix> jacobianMatrixes, String modelNamePrefix)
+template functionInitialMixedSystems(list<SimEqSystem> initialEquations, list<SimEqSystem> initialEquations_lambda0, list<SimEqSystem> parameterEquations, list<SimEqSystem> allEquations, list<JacobianMatrix> jacobianMatrices, String modelNamePrefix)
   "Generates functions in simulation file."
 ::=
   let initbody = functionInitialMixedSystemsTemp(initialEquations)
   let initbody_lambda0 = functionInitialMixedSystemsTemp(initialEquations_lambda0)
   let parambody = functionInitialMixedSystemsTemp(parameterEquations)
   let body = functionInitialMixedSystemsTemp(allEquations)
-  let jacobianbody = ((jacobianMatrixes |> JAC_MATRIX(columns=clst) => (clst |> JAC_COLUMN(columnEqns=cEqns) => functionInitialMixedSystemsTemp(cEqns);separator="\n") ;separator="\n"))
+  let jacobianbody = ((jacobianMatrices |> JAC_MATRIX(columns=clst) => (clst |> JAC_COLUMN(columnEqns=cEqns) => functionInitialMixedSystemsTemp(cEqns);separator="\n") ;separator="\n"))
   <<
   /* funtion initialize mixed systems */
   void <%symbolName(modelNamePrefix,"initialMixedSystem")%>(int nMixedSystems, MIXED_SYSTEM_DATA* mixedSystemData)
@@ -2103,14 +2096,14 @@ template functionInitialMixedSystemsTemp(list<SimEqSystem> allEquations)
 end functionInitialMixedSystemsTemp;
 
 
-template functionSetupMixedSystems(list<SimEqSystem> initialEquations, list<SimEqSystem> initialEquations_lambda0, list<SimEqSystem> parameterEquations, list<SimEqSystem> allEquations, list<JacobianMatrix> jacobianMatrixes, Text &header, String modelNamePrefixStr)
+template functionSetupMixedSystems(list<SimEqSystem> initialEquations, list<SimEqSystem> initialEquations_lambda0, list<SimEqSystem> parameterEquations, list<SimEqSystem> allEquations, list<JacobianMatrix> jacobianMatrices, Text &header, String modelNamePrefixStr)
   "Generates functions in simulation file."
 ::=
   let initbody = functionSetupMixedSystemsTemp(initialEquations, &header,modelNamePrefixStr)
   let initbody_lambda0 = functionSetupMixedSystemsTemp(initialEquations_lambda0, &header,modelNamePrefixStr)
   let parambody = functionSetupMixedSystemsTemp(parameterEquations,&header,modelNamePrefixStr)
   let body = functionSetupMixedSystemsTemp(allEquations,&header,modelNamePrefixStr)
-  let jacobianbody = ((jacobianMatrixes |> JAC_MATRIX(columns=clst) => (clst |> JAC_COLUMN(columnEqns=cEqns) => functionSetupMixedSystemsTemp(cEqns,&header,modelNamePrefixStr);separator="\n") ;separator="\n"))
+  let jacobianbody = ((jacobianMatrices |> JAC_MATRIX(columns=clst) => (clst |> JAC_COLUMN(columnEqns=cEqns) => functionSetupMixedSystemsTemp(cEqns,&header,modelNamePrefixStr);separator="\n") ;separator="\n"))
   <<
   /* initial mixed systems */
   <%initbody%>
@@ -2957,19 +2950,17 @@ template functionNonLinearResiduals(list<SimEqSystem> nonlinearSystems, String m
         jacobianMatrix=SOME(JAC_MATRIX(sparsity=sparsePattern,nonlinear=nonlinearPattern,nonlinearT=nonlinearPatternT,
         coloredCols=colorList,maxColorCols=maxColor))),
         alternativeTearing=NONE()) then
-        //TS,org//jacobianMatrix=SOME(JAC_MATRIX(sparsity=sparsePattern,coloredCols=colorList,maxColorCols=maxColor))),
-        //TS,org//alternativeTearing=NONE()) then
       let residualFunction = generateNonLinearResidualFunction(nls, modelNamePrefix, 0)
       let indexName = 'NLS<%nls.index%>'
       let sparseData = generateStaticSparseData(indexName, 'NONLINEAR_SYSTEM_DATA', sparsePattern, colorList, maxColor)
-      let nonlinearData = generateStaticNonlinearData(indexName, 'NONLINEAR_SYSTEM_DATA', nonlinearPattern, nonlinearPatternT) //TS//
+      let nonlinearData = generateStaticNonlinearData(indexName, 'NONLINEAR_SYSTEM_DATA', nonlinearPattern, nonlinearPatternT)
       let bodyStaticData = generateStaticInitialData(nls.crefs, indexName)
       let updateIterationVars = getIterationVars(nls.crefs, indexName)
       let &prototypes += getNLSPrototypes(nls.index)
       <<
       <%residualFunction%>
       <%sparseData%>
-      <%nonlinearData%> //TS//
+      <%nonlinearData%>
       <%bodyStaticData%>
       <%updateIterationVars%>
       >>
@@ -2977,20 +2968,19 @@ template functionNonLinearResiduals(list<SimEqSystem> nonlinearSystems, String m
       let residualFunction = generateNonLinearResidualFunction(nls, modelNamePrefix, 0)
       let indexName = 'NLS<%nls.index%>'
       let sparseData = generateStaticEmptySparseData(indexName, 'NONLINEAR_SYSTEM_DATA')
-      let nonlinearData = generateStaticEmptyNonlinearData(indexName, 'NONLINEAR_SYSTEM_DATA')  //TS//
+      let nonlinearData = generateStaticEmptyNonlinearData(indexName, 'NONLINEAR_SYSTEM_DATA')
       let bodyStaticData = generateStaticInitialData(nls.crefs, indexName)
       let updateIterationVars = getIterationVars(nls.crefs, indexName)
       let &prototypes += getNLSPrototypes(nls.index)
       <<
       <%residualFunction%>
       <%sparseData%>
-      <%nonlinearData%> //TS//
+      <%nonlinearData%>
       <%bodyStaticData%>
       <%updateIterationVars%>
       >>
     // dynamic tearing
     case eq as SES_NONLINEAR(nlSystem=nls as NONLINEARSYSTEM(
-        //TS,org//jacobianMatrix=SOME(JAC_MATRIX(sparsity=sparsePattern,coloredCols=colorList,maxColorCols=maxColor))),
         jacobianMatrix=SOME(JAC_MATRIX(sparsity=sparsePattern,nonlinear=nonlinearPattern,nonlinearT=nonlinearPatternT,coloredCols=colorList,maxColorCols=maxColor))),
         alternativeTearing = SOME(at as NONLINEARSYSTEM(
         jacobianMatrix=SOME(JAC_MATRIX(sparsity=sparsePattern2,coloredCols=colorList2,maxColorCols=maxColor2))))
@@ -2999,14 +2989,14 @@ template functionNonLinearResiduals(list<SimEqSystem> nonlinearSystems, String m
       let residualFunction = generateNonLinearResidualFunction(nls, modelNamePrefix, 0)
       let indexName = 'NLS<%nls.index%>'
       let sparseData = generateStaticSparseData(indexName, 'NONLINEAR_SYSTEM_DATA', sparsePattern, colorList, maxColor)
-      let nonlinearData = generateStaticNonlinearData(indexName, 'NONLINEAR_SYSTEM_DATA', nonlinearPattern, nonlinearPatternT)  //TS//
+      let nonlinearData = generateStaticNonlinearData(indexName, 'NONLINEAR_SYSTEM_DATA', nonlinearPattern, nonlinearPatternT)
       let bodyStaticData = generateStaticInitialData(nls.crefs, indexName)
       let updateIterationVars = getIterationVars(nls.crefs, indexName)
       // for casual tearing set
       let residualFunctionCasual = generateNonLinearResidualFunction(at, modelNamePrefix, 1)
       let indexName = 'NLS<%at.index%>'
       let sparseDataCasual = generateStaticSparseData(indexName, 'NONLINEAR_SYSTEM_DATA', sparsePattern, colorList, maxColor)
-      let nonlinearDataCasual = generateStaticNonlinearData(indexName, 'NONLINEAR_SYSTEM_DATA', nonlinearPattern, nonlinearPatternT)  //TS//
+      let nonlinearDataCasual = generateStaticNonlinearData(indexName, 'NONLINEAR_SYSTEM_DATA', nonlinearPattern, nonlinearPatternT)
       let bodyStaticDataCasual = generateStaticInitialData(at.crefs, indexName)
       let updateIterationVarsCasual = getIterationVars(at.crefs, indexName)
       let &prototypes += getNLSPrototypes(nls.index)
@@ -3015,13 +3005,13 @@ template functionNonLinearResiduals(list<SimEqSystem> nonlinearSystems, String m
       /* strict tearing set */
       <%residualFunction%>
       <%sparseData%>
-      <%nonlinearData%>  //TS//
+      <%nonlinearData%>
       <%bodyStaticData%>
       <%updateIterationVars%>
       /* casual tearing set */
       <%residualFunctionCasual%>
       <%sparseDataCasual%>
-      <%nonlinearDataCasual%>  //TS//
+      <%nonlinearDataCasual%>
       <%bodyStaticDataCasual%>
       <%updateIterationVarsCasual%>
       /* end residuals for dynamic tearing sets */
@@ -3221,7 +3211,7 @@ template generateStaticEmptySparseData(String indexName, String systemType)
   void initializeSparsePattern<%indexName%>(<%systemType%>* inSysData)
   {
     /* no sparsity pattern available */
-    inSysData->isPatternAvailable = 0;
+    inSysData->isPatternAvailable = FALSE;
   }
   >>
 end generateStaticEmptySparseData;
@@ -3236,11 +3226,11 @@ template generateStaticSparseData(String indexName, String systemType, SparsityP
       void initializeSparsePattern<%indexName%>(<%systemType%>* inSysData)
       {
         /* no sparsity pattern available */
-        inSysData->isPatternAvailable = 0;
+        inSysData->isPatternAvailable = FALSE;
       }
       >>
   case _ then
-      let sp_size_index =  lengthListElements(unzipSecond(sparsepattern))
+      let sp_size_index = lengthListElements(unzipSecond(sparsepattern))
       let sizeleadindex = listLength(sparsepattern)
       let colPtr = genSPCRSPtr(listLength(sparsepattern), sparsepattern, "colPtrIndex")
       let rowIndex = genSPCRSRows(lengthListElements(unzipSecond(sparsepattern)), sparsepattern, "rowIndex")
@@ -3254,7 +3244,7 @@ template generateStaticSparseData(String indexName, String systemType, SparsityP
         <%colPtr%>
         <%rowIndex%>
         /* sparsity pattern available */
-        inSysData->isPatternAvailable = 1;
+        inSysData->isPatternAvailable = TRUE;
         inSysData->sparsePattern = allocSparsePattern(<%sizeleadindex%>, <%sp_size_index%>, <%maxColor%>);
 
         /* write lead index of compressed sparse column */
@@ -3273,7 +3263,6 @@ template generateStaticSparseData(String indexName, String systemType, SparsityP
    end match
 end generateStaticSparseData;
 
-//TS,start//
 template generateStaticEmptyNonlinearData(String indexName, String systemType)
 "template generateStaticEmptyNonlinearData
   This template generates source code for functions that initialize the nonlinear-pattern."
@@ -3337,7 +3326,6 @@ template generateStaticNonlinearData(String indexName, String systemType, Nonlin
       >>
    end match
 end generateStaticNonlinearData;
-//TS,end//
 
 template generateStaticInitialData(list<ComponentRef> crefs, String indexName)
   "Generates initial function for nonlinear loops."
@@ -3448,54 +3436,27 @@ template functionUpdateBoundVariableAttributes(SimCode simCode, list<SimEqSystem
 ::=
 let &sub = buffer ""
   <<
-  <%(startValueEquations |> eq as SES_SIMPLE_ASSIGN(__) => equation_impl_options(-1, -1, eq, contextOther, modelNamePrefix, /* Static? */ true, /* No optimization */ true, /* Initial? */ true) ; separator="\n")
-  %><%(nominalValueEquations |> eq as SES_SIMPLE_ASSIGN(__) => equation_impl_options(-1, -1, eq, contextOther, modelNamePrefix, /* Static? */ true, /* No optimization */ true, /* Initial? */ true) ; separator="\n")
-  %><%(minValueEquations |> eq as SES_SIMPLE_ASSIGN(__) => equation_impl_options(-1, -1, eq, contextOther, modelNamePrefix, /* Static? */ true, /* No optimization */ true, /* Initial? */ true) ; separator="\n")
-  %><%(maxValueEquations |> eq as SES_SIMPLE_ASSIGN(__) => equation_impl_options(-1, -1, eq, contextOther, modelNamePrefix, /* Static? */ true, /* No optimization */ true, /* Initial? */ true) ; separator="\n") %>
+  <%(startValueEquations |> eq as SES_SIMPLE_ASSIGN(__) => equation_impl2(-1, -1, eq, contextOther, modelNamePrefix, /* Static? */ true, /* No optimization */ false, /* Initial? */ true) ; separator="\n")%>
+  <%(nominalValueEquations |> eq as SES_SIMPLE_ASSIGN(__) => functionUpdateBoundVariableAttributesFunctions(eq, "nominal", contextOther, modelNamePrefix, /* Static? */ true, /* No optimization */ false) ; separator="\n") %>
+  <%(minValueEquations |> eq as SES_SIMPLE_ASSIGN(__) => functionUpdateBoundVariableAttributesFunctions(eq, "min", contextOther, modelNamePrefix, /* Static? */ true, /* No optimization */ false) ; separator="\n") %>
+  <%(maxValueEquations |> eq as SES_SIMPLE_ASSIGN(__) => functionUpdateBoundVariableAttributesFunctions(eq, "max", contextOther, modelNamePrefix, /* Static? */ true, /* No optimization */ false) ; separator="\n") %>
   OMC_DISABLE_OPT
   int <%symbolName(modelNamePrefix,"updateBoundVariableAttributes")%>(DATA *data, threadData_t *threadData)
   {
     TRACE_PUSH
     /* min ******************************************************** */
-    <%(minValueEquations |> eq as SES_SIMPLE_ASSIGN(__) => equation_call(eq, modelNamePrefix) ; separator="\n")%>
-
     infoStreamPrint(LOG_INIT, 1, "updating min-values");
-    <%minValueEquations |> SES_SIMPLE_ASSIGN(__) =>
-      <<
-      <%crefAttributes(cref)%>.min = <%cref(cref, &sub)%>;
-        infoStreamPrint(LOG_INIT_V, 0, "%s(min=<%crefToPrintfArg(cref)%>)", <%crefVarInfo(cref)%>.name, (<%crefType(cref)%>) <%crefAttributes(cref)%>.min);
-      <%cref(cref, &sub)%> = <%crefAttributes(cref)%>.start;
-      >>
-      ;separator="\n"
-    %>
+    <%minValueEquations |> eq as SES_SIMPLE_ASSIGN(__) => equation_call(eq, modelNamePrefix)%>
     if (ACTIVE_STREAM(LOG_INIT)) messageClose(LOG_INIT);
 
     /* max ******************************************************** */
-    <%(maxValueEquations |> eq as SES_SIMPLE_ASSIGN(__) => equation_call(eq, modelNamePrefix) ; separator="\n")%>
-
     infoStreamPrint(LOG_INIT, 1, "updating max-values");
-    <%maxValueEquations |> SES_SIMPLE_ASSIGN(__) =>
-      <<
-      <%crefAttributes(cref)%>.max = <%cref(cref, &sub)%>;
-        infoStreamPrint(LOG_INIT_V, 0, "%s(max=<%crefToPrintfArg(cref)%>)", <%crefVarInfo(cref)%>.name, (<%crefType(cref)%>) <%crefAttributes(cref)%>.max);
-      <%cref(cref, &sub)%> = <%crefAttributes(cref)%>.start;
-      >>
-      ;separator="\n"
-    %>
+    <%maxValueEquations |> eq as SES_SIMPLE_ASSIGN(__) => equation_call(eq, modelNamePrefix)%>
     if (ACTIVE_STREAM(LOG_INIT)) messageClose(LOG_INIT);
 
     /* nominal **************************************************** */
-    <%(nominalValueEquations |> eq as SES_SIMPLE_ASSIGN(__) => equation_call(eq, modelNamePrefix) ; separator="\n")%>
-
     infoStreamPrint(LOG_INIT, 1, "updating nominal-values");
-    <%nominalValueEquations |> SES_SIMPLE_ASSIGN(__) =>
-      <<
-      <%crefAttributes(cref)%>.nominal = <%cref(cref, &sub)%>;
-        infoStreamPrint(LOG_INIT_V, 0, "%s(nominal=<%crefToPrintfArg(cref)%>)", <%crefVarInfo(cref)%>.name, (<%crefType(cref)%>) <%crefAttributes(cref)%>.nominal);
-      <%cref(cref, &sub)%> = <%crefAttributes(cref)%>.start;
-      >>
-      ;separator="\n"
-    %>
+    <%nominalValueEquations |> eq as SES_SIMPLE_ASSIGN(__) => equation_call(eq, modelNamePrefix)%>
     if (ACTIVE_STREAM(LOG_INIT)) messageClose(LOG_INIT);
 
     /* start ****************************************************** */
@@ -3508,6 +3469,69 @@ let &sub = buffer ""
   }
   >>
 end functionUpdateBoundVariableAttributes;
+
+template functionUpdateBoundVariableAttributesFunctions(SimEqSystem eq, String attribute, Context context, String modelNamePrefix, Boolean static, Boolean noOpt)
+ "Generates an a function representing an equation for an attribute binding (e.g min, max ...)"
+::=
+  let OMC_NO_OPT = if noOpt then 'OMC_DISABLE_OPT<%\n%>' else (match eq case SES_LINEAR(__) then 'OMC_DISABLE_OPT<%\n%>')
+  match eq
+    case SES_SIMPLE_ASSIGN(exp=CALL(path=IDENT(name="fail")))
+    case SES_SIMPLE_ASSIGN_CONSTRAINTS(exp=CALL(path=IDENT(name="fail"))) then
+      '<%generateThrow()%><%\n%>'
+
+    case SES_SIMPLE_ASSIGN(__)
+    case SES_SIMPLE_ASSIGN_CONSTRAINTS(__) then
+
+      let ix = equationIndex(eq) /*System.tmpTickIndex(10)*/
+      let &varDecls = buffer ""
+      let &auxFunction = buffer ""
+      let body = functionUpdateBoundVariableAttributesFunctionsSimpleAssign(eq, attribute, context, &varDecls, &auxFunction)
+
+      <<
+      /*
+      <%dumpEqs(fill(eq,1))%>
+      */
+      <%OMC_NO_OPT%><% if static then "static "%>void <%symbolName(modelNamePrefix,"eqFunction")%>_<%ix%>(DATA *data, threadData_t *threadData)
+      {
+        TRACE_PUSH
+        const int equationIndexes[2] = {1,<%ix%>};
+        <%&varDecls%>
+        <%body%>
+        TRACE_POP
+      }
+
+      >>
+
+    else "NOT IMPLEMENTED EQUATION equation_"
+end functionUpdateBoundVariableAttributesFunctions;
+
+template functionUpdateBoundVariableAttributesFunctionsSimpleAssign(SimEqSystem eq, String attribute, Context context,
+                              Text &varDecls, Text &auxFunction)
+ "Generates an equation that is just a simple assignment for an arribute binding. The attribute type is given by the
+ function argument 'attibute' (e.g min, max ...)"
+::=
+match eq
+case SES_SIMPLE_ASSIGN(__)
+case SES_SIMPLE_ASSIGN_CONSTRAINTS(__) then
+  let &sub = buffer ""
+  let &preExp = buffer ""
+  let expPart = daeExp(exp, context, &preExp, &varDecls, &auxFunction)
+  let postExp = if isStartCref(cref) then
+    <<
+    <%cref(popCref(cref), &sub)%> = <%cref(cref, &sub)%>;
+    infoStreamPrint(LOG_INIT_V, 0, "updated start value: %s(start=<%crefToPrintfArg(popCref(cref))%>)", <%crefVarInfo(popCref(cref))%>.name, (<%crefType(popCref(cref))%>) <%cref(popCref(cref), &sub)%>);
+    >>
+  <<
+  <%modelicaLine(eqInfo(eq))%>
+  <%preExp%>
+  <%crefAttributes(cref)%>.<%attribute%> = <%expPart%>;
+  infoStreamPrint(LOG_INIT_V, 0, "%s(<%attribute%>=<%crefToPrintfArg(cref)%>)", <%crefVarInfo(cref)%>.name,
+        (<%crefType(cref)%>) <%crefAttributes(cref)%>.<%attribute%>);
+  <%postExp%>
+  <%endModelicaLine()%>
+  >>
+end functionUpdateBoundVariableAttributesFunctionsSimpleAssign;
+
 
 template functionUpdateBoundParameters(list<SimEqSystem> simpleParameterEquations, list<SimEqSystem> parameterEquations, String fileNamePrefix, String fullPathPrefix, String modelNamePrefix, SimCode simCode)
   "Generates function in simulation file."
@@ -5215,7 +5239,7 @@ template functionlinearmodelMatlab(ModelInfo modelInfo, String modelNamePrefix) 
     <<
     const char *<%symbolName(modelNamePrefix,"linear_model_frame")%>()
     {
-      return "function [sys, x0, u0, n, m, p, Ts] = linearized_model()\n"
+      return "function [A, B, C, D, stateVars, inputVars, outputVars] = linearized_model()\n"
       "%% <%modelNamePrefix%>\n"
       "%% der(x) = A * x + B * u\n%% y = C * x + D * u\n"
       "  n = <%varInfo.numStateVars%>; %% number of states\n  m = <%varInfo.numInVars%>; %% number of inputs\n  p = <%varInfo.numOutVars%>; %% number of outputs\n"
@@ -5227,9 +5251,10 @@ template functionlinearmodelMatlab(ModelInfo modelInfo, String modelNamePrefix) 
       <%matrixB%>
       <%matrixC%>
       <%matrixD%>
+      "  stateVars  = {<%getVarNameMatlab(vars.stateVars, "x0")%>};\n"
+      "  inputVars  = {<%getVarNameMatlab(vars.inputVars, "u0")%>};\n"
+      "  outputVars = {<%getVarNameMatlab(vars.outputVars, "y0")%>};\n"
       "  Ts = %g; %% stop time\n\n"
-      "  %% The Control System Toolbox is required for this. Alternatively just return the matrices A,B,C,D instead.\n"
-      "  sys = ss(A,B,C,D,'StateName',{<%getVarNameMatlab(vars.stateVars, "x")%>}, 'InputName',{<%getVarNameMatlab(vars.inputVars, "u")%>}, 'OutputName', {<%getVarNameMatlab(vars.outputVars, "y")%>});\n"
       "end";
     }
     const char *<%symbolName(modelNamePrefix,"linear_model_datarecovery_frame")%>()
@@ -5337,7 +5362,7 @@ template getVarNameMatlab(list<SimVar> simVars, String arrayName) "template getV
 <<
 <%simVars |> var hasindex arrindex fromindex 1 => (match var
     case SIMVAR(__) then
-      <<'<%arrayName%>_<%crefStrMatlabSafe(name)%>'>>
+      <<'<%crefStrMatlabSafe(name)%>'>>
     end match) ;separator=","%>
 >>
 end getVarNameMatlab;
@@ -5456,14 +5481,14 @@ template genVector(String name, String num, Integer numI, Integer flag) "templat
   end match
 end genVector;
 
-template functionAnalyticJacobians(list<JacobianMatrix> JacobianMatrixes,String modelNamePrefix) "template functionAnalyticJacobians
+template functionAnalyticJacobians(list<JacobianMatrix> JacobianMatrices,String modelNamePrefix, String fileNamePrefix) "template functionAnalyticJacobians
   This template generates source code for all given jacobians."
 ::=
-  let initialjacMats = (JacobianMatrixes |> JAC_MATRIX(columns=mat, seedVars=vars, matrixName=name, sparsity=sparsepattern, coloredCols=colorList, maxColorCols=maxColor, jacobianIndex=indexJacobian) =>
-    initialAnalyticJacobians(mat, vars, name, sparsepattern, colorList, maxColor, modelNamePrefix); separator="\n")
-  let jacMats = (JacobianMatrixes |> JAC_MATRIX(columns=mat, seedVars=vars, matrixName=name, partitionIndex=partIdx, crefsHT=crefsHT) =>
+  let initialjacMats = (JacobianMatrices |> JAC_MATRIX(columns=mat, seedVars=vars, matrixName=name, sparsity=sparsepattern, coloredCols=colorList, maxColorCols=maxColor, jacobianIndex=indexJacobian) =>
+    initialAnalyticJacobians(mat, vars, name, sparsepattern, colorList, maxColor, modelNamePrefix, fileNamePrefix); separator="\n")
+  let jacMats = (JacobianMatrices |> JAC_MATRIX(columns=mat, seedVars=vars, matrixName=name, partitionIndex=partIdx, crefsHT=crefsHT) =>
     generateMatrix(mat, vars, name, partIdx, crefsHT, modelNamePrefix) ;separator="\n")
-  let jacGenericCalls = (JacobianMatrixes |> jac as JAC_MATRIX() => genericCallBodies(jac.generic_loop_calls, createJacContext(jac.crefsHT)) ;separator="\n")
+  let jacGenericCalls = (JacobianMatrices |> jac as JAC_MATRIX() => genericCallBodies(jac.generic_loop_calls, createJacContext(jac.crefsHT)) ;separator="\n")
 
   <<
   <%jacMats%>
@@ -5474,7 +5499,7 @@ template functionAnalyticJacobians(list<JacobianMatrix> JacobianMatrixes,String 
   >>
 end functionAnalyticJacobians;
 
-template initialAnalyticJacobians(list<JacobianColumn> jacobianColumn, list<SimVar> seedVars, String matrixname, SparsityPattern sparsepattern, list<list<Integer>> colorList, Integer maxColor, String modelNamePrefix)
+template initialAnalyticJacobians(list<JacobianColumn> jacobianColumn, list<SimVar> seedVars, String matrixname, SparsityPattern sparsepattern, list<list<Integer>> colorList, Integer maxColor, String modelNamePrefix, String fileNamePrefix)
 "template initialAnalyticJacobians
   This template generates source code for functions that initialize the sparse-pattern for a single jacobian.
   This is a helper of template functionAnalyticJacobians"
@@ -5494,9 +5519,8 @@ match sparsepattern
       let &eachCrefParts = buffer ""
       let sp_size_index =  lengthListElements(unzipSecond(sparsepattern))
       let sizeleadindex = listLength(sparsepattern)
-      let colPtr = genSPCRSPtr(listLength(sparsepattern), sparsepattern, "colPtrIndex")
-      let rowIndex = genSPCRSRows(lengthListElements(unzipSecond(sparsepattern)), sparsepattern, "rowIndex")
-      let colorString = genSPColors(colorList, "jacobian->sparsePattern->colorCols")
+      let fileName = '<%fileNamePrefix%>_Jac<%matrixname%>.bin'
+      let colorString = readSPColors(colorList, "jacobian->sparsePattern->colorCols")
       let availability = if SimCodeUtil.jacobianColumnsAreEmpty(jacobianColumn) then 'JACOBIAN_ONLY_SPARSITY' else 'JACOBIAN_AVAILABLE'
       let indexColumn = (jacobianColumn |> JAC_COLUMN(numberOfResultVars=n) => '<%n%>';separator="\n")
       let tmpvarsSize = (jacobianColumn |> JAC_COLUMN(columnVars=vars) => listLength(vars);separator="\n")
@@ -5509,25 +5533,31 @@ match sparsepattern
       int <%symbolName(modelNamePrefix,"initialAnalyticJacobian")%><%matrixname%>(DATA* data, threadData_t *threadData, ANALYTIC_JACOBIAN *jacobian)
       {
         TRACE_PUSH
-        <%colPtr%>
-        <%rowIndex%>
-        int i = 0;
+        size_t count;
+
+        FILE* pFile = openSparsePatternFile(data, threadData, "<%fileName%>");
 
         initAnalyticJacobian(jacobian, <%index_%>, <%indexColumn%>, <%tmpvarsSize%>, <%constantEqns%>, jacobian->sparsePattern);
         jacobian->sparsePattern = allocSparsePattern(<%sizeleadindex%>, <%sp_size_index%>, <%maxColor%>);
         jacobian->availability = <%availability%>;
 
-        /* write lead index of compressed sparse column */
-        memcpy(jacobian->sparsePattern->leadindex, colPtrIndex, (<%sizeleadindex%>+1)*sizeof(unsigned int));
+        /* read lead index of compressed sparse column */
+        count = omc_fread(jacobian->sparsePattern->leadindex, sizeof(unsigned int), <%sizeleadindex%>+1, pFile, FALSE);
+        if (count != <%sizeleadindex%>+1) {
+          throwStreamPrint(threadData, "Error while reading lead index list of sparsity pattern. Expected %d, got %ld", <%sizeleadindex%>+1, count);
+        }
 
-        for(i=2;i<<%sizeleadindex%>+1;++i)
-          jacobian->sparsePattern->leadindex[i] += jacobian->sparsePattern->leadindex[i-1];
-
-        /* call sparse index */
-        memcpy(jacobian->sparsePattern->index, rowIndex, <%sp_size_index%>*sizeof(unsigned int));
+        /* read sparse index */
+        count = omc_fread(jacobian->sparsePattern->index, sizeof(unsigned int), <%sp_size_index%>, pFile, FALSE);
+        if (count != <%sp_size_index%>) {
+          throwStreamPrint(threadData, "Error while reading row index list of sparsity pattern. Expected %d, got %ld", <%sizeleadindex%>+1, count);
+        }
 
         /* write color array */
         <%colorString%>
+
+        omc_fclose(pFile);
+
         TRACE_POP
         return 0;
       }
@@ -5668,6 +5698,22 @@ template genSPColors(list<list<Integer>> colorList, String arrayName)
   <%colorArray%>
   >>
 end genSPColors;
+
+template readSPColors(list<list<Integer>> colorList, String arrayName)
+"This template generates row of the CRS format"
+::=
+  let colorArray = (colorList |> (indices) hasindex index0 =>
+    let length = '<%listLength(indices)%>'
+    let index = '<%intAdd(index0,1)%>'
+    let ind_name = 'indices_<%index%>'
+  <<
+  /* color <%index%> with <%length%> columns */
+  readSparsePatternColor(threadData, pFile, <%arrayName%>, <%index%>, <%length%>);
+  >>;separator="\n")
+  <<
+  <%colorArray%>
+  >>
+end readSPColors;
 
 template equation_arrayFormat(SimEqSystem eq, String name, Context context, Integer arrayIndex, Text &eqArray, Text &eqfuncs, String modelNamePrefix, Boolean init)
  "Generates an equation.

@@ -48,6 +48,8 @@
 #include "Simulation/TranslationFlagsWidget.h"
 #include <limits>
 
+#include <QStringBuilder>
+
 /*!
  * \class OptionsDialog
  * \brief Creates an interface with options like Modelica Text, Pen Styles, Libraries etc.
@@ -302,17 +304,14 @@ void OptionsDialog::readGeneralSettings()
   } else {
     mpGeneralSettingsPage->getRecentFilesAndLatestNewsSizeSpinBox()->setValue(OptionsDefaults::GeneralSettings::recentFilesAndLatestNewsSize);
   }
-  // replaceable support
-  if (mpSettings->contains("replaceableSupport")) {
-    mpGeneralSettingsPage->setReplaceableSupport(mpSettings->value("replaceableSupport").toBool());
+  // read instance API
+  if (mpSettings->contains("simulation/instanceAPI")) {
+    mpGeneralSettingsPage->getEnableInstanceAPICheckBox()->setChecked(mpSettings->value("simulation/instanceAPI").toBool());
   } else {
-    mpGeneralSettingsPage->setReplaceableSupport(OptionsDefaults::GeneralSettings::replaceableSupport);
+    mpGeneralSettingsPage->getEnableInstanceAPICheckBox()->setChecked(OptionsDefaults::GeneralSettings::enableInstanceAPI);
   }
-  // read nfAPI
-  if (mpSettings->contains("simulation/nfAPI")) {
-    mpGeneralSettingsPage->getEnableNewInstantiationAPICheckBox()->setChecked(mpSettings->value("simulation/nfAPI").toBool());
-  } else {
-    mpGeneralSettingsPage->getEnableNewInstantiationAPICheckBox()->setChecked(OptionsDefaults::GeneralSettings::enableNewInstantiationAPI);
+  if (!MainWindow::instance()->isNewApiCommandLine()) {
+    MainWindow::instance()->setNewApi(mpGeneralSettingsPage->getEnableInstanceAPICheckBox()->isChecked());
   }
 }
 
@@ -1696,12 +1695,12 @@ void OptionsDialog::saveGeneralSettings()
     mpSettings->setValue("welcomePage/recentFilesSize", recentFilesAndLatestNewsSize);
   }
   MainWindow::instance()->updateRecentFileActionsAndList();
-  // save replaceable support
-  bool replaceableSupport = mpGeneralSettingsPage->getReplaceableSupport();
-  if (replaceableSupport == OptionsDefaults::GeneralSettings::replaceableSupport) {
-    mpSettings->remove("replaceableSupport");
+  // save instance API
+  bool enableInstanceAPI = mpGeneralSettingsPage->getEnableInstanceAPICheckBox()->isChecked();
+  if (enableInstanceAPI == OptionsDefaults::GeneralSettings::enableInstanceAPI) {
+    mpSettings->remove("simulation/instanceAPI");
   } else {
-    mpSettings->setValue("replaceableSupport", replaceableSupport);
+    mpSettings->setValue("simulation/instanceAPI", enableInstanceAPI);
   }
 }
 
@@ -1719,16 +1718,6 @@ void OptionsDialog::saveNFAPISettings()
   }
   if (displayNFAPIErrorsWarnings) {
     MainWindow::instance()->getOMCProxy()->setCommandLineOptions("-d=nfAPINoise");
-  }
-  // save nfAPI
-  bool enableNewInstantiationAPI = mpGeneralSettingsPage->getEnableNewInstantiationAPICheckBox()->isChecked();
-  if (enableNewInstantiationAPI == OptionsDefaults::GeneralSettings::enableNewInstantiationAPI) {
-    mpSettings->remove("simulation/nfAPI");
-  } else {
-    mpSettings->setValue("simulation/nfAPI", enableNewInstantiationAPI);
-  }
-  if (enableNewInstantiationAPI) {
-    MainWindow::instance()->getOMCProxy()->setCommandLineOptions("-d=nfAPI");
   }
 }
 
@@ -3187,10 +3176,7 @@ void OptionsDialog::setUpDialog()
   mpButtonBox->addButton(mpCancelButton, QDialogButtonBox::ActionRole);
   QHBoxLayout *horizontalLayout = new QHBoxLayout;
   horizontalLayout->addWidget(mpOptionsList);
-  mpPagesWidgetScrollArea = new QScrollArea;
-  mpPagesWidgetScrollArea->setWidgetResizable(true);
-  mpPagesWidgetScrollArea->setWidget(mpPagesWidget);
-  horizontalLayout->addWidget(mpPagesWidgetScrollArea);
+  horizontalLayout->addWidget(mpPagesWidget);
   // Create a layout
   QGridLayout *mainLayout = new QGridLayout;
   mainLayout->addLayout(horizontalLayout, 0, 0, 1, 2);
@@ -3297,29 +3283,36 @@ void OptionsDialog::addListItems()
 void OptionsDialog::createPages()
 {
   mpPagesWidget = new QStackedWidget;
-  mpPagesWidget->setContentsMargins(5, 2, 5, 2);
-  mpPagesWidget->addWidget(mpGeneralSettingsPage);
-  mpPagesWidget->addWidget(mpLibrariesPage);
-  mpPagesWidget->addWidget(mpTextEditorPage);
-  mpPagesWidget->addWidget(mpModelicaEditorPage);
-  mpPagesWidget->addWidget(mpMetaModelicaEditorPage);
-  mpPagesWidget->addWidget(mpCompositeModelEditorPage);
-  mpPagesWidget->addWidget(mpOMSimulatorEditorPage);
-  mpPagesWidget->addWidget(mpCEditorPage);
-  mpPagesWidget->addWidget(mpHTMLEditorPage);
-  mpPagesWidget->addWidget(mpGraphicalViewsPage);
-  mpPagesWidget->addWidget(mpSimulationPage);
-  mpPagesWidget->addWidget(mpMessagesPage);
-  mpPagesWidget->addWidget(mpNotificationsPage);
-  mpPagesWidget->addWidget(mpLineStylePage);
-  mpPagesWidget->addWidget(mpFillStylePage);
-  mpPagesWidget->addWidget(mpPlottingPage);
-  mpPagesWidget->addWidget(mpFigaroPage);
-  mpPagesWidget->addWidget(mpDebuggerPage);
-  mpPagesWidget->addWidget(mpFMIPage);
-  mpPagesWidget->addWidget(mpTLMPage);
-  mpPagesWidget->addWidget(mpOMSimulatorPage);
-  mpPagesWidget->addWidget(mpTraceabilityPage);
+  addPage(mpGeneralSettingsPage);
+  addPage(mpLibrariesPage);
+  addPage(mpTextEditorPage);
+  addPage(mpModelicaEditorPage);
+  addPage(mpMetaModelicaEditorPage);
+  addPage(mpCompositeModelEditorPage);
+  addPage(mpOMSimulatorEditorPage);
+  addPage(mpCEditorPage);
+  addPage(mpHTMLEditorPage);
+  addPage(mpGraphicalViewsPage);
+  addPage(mpSimulationPage);
+  addPage(mpMessagesPage);
+  addPage(mpNotificationsPage);
+  addPage(mpLineStylePage);
+  addPage(mpFillStylePage);
+  addPage(mpPlottingPage);
+  addPage(mpFigaroPage);
+  addPage(mpDebuggerPage);
+  addPage(mpFMIPage);
+  addPage(mpTLMPage);
+  addPage(mpOMSimulatorPage);
+  addPage(mpTraceabilityPage);
+}
+
+void OptionsDialog::addPage(QWidget* pPage)
+{
+  QScrollArea *pScrollArea = new QScrollArea;
+  pScrollArea->setWidgetResizable(true);
+  pScrollArea->setWidget(pPage);
+  mpPagesWidget->addWidget(pScrollArea);
 }
 
 /*!
@@ -3361,6 +3354,25 @@ TabSettings OptionsDialog::getTabSettings()
 }
 
 /*!
+ * \brief OptionsDialog::eventFilter
+ * Reimplementation for QDialog::eventFilter
+ * \param pObject
+ * \param pEvent
+ * \return
+ */
+bool OptionsDialog::eventFilter(QObject *pObject, QEvent *pEvent)
+{
+  /* ticket:10458
+   * Disable the wheel event of combobox, spinbox and doublespinbox
+   * We install the event filter for each control for which we want to disable wheel event.
+   */
+  if (pEvent->type() == QEvent::Wheel) {
+    return true;
+  }
+  return QDialog::eventFilter(pObject, pEvent);
+}
+
+/*!
  * \brief OptionsDialog::changePage
  * Change the page in Options Widget when the mpOptionsList currentItemChanged Signal is raised.
  * \param current
@@ -3372,9 +3384,6 @@ void OptionsDialog::changePage(QListWidgetItem *current, QListWidgetItem *previo
     current = previous;
   }
   mpPagesWidget->setCurrentIndex(mpOptionsList->row(current));
-  /* ticket:4345 reset the scrollbars to top */
-  mpPagesWidgetScrollArea->verticalScrollBar()->setValue(0);
-  mpPagesWidgetScrollArea->horizontalScrollBar()->setValue(0);
 }
 
 //! Reimplementation of QWidget's reject function. If user reject the settings then set them back to original.
@@ -3384,28 +3393,6 @@ void OptionsDialog::reject()
   readSettings();
   saveDialogGeometry();
   QDialog::reject();
-}
-
-void OptionsDialog::reset()
-{
-  const QString title = tr("Reset to default");
-  const QString text0 = tr("Are you sure that you want to reset OMEdit? This operation cannot be undone. ");
-  const QString textWithLink = tr(("Please back up your settings "
-                                   + QString("<a href='%1'>file</a>").arg(mpSettings->fileName())
-                                   + " before proceeding, restart to have the changes take effect.").toUtf8().constData());
-  const QString text = text0 + textWithLink;
-  QMessageBox* pResetMessageBox = new QMessageBox();
-  pResetMessageBox->setTextFormat(Qt::RichText);
-  pResetMessageBox->setWindowTitle(title);
-  pResetMessageBox->setText(text);
-  const QMessageBox::StandardButton reply = pResetMessageBox->question(this, title, text, QMessageBox::Ok | QMessageBox::Cancel);
-  if (reply == QMessageBox::Ok) {
-    mpSettings->clear();
-    mpSettings->sync();
-    accept();
-    destroy();
-  }
-  delete pResetMessageBox;
 }
 
 //! Saves the settings to omedit.ini file.
@@ -3446,6 +3433,28 @@ void OptionsDialog::saveSettings()
   mpSettings->sync();
   saveDialogGeometry();
   accept();
+}
+
+void OptionsDialog::reset()
+{
+  const QString title = tr("Reset to default");
+  const QString text0 = tr("Are you sure that you want to reset OMEdit? This operation cannot be undone. ");
+  const QString textWithLink = tr(("Please back up your settings "
+                                   + QString("<a href='%1'>file</a>").arg(mpSettings->fileName())
+                                   + " before proceeding, restart to have the changes take effect.").toUtf8().constData());
+  const QString text = text0 + textWithLink;
+  QMessageBox* pResetMessageBox = new QMessageBox();
+  pResetMessageBox->setTextFormat(Qt::RichText);
+  pResetMessageBox->setWindowTitle(title);
+  pResetMessageBox->setText(text);
+  const QMessageBox::StandardButton reply = pResetMessageBox->question(this, title, text, QMessageBox::Ok | QMessageBox::Cancel);
+  if (reply == QMessageBox::Ok) {
+    mpSettings->clear();
+    mpSettings->sync();
+    accept();
+    destroy();
+  }
+  delete pResetMessageBox;
 }
 
 CodeColorsWidget::CodeColorsWidget(QWidget *pParent)
@@ -3544,6 +3553,7 @@ GeneralSettingsPage::GeneralSettingsPage(OptionsDialog *pOptionsDialog)
     QLocale locale = map[key];
     mpLanguageComboBox->addItem(key, locale);
   }
+  mpLanguageComboBox->installEventFilter(mpOptionsDialog);
   // Working Directory
   mpWorkingDirectoryLabel = new Label(Helper::workingDirectory);
   OptionsDefaults::GeneralSettings::workingDirectory = MainWindow::instance()->getOMCProxy()->changeDirectory();
@@ -3557,6 +3567,7 @@ GeneralSettingsPage::GeneralSettingsPage(OptionsDialog *pOptionsDialog)
   mpToolbarIconSizeSpinBox = new QSpinBox;
   mpToolbarIconSizeSpinBox->setMinimum(16); // icons smaller than 16.......naaaaahhhh!!!!!
   mpToolbarIconSizeSpinBox->setValue(OptionsDefaults::GeneralSettings::toolBarIconSize);
+  mpToolbarIconSizeSpinBox->installEventFilter(mpOptionsDialog);
   // Store Customizations Option
   mpPreserveUserCustomizations = new QCheckBox(tr("Preserve User's GUI Customizations"));
   mpPreserveUserCustomizations->setChecked(OptionsDefaults::GeneralSettings::toolBarIconSize);
@@ -3586,6 +3597,7 @@ GeneralSettingsPage::GeneralSettingsPage(OptionsDialog *pOptionsDialog)
   mpActivateAccessAnnotationsComboBox->addItem(tr("Never"), GeneralSettingsPage::Never);
   mpActivateAccessAnnotationsComboBox->setCurrentIndex(OptionsDefaults::GeneralSettings::activateAccessAnnotationsIndex);
   Utilities::setToolTip(mpActivateAccessAnnotationsComboBox, tr("Options for handling of access annotations"), activateAccessAnnotationsDescriptions);
+  mpActivateAccessAnnotationsComboBox->installEventFilter(mpOptionsDialog);
   // create backup file
   mpCreateBackupFileCheckbox = new QCheckBox(tr("Create a model.bak-mo backup file when deleting a model."));
   mpCreateBackupFileCheckbox->setChecked(OptionsDefaults::GeneralSettings::createBackupFile);
@@ -3620,11 +3632,13 @@ GeneralSettingsPage::GeneralSettingsPage(OptionsDialog *pOptionsDialog)
   mpLibraryIconSizeSpinBox = new QSpinBox;
   mpLibraryIconSizeSpinBox->setMinimum(16);
   mpLibraryIconSizeSpinBox->setValue(OptionsDefaults::GeneralSettings::libraryIconSize);
+  mpLibraryIconSizeSpinBox->installEventFilter(mpOptionsDialog);
   // library icon max. text length, value is set later
   mpLibraryIconTextLengthLabel = new Label(tr("Max. Library Icon Text Length to Show: *"));
   mpLibraryIconTextLengthSpinBox = new QSpinBox;
   mpLibraryIconTextLengthSpinBox->setMinimum(0);
   mpLibraryIconTextLengthSpinBox->setValue(OptionsDefaults::GeneralSettings::libraryIconMaximumTextLength);
+  mpLibraryIconTextLengthSpinBox->installEventFilter(mpOptionsDialog);
   // show protected classes
   mpShowProtectedClasses = new QCheckBox(tr("Show Protected Classes"));
   // show hidden classes
@@ -3657,6 +3671,7 @@ GeneralSettingsPage::GeneralSettingsPage(OptionsDialog *pOptionsDialog)
   mpAutoSaveIntervalSpinBox->setValue(OptionsDefaults::GeneralSettings::autoSaveInterval);
   mpAutoSaveSecondsLabel = new Label;
   connect(mpAutoSaveIntervalSpinBox, SIGNAL(valueChanged(int)), SLOT(autoSaveIntervalValueChanged(int)));
+  mpAutoSaveIntervalSpinBox->installEventFilter(mpOptionsDialog);
   // calculate the auto save interval seconds.
   autoSaveIntervalValueChanged(mpAutoSaveIntervalSpinBox->value());
   // Auto Save layout
@@ -3685,6 +3700,7 @@ GeneralSettingsPage::GeneralSettingsPage(OptionsDialog *pOptionsDialog)
   Label *pRecentFilesAndLatestNewsSizeLabel = new Label(tr("Recent Files and Latest News & Events Size:"));
   mpRecentFilesAndLatestNewsSizeSpinBox = new QSpinBox;
   mpRecentFilesAndLatestNewsSizeSpinBox->setValue(OptionsDefaults::GeneralSettings::recentFilesAndLatestNewsSize);
+  mpRecentFilesAndLatestNewsSizeSpinBox->installEventFilter(mpOptionsDialog);
   // Welcome Page layout
   QGridLayout *pWelcomePageGridLayout = new QGridLayout;
   pWelcomePageGridLayout->setAlignment(Qt::AlignTop | Qt::AlignLeft);
@@ -3696,21 +3712,20 @@ GeneralSettingsPage::GeneralSettingsPage(OptionsDialog *pOptionsDialog)
   mpWelcomePageGroupBox->setLayout(pWelcomePageGridLayout);
   // Optional Features Box
   mpOptionalFeaturesGroupBox = new QGroupBox(tr("Optional Features"));
-  // handle replaceable support
-  mpReplaceableSupport = new QCheckBox(tr("Enable Replaceable Support *"));
-  //! @todo Remove this once we enable this bydefault in OMC.
-  /* Enable new instantiation use in OMC API */
-  mpEnableNewInstantiationAPICheckBox = new QCheckBox(tr("Enable new frontend use in the OMC API (faster GUI response)"));
-  mpEnableNewInstantiationAPICheckBox->setChecked(OptionsDefaults::GeneralSettings::enableNewInstantiationAPI);
+  // Enable instance api
+  mpEnableInstanceAPICheckBox = new QCheckBox(tr("Enable instance API *"));
+  const QString newAPI = MainWindow::instance()->isNewApi() ? "true" : "false";
+  if (MainWindow::instance()->isNewApiCommandLine()) {
+    mpEnableInstanceAPICheckBox->setText(mpEnableInstanceAPICheckBox->text() % " (You are using command line option --NAPI=" % newAPI % " so this option will be ignored.)");
+  }
+  mpEnableInstanceAPICheckBox->setChecked(OptionsDefaults::GeneralSettings::enableInstanceAPI);
   // Optional Features Layout
   QGridLayout *pOptionalFeaturesLayout = new QGridLayout;
   pOptionalFeaturesLayout->setAlignment(Qt::AlignTop | Qt::AlignLeft);
-  pOptionalFeaturesLayout->addWidget(mpReplaceableSupport, 0, 0);
-  pOptionalFeaturesLayout->addWidget(mpEnableNewInstantiationAPICheckBox, 1, 0);
+  pOptionalFeaturesLayout->addWidget(mpEnableInstanceAPICheckBox, 0, 0);
   mpOptionalFeaturesGroupBox->setLayout(pOptionalFeaturesLayout);
   // set the layout
   QVBoxLayout *pMainLayout = new QVBoxLayout;
-  pMainLayout->setContentsMargins(0, 0, 0, 0);
   pMainLayout->setAlignment(Qt::AlignTop | Qt::AlignLeft);
   pMainLayout->addWidget(mpGeneralSettingsGroupBox);
   pMainLayout->addWidget(mpLibrariesBrowserGroupBox);
@@ -3900,7 +3915,6 @@ LibrariesPage::LibrariesPage(OptionsDialog *pOptionsDialog)
   mpUserLibrariesGroupBox->setLayout(pUserLibrariesLayout);
   // main layout
   QVBoxLayout *pMainLayout = new QVBoxLayout;
-  pMainLayout->setContentsMargins(0, 0, 0, 0);
   pMainLayout->addWidget(pModelicaPathGroupBox);
   pMainLayout->addWidget(mpSystemLibrariesGroupBox);
   pMainLayout->addWidget(mpUserLibrariesGroupBox);
@@ -4275,6 +4289,7 @@ TextEditorPage::TextEditorPage(OptionsDialog *pOptionsDialog)
   mpLineEndingComboBox->addItem(tr("Windows (CRLF)"), Utilities::CRLFLineEnding);
   mpLineEndingComboBox->addItem(tr("Unix (LF)"), Utilities::LFLineEnding);
   mpLineEndingComboBox->setCurrentIndex(OptionsDefaults::TextEditor::lineEnding);
+  mpLineEndingComboBox->installEventFilter(mpOptionsDialog);
   // Byte Order Mark BOM
   mpBOMLabel = new Label(tr("Byte Order Mark (BOM):"));
   mpBOMComboBox = new QComboBox;
@@ -4287,6 +4302,7 @@ TextEditorPage::TextEditorPage(OptionsDialog *pOptionsDialog)
   mpBOMComboBox->addItem(tr("Always Delete"), Utilities::AlwaysDeleteBom);
   mpBOMComboBox->setCurrentIndex(OptionsDefaults::TextEditor::bom);
   Utilities::setToolTip(mpBOMComboBox, tr("Note that BOMs are uncommon and treated incorrectly by some editors, so it usually makes little sense to add any"), bomDescriptions);
+  mpBOMComboBox->installEventFilter(mpOptionsDialog);
   // set format groupbox layout
   QGridLayout *pFormatGroupBoxLayout = new QGridLayout;
   pFormatGroupBoxLayout->addWidget(mpLineEndingLabel, 0, 0);
@@ -4302,16 +4318,19 @@ TextEditorPage::TextEditorPage(OptionsDialog *pOptionsDialog)
   mpTabPolicyComboBox = new QComboBox;
   mpTabPolicyComboBox->addItem(tr("Spaces Only"), 0);
   mpTabPolicyComboBox->addItem(tr("Tabs Only"), 1);
+  mpTabPolicyComboBox->installEventFilter(mpOptionsDialog);
   // tab size
   mpTabSizeLabel = new Label(tr("Tab Size:"));
   mpTabSizeSpinBox = new QSpinBox;
   mpTabSizeSpinBox->setRange(1, 20);
   mpTabSizeSpinBox->setValue(OptionsDefaults::TextEditor::tabSize);
+  mpTabSizeSpinBox->installEventFilter(mpOptionsDialog);
   // indent size
   mpIndentSizeLabel = new Label(tr("Indent Size:"));
   mpIndentSpinBox = new QSpinBox;
   mpIndentSpinBox->setRange(1, 20);
   mpIndentSpinBox->setValue(OptionsDefaults::TextEditor::indentSize);
+  mpIndentSpinBox->installEventFilter(mpOptionsDialog);
   // set tabs & indentation groupbox layout
   QGridLayout *pTabsAndIndentationGroupBoxLayout = new QGridLayout;
   pTabsAndIndentationGroupBoxLayout->addWidget(mpTabPolicyLabel, 0, 0);
@@ -4368,6 +4387,7 @@ TextEditorPage::TextEditorPage(OptionsDialog *pOptionsDialog)
   mpFontSizeSpinBox->setRange(6, std::numeric_limits<double>::max());
   mpFontSizeSpinBox->setSingleStep(1);
   mpFontSizeSpinBox->setValue(Helper::monospacedFontInfo.pointSizeF());
+  mpFontSizeSpinBox->installEventFilter(mpOptionsDialog);
   // set font groupbox layout
   QGridLayout *pFontGroupBoxLayout = new QGridLayout;
   pFontGroupBoxLayout->addWidget(mpFontFamilyLabel, 0, 0);
@@ -4377,7 +4397,6 @@ TextEditorPage::TextEditorPage(OptionsDialog *pOptionsDialog)
   mpFontGroupBox->setLayout(pFontGroupBoxLayout);
   // set the layout
   QVBoxLayout *pMainLayout = new QVBoxLayout;
-  pMainLayout->setContentsMargins(0, 0, 0, 0);
   pMainLayout->setAlignment(Qt::AlignTop | Qt::AlignLeft);
   pMainLayout->addWidget(mpFormatGroupBox);
   pMainLayout->addWidget(mpTabsAndIndentation);
@@ -4438,7 +4457,6 @@ ModelicaEditorPage::ModelicaEditorPage(OptionsDialog *pOptionsDialog)
   connect(mpOptionsDialog->getTextEditorPage()->getLineWrappingCheckbox(), SIGNAL(toggled(bool)), this, SLOT(setLineWrapping(bool)));
   // set the layout
   QVBoxLayout *pMainLayout = new QVBoxLayout;
-  pMainLayout->setContentsMargins(0, 0, 0, 0);
   pMainLayout->addWidget(mpPreserveTextIndentationCheckBox);
   pMainLayout->addWidget(mpCodeColorsWidget);
   setLayout(pMainLayout);
@@ -4544,7 +4562,6 @@ MetaModelicaEditorPage::MetaModelicaEditorPage(OptionsDialog *pOptionsDialog)
   connect(mpOptionsDialog->getTextEditorPage()->getLineWrappingCheckbox(), SIGNAL(toggled(bool)), this, SLOT(setLineWrapping(bool)));
   // set the layout
   QVBoxLayout *pMainLayout = new QVBoxLayout;
-  pMainLayout->setContentsMargins(0, 0, 0, 0);
   pMainLayout->addWidget(mpCodeColorsWidget);
   setLayout(pMainLayout);
 }
@@ -4646,7 +4663,6 @@ CompositeModelEditorPage::CompositeModelEditorPage(OptionsDialog *pOptionsDialog
   connect(mpOptionsDialog->getTextEditorPage()->getLineWrappingCheckbox(), SIGNAL(toggled(bool)), this, SLOT(setLineWrapping(bool)));
   // set the layout
   QVBoxLayout *pMainLayout = new QVBoxLayout;
-  pMainLayout->setContentsMargins(0, 0, 0, 0);
   pMainLayout->addWidget(mpCodeColorsWidget);
   setLayout(pMainLayout);
 }
@@ -4749,7 +4765,6 @@ OMSimulatorEditorPage::OMSimulatorEditorPage(OptionsDialog *pOptionsDialog)
   connect(mpOptionsDialog->getTextEditorPage()->getLineWrappingCheckbox(), SIGNAL(toggled(bool)), this, SLOT(setLineWrapping(bool)));
   // set the layout
   QVBoxLayout *pMainLayout = new QVBoxLayout;
-  pMainLayout->setContentsMargins(0, 0, 0, 0);
   pMainLayout->addWidget(mpCodeColorsWidget);
   setLayout(pMainLayout);
 }
@@ -4849,7 +4864,6 @@ CEditorPage::CEditorPage(OptionsDialog *pOptionsDialog)
   connect(mpOptionsDialog->getTextEditorPage()->getLineWrappingCheckbox(), SIGNAL(toggled(bool)), this, SLOT(setLineWrapping(bool)));
   // set the layout
   QVBoxLayout *pMainLayout = new QVBoxLayout;
-  pMainLayout->setContentsMargins(0, 0, 0, 0);
   pMainLayout->addWidget(mpCodeColorsWidget);
   setLayout(pMainLayout);
 }
@@ -4948,7 +4962,6 @@ HTMLEditorPage::HTMLEditorPage(OptionsDialog *pOptionsDialog)
   connect(mpOptionsDialog->getTextEditorPage()->getLineWrappingCheckbox(), SIGNAL(toggled(bool)), this, SLOT(setLineWrapping(bool)));
   // set the layout
   QVBoxLayout *pMainLayout = new QVBoxLayout;
-  pMainLayout->setContentsMargins(0, 0, 0, 0);
   pMainLayout->addWidget(mpCodeColorsWidget);
   setLayout(pMainLayout);
 }
@@ -5070,21 +5083,25 @@ GraphicalViewsPage::GraphicalViewsPage(OptionsDialog *pOptionsDialog)
   mpIconViewLeftSpinBox->setRange(-std::numeric_limits<double>::max(), std::numeric_limits<double>::max());
   mpIconViewLeftSpinBox->setValue(OptionsDefaults::GraphicalViewsPage::iconExtentLeft);
   mpIconViewLeftSpinBox->setSingleStep(10);
+  mpIconViewLeftSpinBox->installEventFilter(mpOptionsDialog);
   Label *pIconViewBottomLabel = new Label(Helper::bottom);
   mpIconViewBottomSpinBox = new DoubleSpinBox;
   mpIconViewBottomSpinBox->setRange(-std::numeric_limits<double>::max(), std::numeric_limits<double>::max());
   mpIconViewBottomSpinBox->setValue(OptionsDefaults::GraphicalViewsPage::iconExtentBottom);
   mpIconViewBottomSpinBox->setSingleStep(10);
+  mpIconViewBottomSpinBox->installEventFilter(mpOptionsDialog);
   Label *pIconViewRightLabel = new Label(QString(Helper::right).append(":"));
   mpIconViewRightSpinBox = new DoubleSpinBox;
   mpIconViewRightSpinBox->setRange(-std::numeric_limits<double>::max(), std::numeric_limits<double>::max());
   mpIconViewRightSpinBox->setValue(OptionsDefaults::GraphicalViewsPage::iconExtentRight);
   mpIconViewRightSpinBox->setSingleStep(10);
+  mpIconViewRightSpinBox->installEventFilter(mpOptionsDialog);
   Label *pIconViewTopLabel = new Label(Helper::top);
   mpIconViewTopSpinBox = new DoubleSpinBox;
   mpIconViewTopSpinBox->setRange(-std::numeric_limits<double>::max(), std::numeric_limits<double>::max());
   mpIconViewTopSpinBox->setValue(OptionsDefaults::GraphicalViewsPage::iconExtentTop);
   mpIconViewTopSpinBox->setSingleStep(10);
+  mpIconViewTopSpinBox->installEventFilter(mpOptionsDialog);
   // set the Icon View extent group box layout
   QGridLayout *pIconViewExtentLayout = new QGridLayout;
   pIconViewExtentLayout->setAlignment(Qt::AlignTop | Qt::AlignLeft);
@@ -5106,11 +5123,13 @@ GraphicalViewsPage::GraphicalViewsPage(OptionsDialog *pOptionsDialog)
   mpIconViewGridHorizontalSpinBox->setRange(0, std::numeric_limits<double>::max());
   mpIconViewGridHorizontalSpinBox->setValue(OptionsDefaults::GraphicalViewsPage::iconGridHorizontal);
   mpIconViewGridHorizontalSpinBox->setSingleStep(1);
+  mpIconViewGridHorizontalSpinBox->installEventFilter(mpOptionsDialog);
   Label *pIconViewGridVerticalLabel = new Label(QString(Helper::vertical).append(":"));
   mpIconViewGridVerticalSpinBox = new DoubleSpinBox;
   mpIconViewGridVerticalSpinBox->setRange(0, std::numeric_limits<double>::max());
   mpIconViewGridVerticalSpinBox->setValue(OptionsDefaults::GraphicalViewsPage::iconGridVertical);
   mpIconViewGridVerticalSpinBox->setSingleStep(1);
+  mpIconViewGridVerticalSpinBox->installEventFilter(mpOptionsDialog);
   // set the Icon View grid group box layout
   QGridLayout *pIconViewGridLayout = new QGridLayout;
   pIconViewGridLayout->setAlignment(Qt::AlignTop | Qt::AlignLeft);
@@ -5127,6 +5146,7 @@ GraphicalViewsPage::GraphicalViewsPage(OptionsDialog *pOptionsDialog)
   mpIconViewScaleFactorSpinBox->setRange(0, std::numeric_limits<double>::max());
   mpIconViewScaleFactorSpinBox->setValue(OptionsDefaults::GraphicalViewsPage::iconInitialScale);
   mpIconViewScaleFactorSpinBox->setSingleStep(0.1);
+  mpIconViewScaleFactorSpinBox->installEventFilter(mpOptionsDialog);
   mpIconViewPreserveAspectRatioCheckBox = new QCheckBox(Helper::preserveAspectRatio);
   mpIconViewPreserveAspectRatioCheckBox->setChecked(OptionsDefaults::GraphicalViewsPage::iconPreserveAspectRatio);
   // set the Icon View component group box layout
@@ -5155,21 +5175,25 @@ GraphicalViewsPage::GraphicalViewsPage(OptionsDialog *pOptionsDialog)
   mpDiagramViewLeftSpinBox->setRange(-std::numeric_limits<double>::max(), std::numeric_limits<double>::max());
   mpDiagramViewLeftSpinBox->setValue(OptionsDefaults::GraphicalViewsPage::diagramExtentLeft);
   mpDiagramViewLeftSpinBox->setSingleStep(10);
+  mpDiagramViewLeftSpinBox->installEventFilter(mpOptionsDialog);
   Label *pDiagramViewBottomLabel = new Label(Helper::bottom);
   mpDiagramViewBottomSpinBox = new DoubleSpinBox;
   mpDiagramViewBottomSpinBox->setRange(-std::numeric_limits<double>::max(), std::numeric_limits<double>::max());
   mpDiagramViewBottomSpinBox->setValue(OptionsDefaults::GraphicalViewsPage::diagramExtentBottom);
   mpDiagramViewBottomSpinBox->setSingleStep(10);
+  mpDiagramViewBottomSpinBox->installEventFilter(mpOptionsDialog);
   Label *pDiagramViewRightLabel = new Label(QString(Helper::right).append(":"));
   mpDiagramViewRightSpinBox = new DoubleSpinBox;
   mpDiagramViewRightSpinBox->setRange(-std::numeric_limits<double>::max(), std::numeric_limits<double>::max());
   mpDiagramViewRightSpinBox->setValue(OptionsDefaults::GraphicalViewsPage::diagramExtentRight);
   mpDiagramViewRightSpinBox->setSingleStep(10);
+  mpDiagramViewRightSpinBox->installEventFilter(mpOptionsDialog);
   Label *pDiagramViewTopLabel = new Label(Helper::top);
   mpDiagramViewTopSpinBox = new DoubleSpinBox;
   mpDiagramViewTopSpinBox->setRange(-std::numeric_limits<double>::max(), std::numeric_limits<double>::max());
   mpDiagramViewTopSpinBox->setValue(OptionsDefaults::GraphicalViewsPage::diagramExtentTop);
   mpDiagramViewTopSpinBox->setSingleStep(10);
+  mpDiagramViewTopSpinBox->installEventFilter(mpOptionsDialog);
   // set the Diagram View extent group box layout
   QGridLayout *pDiagramViewExtentLayout = new QGridLayout;
   pDiagramViewExtentLayout->setAlignment(Qt::AlignTop | Qt::AlignLeft);
@@ -5191,11 +5215,13 @@ GraphicalViewsPage::GraphicalViewsPage(OptionsDialog *pOptionsDialog)
   mpDiagramViewGridHorizontalSpinBox->setRange(0, std::numeric_limits<double>::max());
   mpDiagramViewGridHorizontalSpinBox->setValue(OptionsDefaults::GraphicalViewsPage::diagramGridHorizontal);
   mpDiagramViewGridHorizontalSpinBox->setSingleStep(1);
+  mpDiagramViewGridHorizontalSpinBox->installEventFilter(mpOptionsDialog);
   Label *pDiagramViewGridVerticalLabel = new Label(QString(Helper::vertical).append(":"));
   mpDiagramViewGridVerticalSpinBox = new DoubleSpinBox;
   mpDiagramViewGridVerticalSpinBox->setRange(0, std::numeric_limits<double>::max());
   mpDiagramViewGridVerticalSpinBox->setValue(OptionsDefaults::GraphicalViewsPage::diagramGridVertical);
   mpDiagramViewGridVerticalSpinBox->setSingleStep(1);
+  mpDiagramViewGridVerticalSpinBox->installEventFilter(mpOptionsDialog);
   // set the Diagram View grid group box layout
   QGridLayout *pDiagramViewGridLayout = new QGridLayout;
   pDiagramViewGridLayout->setAlignment(Qt::AlignTop | Qt::AlignLeft);
@@ -5212,6 +5238,7 @@ GraphicalViewsPage::GraphicalViewsPage(OptionsDialog *pOptionsDialog)
   mpDiagramViewScaleFactorSpinBox->setRange(0, std::numeric_limits<double>::max());
   mpDiagramViewScaleFactorSpinBox->setValue(OptionsDefaults::GraphicalViewsPage::diagramInitialScale);
   mpDiagramViewScaleFactorSpinBox->setSingleStep(0.1);
+  mpDiagramViewScaleFactorSpinBox->installEventFilter(mpOptionsDialog);
   mpDiagramViewPreserveAspectRatioCheckBox = new QCheckBox(Helper::preserveAspectRatio);
   mpDiagramViewPreserveAspectRatioCheckBox->setChecked(OptionsDefaults::GraphicalViewsPage::diagramPreserveAspectRatio);
   // set the Diagram View component group box layout
@@ -5239,7 +5266,6 @@ GraphicalViewsPage::GraphicalViewsPage(OptionsDialog *pOptionsDialog)
   pGraphicsGroupBox->setLayout(pGraphicsGridLayout);
   // set Main Layout
   QVBoxLayout *pMainLayout = new QVBoxLayout;
-  pMainLayout->setContentsMargins(0, 0, 0, 0);
   pMainLayout->setAlignment(Qt::AlignTop | Qt::AlignLeft);
   pMainLayout->addWidget(pGeneralGroupBox);
   pMainLayout->addWidget(pGraphicsGroupBox, 0, Qt::AlignTop);
@@ -5499,6 +5525,7 @@ SimulationPage::SimulationPage(OptionsDialog *pOptionsDialog)
   mpTargetLanguageComboBox->addItems(simCodeTarget.validOptions);
   mpTargetLanguageComboBox->setCurrentIndex(mpTargetLanguageComboBox->findText("C"));
   Utilities::setToolTip(mpTargetLanguageComboBox, simCodeTarget.mainDescription, simCodeTarget.descriptions);
+  mpTargetLanguageComboBox->installEventFilter(mpOptionsDialog);
   // Target Build
   mpTargetBuildLabel = new Label(tr("Target Build:"));
   mpTargetBuildComboBox = new QComboBox;
@@ -5516,6 +5543,7 @@ SimulationPage::SimulationPage(OptionsDialog *pOptionsDialog)
   mpTargetBuildComboBox->addItem("vxworks69", "vxworks69");
   mpTargetBuildComboBox->addItem("debugrt", "debugrt");
   connect(mpTargetBuildComboBox, SIGNAL(currentIndexChanged(int)), SLOT(targetBuildChanged(int)));
+  mpTargetBuildComboBox->installEventFilter(mpOptionsDialog);
   // C Compiler
   mpCompilerLabel = new Label(tr("C Compiler:"));
   mpCompilerComboBox = new QComboBox;
@@ -5527,6 +5555,7 @@ SimulationPage::SimulationPage(OptionsDialog *pOptionsDialog)
 #endif
   OptionsDefaults::Simulation::cCompiler = MainWindow::instance()->getOMCProxy()->getCompiler();
   mpCompilerComboBox->lineEdit()->setPlaceholderText(OptionsDefaults::Simulation::cCompiler);
+  mpCompilerComboBox->installEventFilter(mpOptionsDialog);
   // CXX Compiler
   mpCXXCompilerLabel = new Label(tr("CXX Compiler:"));
   mpCXXCompilerComboBox = new QComboBox;
@@ -5538,6 +5567,7 @@ SimulationPage::SimulationPage(OptionsDialog *pOptionsDialog)
 #endif
   OptionsDefaults::Simulation::cxxCompiler = MainWindow::instance()->getOMCProxy()->getCXXCompiler();
   mpCXXCompilerComboBox->lineEdit()->setPlaceholderText(OptionsDefaults::Simulation::cxxCompiler);
+  mpCXXCompilerComboBox->installEventFilter(mpOptionsDialog);
 #ifdef Q_OS_WIN
   mpUseStaticLinkingCheckBox = new QCheckBox(tr("Use static Linking"));
   mpUseStaticLinkingCheckBox->setToolTip(tr("Enables static linking for the simulation executable. Default is dynamic linking."));
@@ -5587,6 +5617,7 @@ SimulationPage::SimulationPage(OptionsDialog *pOptionsDialog)
   mpDisplayLimitSpinBox->setRange(1, std::numeric_limits<int>::max());
   mpDisplayLimitSpinBox->setSingleStep(100);
   mpDisplayLimitSpinBox->setValue(OptionsDefaults::Simulation::displayLimit);
+  mpDisplayLimitSpinBox->installEventFilter(mpOptionsDialog);
   mpDisplayLimitMBLabel = new Label;
   connect(mpDisplayLimitSpinBox, SIGNAL(valueChanged(int)), SLOT(displayLimitValueChanged(int)));
   // calculate the display limit in MBs.
@@ -5628,7 +5659,6 @@ SimulationPage::SimulationPage(OptionsDialog *pOptionsDialog)
   // set the layout
   QVBoxLayout *pLayout = new QVBoxLayout;
   pLayout->setAlignment(Qt::AlignTop);
-  pLayout->setContentsMargins(0, 0, 0, 0);
   pLayout->addWidget(mpSimulationGroupBox);
   setLayout(pLayout);
 }
@@ -5699,6 +5729,7 @@ MessagesPage::MessagesPage(OptionsDialog *pOptionsDialog)
   mpOutputSizeSpinBox->setSingleStep(1000);
   mpOutputSizeSpinBox->setSuffix(" rows");
   mpOutputSizeSpinBox->setSpecialValueText(Helper::unlimited);
+  mpOutputSizeSpinBox->installEventFilter(mpOptionsDialog);
   // reset messages number before simulation
   mpResetMessagesNumberBeforeSimulationCheckBox = new QCheckBox(tr("Reset messages number before checking, instantiation && simulation"));
   mpResetMessagesNumberBeforeSimulationCheckBox->setChecked(OptionsDefaults::Messages::resetMessagesNumberBeforeSimulation);
@@ -5727,6 +5758,7 @@ MessagesPage::MessagesPage(OptionsDialog *pOptionsDialog)
   mpFontSizeSpinBox->setRange(6, std::numeric_limits<double>::max());
   mpFontSizeSpinBox->setValue(textBrowser.font().pointSize());
   mpFontSizeSpinBox->setSingleStep(1);
+  mpFontSizeSpinBox->installEventFilter(mpOptionsDialog);
   // Notification Color
   mpNotificationColorLabel = new Label(tr("Notification Color:"));
   mpNotificationColorButton = new QPushButton(Helper::pickColor);
@@ -5766,7 +5798,6 @@ MessagesPage::MessagesPage(OptionsDialog *pOptionsDialog)
   // set the layout
   QVBoxLayout *pMainLayout = new QVBoxLayout;
   pMainLayout->setAlignment(Qt::AlignTop);
-  pMainLayout->setContentsMargins(0, 0, 0, 0);
   pMainLayout->addWidget(mpGeneralGroupBox);
   pMainLayout->addWidget(mpFontColorsGroupBox);
   setLayout(pMainLayout);
@@ -5898,7 +5929,6 @@ NotificationsPage::NotificationsPage(OptionsDialog *pOptionsDialog)
   // set the layout
   QVBoxLayout *pLayout = new QVBoxLayout;
   pLayout->setAlignment(Qt::AlignTop);
-  pLayout->setContentsMargins(0, 0, 0, 0);
   pLayout->addWidget(mpNotificationsGroupBox);
   setLayout(pLayout);
 }
@@ -5924,6 +5954,7 @@ LineStylePage::LineStylePage(OptionsDialog *pOptionsDialog)
   // Line Pattern
   mpLinePatternLabel = new Label(Helper::pattern);
   mpLinePatternComboBox = StringHandler::getLinePatternComboBox();
+  mpLinePatternComboBox->installEventFilter(mpOptionsDialog);
   setLinePattern(OptionsDefaults::LineStyle::pattern);
   // Line Thickness
   mpLineThicknessLabel = new Label(Helper::thickness);
@@ -5931,16 +5962,20 @@ LineStylePage::LineStylePage(OptionsDialog *pOptionsDialog)
   mpLineThicknessSpinBox->setRange(0, std::numeric_limits<double>::max());
   mpLineThicknessSpinBox->setValue(OptionsDefaults::LineStyle::thickness);
   mpLineThicknessSpinBox->setSingleStep(0.25);
+  mpLineThicknessSpinBox->installEventFilter(mpOptionsDialog);
   // Line Arrow
   mpLineStartArrowLabel = new Label(Helper::startArrow);
   mpLineStartArrowComboBox = StringHandler::getStartArrowComboBox();
+  mpLineStartArrowComboBox->installEventFilter(mpOptionsDialog);
   mpLineEndArrowLabel = new Label(Helper::endArrow);
   mpLineEndArrowComboBox = StringHandler::getEndArrowComboBox();
+  mpLineEndArrowComboBox->installEventFilter(mpOptionsDialog);
   mpLineArrowSizeLabel = new Label(Helper::arrowSize);
   mpLineArrowSizeSpinBox = new DoubleSpinBox;
   mpLineArrowSizeSpinBox->setRange(0, std::numeric_limits<double>::max());
   mpLineArrowSizeSpinBox->setValue(OptionsDefaults::LineStyle::arrowSize);
   mpLineArrowSizeSpinBox->setSingleStep(1);
+  mpLineArrowSizeSpinBox->installEventFilter(mpOptionsDialog);
   // Line smooth
   mpLineSmoothLabel = new Label(Helper::smooth);
   mpLineSmoothCheckBox = new QCheckBox(Helper::bezier);
@@ -5964,7 +5999,6 @@ LineStylePage::LineStylePage(OptionsDialog *pOptionsDialog)
   mpLineStyleGroupBox->setLayout(pLineStyleLayout);
   QVBoxLayout *pMainLayout = new QVBoxLayout;
   pMainLayout->setAlignment(Qt::AlignTop);
-  pMainLayout->setContentsMargins(0, 0, 0, 0);
   pMainLayout->addWidget(mpLineStyleGroupBox);
   setLayout(pMainLayout);
 }
@@ -6086,6 +6120,7 @@ void LineStylePage::linePickColor()
 FillStylePage::FillStylePage(OptionsDialog *pOptionsDialog)
   : QWidget(pOptionsDialog)
 {
+  mpOptionsDialog = pOptionsDialog;
   mpFillStyleGroupBox = new QGroupBox(Helper::fillStyle);
   // Fill Color
   mpFillColorLabel = new Label(Helper::color);
@@ -6098,6 +6133,7 @@ FillStylePage::FillStylePage(OptionsDialog *pOptionsDialog)
   // Fill Pattern
   mpFillPatternLabel = new Label(Helper::pattern);
   mpFillPatternComboBox = StringHandler::getFillPatternComboBox();
+  mpFillPatternComboBox->installEventFilter(mpOptionsDialog);
   setFillPattern(OptionsDefaults::FillStyle::pattern);
   // set the layout
   QGridLayout *pFillStyleLayout = new QGridLayout;
@@ -6109,7 +6145,6 @@ FillStylePage::FillStylePage(OptionsDialog *pOptionsDialog)
   mpFillStyleGroupBox->setLayout(pFillStyleLayout);
   QVBoxLayout *pMainLayout = new QVBoxLayout;
   pMainLayout->setAlignment(Qt::AlignTop);
-  pMainLayout->setContentsMargins(0, 0, 0, 0);
   pMainLayout->addWidget(mpFillStyleGroupBox);
   setLayout(pMainLayout);
 }
@@ -6206,12 +6241,14 @@ PlottingPage::PlottingPage(OptionsDialog *pOptionsDialog)
   mpCurvePatternComboBox->addItem("DashDotDotLine", 5);
   mpCurvePatternComboBox->addItem("Sticks", 6);
   mpCurvePatternComboBox->addItem("Steps", 7);
+  mpCurvePatternComboBox->installEventFilter(mpOptionsDialog);
   // Curve Thickness
   mpCurveThicknessLabel = new Label(Helper::thickness);
   mpCurveThicknessSpinBox = new DoubleSpinBox;
   mpCurveThicknessSpinBox->setRange(0, std::numeric_limits<double>::max());
   mpCurveThicknessSpinBox->setValue(OptionsDefaults::Plotting::curveThickness);
   mpCurveThicknessSpinBox->setSingleStep(1);
+  mpCurveThicknessSpinBox->installEventFilter(mpOptionsDialog);
   // set the layout
   QGridLayout *pCurveStyleLayout = new QGridLayout;
   pCurveStyleLayout->setAlignment(Qt::AlignTop | Qt::AlignLeft);
@@ -6231,6 +6268,7 @@ PlottingPage::PlottingPage(OptionsDialog *pOptionsDialog)
   mpFilterIntervalSpinBox->setRange(0, std::numeric_limits<int>::max());
   mpFilterIntervalSpinBox->setValue(OptionsDefaults::Plotting::variableFilterInterval);
   mpFilterIntervalSpinBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+  mpFilterIntervalSpinBox->installEventFilter(mpOptionsDialog);
   // variable filter layout
   QGridLayout *pVariableFilterGridLayout = new QGridLayout;
   pVariableFilterGridLayout->setAlignment(Qt::AlignTop | Qt::AlignLeft);
@@ -6246,36 +6284,43 @@ PlottingPage::PlottingPage(OptionsDialog *pOptionsDialog)
   mpTitleFontSizeSpinBox->setValue(OptionsDefaults::Plotting::titleFontSize);
   mpTitleFontSizeSpinBox->setSingleStep(1);
   mpTitleFontSizeSpinBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+  mpTitleFontSizeSpinBox->installEventFilter(mpOptionsDialog);
   mpVerticalAxisTitleFontSizeLabel = new Label("Vertical Axis Title:");
   mpVerticalAxisTitleFontSizeSpinBox = new DoubleSpinBox;
   mpVerticalAxisTitleFontSizeSpinBox->setRange(6, std::numeric_limits<double>::max());
   mpVerticalAxisTitleFontSizeSpinBox->setValue(OptionsDefaults::Plotting::verticalAxisTitleFontSize);
   mpVerticalAxisTitleFontSizeSpinBox->setSingleStep(1);
+  mpVerticalAxisTitleFontSizeSpinBox->installEventFilter(mpOptionsDialog);
   mpVerticalAxisNumbersFontSizeLabel = new Label("Vertical Axis Numbers:");
   mpVerticalAxisNumbersFontSizeSpinBox = new DoubleSpinBox;
   mpVerticalAxisNumbersFontSizeSpinBox->setRange(6, std::numeric_limits<double>::max());
   mpVerticalAxisNumbersFontSizeSpinBox->setValue(OptionsDefaults::Plotting::verticalAxisNumbersFontSize);
   mpVerticalAxisNumbersFontSizeSpinBox->setSingleStep(1);
+  mpVerticalAxisNumbersFontSizeSpinBox->installEventFilter(mpOptionsDialog);
   mpHorizontalAxisTitleFontSizeLabel = new Label("Horizontal Axis Title:");
   mpHorizontalAxisTitleFontSizeSpinBox = new DoubleSpinBox;
   mpHorizontalAxisTitleFontSizeSpinBox->setRange(6, std::numeric_limits<double>::max());
   mpHorizontalAxisTitleFontSizeSpinBox->setValue(OptionsDefaults::Plotting::horizontalAxisTitleFontSize);
   mpHorizontalAxisTitleFontSizeSpinBox->setSingleStep(1);
+  mpHorizontalAxisTitleFontSizeSpinBox->installEventFilter(mpOptionsDialog);
   mpHorizontalAxisNumbersFontSizeLabel = new Label("Horizontal Axis Numbers:");
   mpHorizontalAxisNumbersFontSizeSpinBox = new DoubleSpinBox;
   mpHorizontalAxisNumbersFontSizeSpinBox->setRange(6, std::numeric_limits<double>::max());
   mpHorizontalAxisNumbersFontSizeSpinBox->setValue(OptionsDefaults::Plotting::horizontalAxisNumbersFontSize);
   mpHorizontalAxisNumbersFontSizeSpinBox->setSingleStep(1);
+  mpHorizontalAxisNumbersFontSizeSpinBox->installEventFilter(mpOptionsDialog);
   mpFooterFontSizeLabel = new Label("Footer:");
   mpFooterFontSizeSpinBox = new DoubleSpinBox;
   mpFooterFontSizeSpinBox->setRange(6, std::numeric_limits<double>::max());
   mpFooterFontSizeSpinBox->setValue(QApplication::font().pointSize());
   mpFooterFontSizeSpinBox->setSingleStep(1);
+  mpFooterFontSizeSpinBox->installEventFilter(mpOptionsDialog);
   mpLegendFontSizeLabel = new Label("Legend:");
   mpLegendFontSizeSpinBox = new DoubleSpinBox;
   mpLegendFontSizeSpinBox->setRange(6, std::numeric_limits<double>::max());
   mpLegendFontSizeSpinBox->setValue(QApplication::font().pointSize());
   mpLegendFontSizeSpinBox->setSingleStep(1);
+  mpLegendFontSizeSpinBox->installEventFilter(mpOptionsDialog);
   // font size layout
   QGridLayout *pFontSizeGridLayout = new QGridLayout;
   pFontSizeGridLayout->setAlignment(Qt::AlignTop | Qt::AlignLeft);
@@ -6301,7 +6346,6 @@ PlottingPage::PlottingPage(OptionsDialog *pOptionsDialog)
   // main layout
   QVBoxLayout *pMainLayout = new QVBoxLayout;
   pMainLayout->setAlignment(Qt::AlignTop);
-  pMainLayout->setContentsMargins(0, 0, 0, 0);
   pMainLayout->addWidget(mpGeneralGroupBox);
   pMainLayout->addWidget(mpPlottingViewModeGroupBox);
   pMainLayout->addWidget(mpCurveStyleGroupBox);
@@ -6417,7 +6461,6 @@ FigaroPage::FigaroPage(OptionsDialog *pOptionsDialog)
   mpFigaroGroupBox->setLayout(pFigaroLayout);
   QVBoxLayout *pMainLayout = new QVBoxLayout;
   pMainLayout->setAlignment(Qt::AlignTop);
-  pMainLayout->setContentsMargins(0, 0, 0, 0);
   pMainLayout->addWidget(mpFigaroGroupBox);
   setLayout(pMainLayout);
 }
@@ -6475,6 +6518,7 @@ DebuggerPage::DebuggerPage(OptionsDialog *pOptionsDialog)
   mpGDBCommandTimeoutSpinBox->setRange(30, std::numeric_limits<int>::max());
   mpGDBCommandTimeoutSpinBox->setSingleStep(10);
   mpGDBCommandTimeoutSpinBox->setValue(OptionsDefaults::Debugger::GDBCommandTimeout);
+  mpGDBCommandTimeoutSpinBox->installEventFilter(mpOptionsDialog);
   /* GDB Output limit */
   mpGDBOutputLimitLabel = new Label(tr("GDB Output Limit:"));
   mpGDBOutputLimitSpinBox = new QSpinBox;
@@ -6482,6 +6526,7 @@ DebuggerPage::DebuggerPage(OptionsDialog *pOptionsDialog)
   mpGDBOutputLimitSpinBox->setSpecialValueText(Helper::unlimited);
   mpGDBOutputLimitSpinBox->setRange(0, std::numeric_limits<int>::max());
   mpGDBOutputLimitSpinBox->setSingleStep(10);
+  mpGDBOutputLimitSpinBox->installEventFilter(mpOptionsDialog);
   // Display C Frames
   mpDisplayCFramesCheckBox = new QCheckBox(tr("Display C frames"));
   mpDisplayCFramesCheckBox->setChecked(OptionsDefaults::Debugger::displayCFrames);
@@ -6524,7 +6569,6 @@ DebuggerPage::DebuggerPage(OptionsDialog *pOptionsDialog)
   // set the layout
   QVBoxLayout *pMainLayout = new QVBoxLayout;
   pMainLayout->setAlignment(Qt::AlignTop);
-  pMainLayout->setContentsMargins(0, 0, 0, 0);
   pMainLayout->addWidget(mpAlgorithmicDebuggerGroupBox);
   pMainLayout->addWidget(mpTransformationalDebuggerGroupBox);
   setLayout(pMainLayout);
@@ -6675,6 +6719,7 @@ FMIPage::FMIPage(OptionsDialog *pOptionsDialog)
   mpSolverForCoSimulationComboBox = new QComboBox;
   mpSolverForCoSimulationComboBox->addItem(tr("Explicit Euler"), "");
   mpSolverForCoSimulationComboBox->addItem(tr("CVODE"), "cvode");
+  mpSolverForCoSimulationComboBox->installEventFilter(mpOptionsDialog);
   // Model description filters
   OMCInterface::getConfigFlagValidOptions_res fmiFilters = MainWindow::instance()->getOMCProxy()->getConfigFlagValidOptions("fmiFilter");
   mpModelDescriptionFiltersComboBox = new QComboBox;
@@ -6682,6 +6727,7 @@ FMIPage::FMIPage(OptionsDialog *pOptionsDialog)
   mpModelDescriptionFiltersComboBox->setCurrentIndex(mpModelDescriptionFiltersComboBox->findText(OptionsDefaults::FMI::modelDescriptionFilter));
   Utilities::setToolTip(mpModelDescriptionFiltersComboBox, fmiFilters.mainDescription, fmiFilters.descriptions);
   connect(mpModelDescriptionFiltersComboBox, SIGNAL(currentIndexChanged(QString)), SLOT(enableIncludeSourcesCheckBox(QString)));
+  mpModelDescriptionFiltersComboBox->installEventFilter(mpOptionsDialog);
   // include resources checkbox
   mpIncludeResourcesCheckBox = new QCheckBox(tr("Include Modelica based resources via loadResource"));
   // include source code checkbox
@@ -6720,7 +6766,6 @@ FMIPage::FMIPage(OptionsDialog *pOptionsDialog)
   // set the layout
   QVBoxLayout *pMainLayout = new QVBoxLayout;
   pMainLayout->setAlignment(Qt::AlignTop);
-  pMainLayout->setContentsMargins(0, 0, 0, 0);
   pMainLayout->addWidget(mpExportGroupBox);
   pMainLayout->addWidget(mpImportGroupBox);
   setLayout(pMainLayout);
@@ -6878,7 +6923,6 @@ TLMPage::TLMPage(OptionsDialog *pOptionsDialog)
   mpGeneralGroupBox->setLayout(pGeneralGroupBoxLayout);
   QVBoxLayout *pMainLayout = new QVBoxLayout;
   pMainLayout->setAlignment(Qt::AlignTop);
-  pMainLayout->setContentsMargins(0, 0, 0, 0);
   pMainLayout->addWidget(mpGeneralGroupBox);
   setLayout(pMainLayout);
 }
@@ -6993,6 +7037,7 @@ OMSimulatorPage::OMSimulatorPage(OptionsDialog *pOptionsDialog)
   mpLoggingLevelComboBox->addItem("default", QVariant(0));
   mpLoggingLevelComboBox->addItem("default+debug", QVariant(1));
   mpLoggingLevelComboBox->addItem("default+debug+trace", QVariant(2));
+  mpLoggingLevelComboBox->installEventFilter(mpOptionsDialog);
   // set the layout
   QGridLayout *pGeneralGroupBoxLayout = new QGridLayout;
   pGeneralGroupBoxLayout->setAlignment(Qt::AlignTop | Qt::AlignLeft);
@@ -7003,7 +7048,6 @@ OMSimulatorPage::OMSimulatorPage(OptionsDialog *pOptionsDialog)
   mpGeneralGroupBox->setLayout(pGeneralGroupBoxLayout);
   QVBoxLayout *pMainLayout = new QVBoxLayout;
   pMainLayout->setAlignment(Qt::AlignTop);
-  pMainLayout->setContentsMargins(0, 0, 0, 0);
   pMainLayout->addWidget(mpGeneralGroupBox);
   setLayout(pMainLayout);
 }
@@ -7054,7 +7098,6 @@ TraceabilityPage::TraceabilityPage(OptionsDialog *pOptionsDialog)
   mpTraceabilityGroupBox->setLayout(pTraceabilityGroupBoxLayout);
   QVBoxLayout *pMainLayout = new QVBoxLayout;
   pMainLayout->setAlignment(Qt::AlignTop);
-  pMainLayout->setContentsMargins(0, 0, 0, 0);
   pMainLayout->addWidget(mpTraceabilityGroupBox);
   setLayout(pMainLayout);
 }

@@ -106,6 +106,10 @@ public:
   void setDebug(bool debug) {mDebug = debug;}
   bool isNewApi() const {return mNewApi;}
   void setNewApi(bool newApi) {mNewApi = newApi;}
+  bool isNewApiCommandLine() const {return mNewApiCommandLine;}
+  void setNewApiCommandLine(bool newApiCommandLine) {mNewApiCommandLine = newApiCommandLine;}
+  bool isNewApiProfiling() const {return mNewApiProfiling;}
+  void setNewApiProfiling(bool newApiProfiling);
   bool isTestsuiteRunning() const {return mTestsuiteRunning;}
   void setTestsuiteRunning(bool testsuiteRunning) {mTestsuiteRunning = testsuiteRunning;}
   OMCProxy* getOMCProxy() {return mpOMCProxy;}
@@ -257,12 +261,16 @@ public:
   static void LoadModelCallbackFunction(void *p, const char* modelName);
   void addSystemLibraries();
   QString getLibraryIndexFilePath() const;
+  void writeNewApiProfiling(const QString &str);
 
   QList<QString> mFMUDirectoriesList;
   QList<QString> mMOLDirectoriesList;
 private:
   bool mDebug;
   bool mNewApi;
+  bool mNewApiCommandLine;
+  bool mNewApiProfiling;
+  FILE *mpNewApiProfilingFile = nullptr;
   bool mTestsuiteRunning;
   OMCProxy *mpOMCProxy;
   bool mExitApplicationStatus;
@@ -562,8 +570,6 @@ public slots:
   void toggleAutoSave();
   void readInterfaceData(LibraryTreeItem *pLibraryTreeItem);
   void enableReSimulationToolbar(bool visible);
-  void updateModel(const QString &modelName);
-  void updateModelHelper(LibraryTreeItem *pLibraryTreeItem, const QString &modelName);
 private slots:
   void perspectiveTabChanged(int tabIndex);
   void documentationDockWidgetVisibilityChanged(bool visible);

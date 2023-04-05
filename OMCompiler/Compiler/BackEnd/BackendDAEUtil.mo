@@ -76,6 +76,7 @@ import Config;
 import DAEDump;
 import DAEMode;
 import DAEUtil;
+import DataReconciliation;
 import Debug;
 import DoubleEnded;
 import Differentiate;
@@ -117,7 +118,7 @@ import SynchronousFeatures;
 import System;
 import Tearing;
 import Types;
-import DataReconciliation;
+import UnorderedSet;
 import Values;
 import XMLDump;
 import ZeroCrossings;
@@ -7595,7 +7596,7 @@ protected
   tuple<BackendDAEFunc.matchingAlgorithmFunc, String> matchingAlgorithm;
   BackendDAE.InlineData inlineData;
   BackendDAE.Variables globalKnownVars;
-  Integer numCheckpoints;
+  Integer numCheckpoints, oldSize;
   DAE.FunctionTree funcTree;
 algorithm
   numCheckpoints:=ErrorExt.getNumCheckpoints();
@@ -7632,7 +7633,9 @@ algorithm
   end if;
 
   if Flags.isSet(Flags.EVAL_OUTPUT_ONLY) then
+    oldSize := daeSize(dae);
     dae := BackendDAEOptimize.evaluateOutputsOnly(dae);
+    execStat("evaluateOutputsOnly (n=" + intString(oldSize) + " -> n=" + intString(daeSize(dae)) + ")");
   end if;
 
   //generate Jacobian for StateSets for initial state selection
@@ -10295,6 +10298,7 @@ protected function markNonlinearIterationVariablesStrongComponent
   input output BackendDAE.Variables vars;
 protected
   list<BackendDAE.Var> nonlinear_iteration_vars;
+  UnorderedSet<DAE.ComponentRef> set = UnorderedSet.new(ComponentReference.hashComponentRef, ComponentReference.crefEqual);
 algorithm
   nonlinear_iteration_vars := match comp
     local
@@ -10303,8 +10307,21 @@ algorithm
     case BackendDAE.EQUATIONSYSTEM(jac=jac, jacType=BackendDAE.JAC_GENERIC())                   then SymbolicJacobian.getNonLinearVariables(jac);
                                                                                                 else {};
   end match;
-  vars := BackendVariable.addVars(nonlinear_iteration_vars, vars);
+  for var in nonlinear_iteration_vars loop
+    UnorderedSet.add(var.varName, set);
+  end for;
+
+  (vars, _) := BackendVariable.traverseBackendDAEVarsWithUpdate(vars, markNonlinearIterationVariable, set);
 end markNonlinearIterationVariablesStrongComponent;
+
+protected function markNonlinearIterationVariable
+  input output BackendDAE.Var var;
+  input output UnorderedSet<DAE.ComponentRef> set;
+algorithm
+  if UnorderedSet.contains(var.varName, set) then
+    var := BackendVariable.setVarInitNonlinear(var, true);
+  end if;
+end markNonlinearIterationVariable;
 
 annotation(__OpenModelica_Interface="backend");
 end BackendDAEUtil;

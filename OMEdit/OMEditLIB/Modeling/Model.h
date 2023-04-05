@@ -353,6 +353,7 @@ private:
     BooleanAnnotation mConnectorSizing;
   };
 
+  typedef QPair<QString, QString> Choice;
   class Choices
   {
   public:
@@ -361,11 +362,12 @@ private:
 
     bool isCheckBox() const {return mCheckBox;}
     bool isDymolaCheckBox() const {return mDymolaCheckBox;}
-    QStringList getChoices() const {return mChoice;}
+    QStringList getChoices() const;
+    QString getType(int index) const;
   private:
     BooleanAnnotation mCheckBox;
     BooleanAnnotation mDymolaCheckBox;
-    QStringList mChoice;
+    QVector<Choice> mChoices;
   };
 
   class IconDiagramMap
@@ -389,14 +391,9 @@ private:
 
     IconDiagramAnnotation *getIconAnnotation() const {return mpIconAnnotation.get();}
     IconDiagramAnnotation *getDiagramAnnotation() const {return mpDiagramAnnotation.get();}
-    bool isDocumentationClass() const {return mDocumentationClass;}
-    QString getVersion() const {return mVersion;}
-    QString getVersionDate() const {return mVersionDate;}
-    QString getDateModified() const {return mDateModified;}
-    QString getPreferredView() const {return mPreferredView;}
-    bool isState() const {return mState;}
-    QString getAccess() const {return mAccess;}
+    BooleanAnnotation isState() const {return mState;}
     // Element annotation
+    BooleanAnnotation isChoicesAllMatching() const {return mChoicesAllMatching;}
     PlacementAnnotation getPlacementAnnotation() const {return mPlacementAnnotation;}
     bool hasDialogAnnotation() const {return mHasDialogAnnotation;}
     DialogAnnotation getDialogAnnotation() const {return mDialogAnnotation;}
@@ -435,6 +432,21 @@ private:
     IconDiagramMap mDiagramMap;
   };
 
+  class Dimensions
+  {
+  public:
+    Dimensions();
+    void deserialize(const QJsonObject &jsonObject);
+
+    QStringList getAbsynDimensions() const {return mAbsynDims;}
+    QString getAbsynDimensionsString() const {return mAbsynDims.join(", ");}
+    QStringList getTypedDimensions() const {return mTypedDims;}
+    bool isArray() const {return !mTypedDims.isEmpty();}
+  private:
+    QStringList mAbsynDims;
+    QStringList mTypedDims;
+  };
+
   class Modifier
   {
   public:
@@ -445,6 +457,9 @@ private:
     void setName(const QString &name) {mName = name;}
     QString getValue() const {return mValue;}
     QString getValueWithoutQuotes() const {return StringHandler::removeFirstLastQuotes(getValue());}
+    QString getValueWithSubModifiers() const;
+    QString getModifier(const QString &m) const;
+    bool hasModifier(const QString &m) const;
     QList<Modifier> getModifiers() const {return mModifiers;}
     bool isFinal() const {return mFinal;}
     bool isEach() const {return mEach;}
@@ -465,17 +480,61 @@ private:
     Replaceable(Model *pParentModel);
     void deserialize(const QJsonValue &jsonValue);
 
-    bool isReplaceable() const {return mIsReplaceable;}
     QString getConstrainedby() const {return mConstrainedby;}
     QString getComment() const {return mComment;}
     Annotation *getAnnotation() const {return mpAnnotation.get();}
   private:
     Model *mpParentModel;
-    bool mIsReplaceable;
     QString mConstrainedby;
     Modifier mModifier;
     QString mComment;
     std::unique_ptr<Annotation> mpAnnotation;
+  };
+
+  class Prefixes
+  {
+  public:
+    Prefixes(Model *pParentModel);
+    void deserialize(const QJsonObject &jsonObject);
+
+    bool isPublic() const {return mPublic;}
+    bool isFinal() const {return mFinal;}
+    bool isInner() const {return mInner;}
+    bool isOuter() const {return mOuter;}
+    Replaceable *getReplaceable() const {return mpReplaceable.get();}
+    bool isRedeclare() const {return mRedeclare;}
+    QString getConnector() const {return mConnector;}
+    QString getVariability() const {return mVariability;}
+    QString getDirection() const {return mDirection;}
+  private:
+    Model *mpParentModel;
+    bool mPublic;
+    bool mFinal;
+    bool mInner;
+    bool mOuter;
+    std::unique_ptr<Replaceable> mpReplaceable;
+    bool mRedeclare;
+    bool mPartial;
+    bool mEncapsulated;
+    QString mConnector;
+    QString mVariability;
+    QString mDirection;
+  };
+
+  class Source
+  {
+  public:
+    Source();
+    void deserialize(const QJsonObject &jsonObject);
+
+    QString getFileName() const {return mFileName;}
+  private:
+    QString mFileName;
+    int mLineStart;
+    int mColumnStart;
+    int mLineEnd;
+    int mColumnEnd;
+    bool mReadonly;
   };
 
   class Element;
@@ -496,35 +555,21 @@ private:
     QJsonObject getModelJson() const {return mModelJson;}
     void setModelJson(const QJsonObject &modelJson) {mModelJson = modelJson;}
     QString getName() const {return mName;}
-    QStringList getDims() const {return mDims;}
+    bool isMissing() const {return mMissing;}
     QString getRestriction() const {return mRestriction;}
-    Modifier getModifier() const {return mModifier;}
     bool isConnector() const;
     bool isExpandableConnector() const;
     bool isEnumeration() const;
     bool isType() const;
-    bool isPublic() const {return mPublic;}
-    bool isFinal() const {return mFinal;}
-    bool isInner() const {return mInner;}
-    bool isOuter() const {return mOuter;}
-    bool isReplaceable() const {return mReplaceable;}
-    bool isRedeclare() const {return mRedeclare;}
-    bool isPartial() const {return mPartial;}
-    bool isEncapsulated() const {return mEncapsulated;}
     QString getComment() const {return mComment;}
     Annotation *getAnnotation() const {return mpAnnotation.get();}
     void readCoordinateSystemFromExtendsClass(CoordinateSystem *pCoordinateSystem, bool isIcon);
     void addElement(Element *pElement) {mElements.append(pElement);}
     QList<Element *> getElements() const {return mElements;}
-    QString getFileName() const {return mFileName;}
-    int getLineStart() const {return mLineStart;}
-    int getColumnStart() const {return mColumnStart;}
-    int getLineEnd() const {return mLineEnd;}
-    int getColumnEnd() const {return mColumnEnd;}
-    bool isReadonly() const {return mReadonly;}
     QList<Connection *> getConnections() const {return mConnections;}
     QList<Transition *> getTransitions() const {return mTransitions;}
     QList<InitialState *> getInitialStates() const {return mInitialStates;}
+    Source getSource() const {return mSource;}
 
     bool isParameterConnectorSizing(const QString &parameter);
     QString getParameterValue(const QString &parameter, QString &typeName);
@@ -537,29 +582,17 @@ private:
     Element *mpParentElement;
     QJsonObject mModelJson;
     QString mName;
-    QStringList mDims;
+    bool mMissing;
+    Dimensions mDims;
     QString mRestriction;
-    Modifier mModifier;
-    bool mPublic;
-    bool mFinal;
-    bool mInner;
-    bool mOuter;
-    bool mReplaceable;
-    bool mRedeclare;
-    bool mPartial;
-    bool mEncapsulated;
+    std::unique_ptr<Prefixes> mpPrefixes;
     QString mComment;
     std::unique_ptr<Annotation> mpAnnotation;
     QList<Element*> mElements;
-    QString mFileName;
-    int mLineStart;
-    int mColumnStart;
-    int mLineEnd;
-    int mColumnEnd;
-    bool mReadonly;
     QList<Connection*> mConnections;
     QList<Transition*> mTransitions;
     QList<InitialState*> mInitialStates;
+    Source mSource;
   };
 
   class Element
@@ -571,76 +604,40 @@ private:
     Model *getParentModel() const {return mpParentModel;}
     void setModel(Model *pModel) {mpModel = pModel;}
     Model *getModel() const {return mpModel;}
-
-    virtual QString getQualifiedName() const = 0;
-    virtual bool isComponent() const = 0;
-    virtual bool isExtend() const = 0;
-  protected:
-    Model *mpParentModel;
-    Model *mpModel = 0;
-  };
-
-  class Component : public Element
-  {
-  public:
-    Component(Model *pParentModel);
-    Component(Model *pParentModel, const QJsonObject &jsonObject);
-    void initialize();
-    void deserialize(const QJsonObject &jsonObject);
-
-    void setName(const QString &name) {mName = name;}
-    QString getName() const {return mName;}
-    bool getCondition() const {return mCondition;}
-    void setType(const QString &type) {mType = type;}
-    QString getType() const {return mType;}
     Modifier getModifier() const {return mModifier;}
+    void setModifier(const Modifier modifier) {mModifier = modifier;}
+    void resetModifier() {mModifier = mModifierForReset;}
+    QString getModifierValueFromType(QStringList modifierNames);
+    Dimensions getDimensions() const {return mDims;}
+    Prefixes *getPrefixes() const {return mpPrefixes.get();}
+    QString getComment() const;
+    Annotation *getAnnotation() const;
     FlatModelica::Expression getBinding() const {return mBinding;}
     void setBinding(const FlatModelica::Expression expression) {mBinding = expression;}
     void resetBinding() {mBinding = mBindingForReset;}
-    QString getModifierValueFromType(QStringList modifierName);
-    QStringList getAbsynDimensions() const {return mAbsynDims;}
-    QString getAbsynDimensionsString() const {return mAbsynDims.join(", ");}
-    QStringList getTypedDimensions() const {return mTypedDims;}
-    bool isArray() const {return !mTypedDims.isEmpty();}
-    bool isPublic() const {return mPublic;}
-    bool isFinal() const {return mFinal;}
-    bool isInner() const {return mInner;}
-    bool isOuter() const {return mOuter;}
-    Replaceable *getReplaceable() const {return mpReplaceable.get();}
-    bool isRedeclare() const {return mRedeclare;}
-    QString getConnector() const {return mConnector;}
-    QString getVariability() const {return mVariability;}
-    QString getDirection() const {return mDirection;}
-    QString getComment() const {return mComment;}
-    Annotation *getAnnotation() const {return mpAnnotation.get();}
+
+    virtual QString getName() const = 0;
+    virtual QString getQualifiedName() const = 0;
+    virtual QString getRootType() const = 0;
+    virtual QString getType() const = 0;
+    virtual bool isShortClassDefinition() const = 0;
+    virtual bool isComponent() const = 0;
+    virtual bool isExtend() const = 0;
+    virtual bool isClass() const = 0;
   private:
-    QString mName;
-    bool mCondition;
-    QString mType;
+    static QString getModifierValueFromInheritedType(Model *pModel, QStringList modifierNames);
+  protected:
+    Model *mpParentModel;
+    Model *mpModel = 0;
 
     Modifier mModifier;
-    FlatModelica::Expression mBinding;
-    FlatModelica::Expression mBindingForReset;
-    QStringList mAbsynDims;
-    QStringList mTypedDims;
-    bool mPublic;
-    bool mFinal;
-    bool mInner;
-    bool mOuter;
-    std::unique_ptr<Replaceable> mpReplaceable;
-    bool mRedeclare;
-    QString mConnector;
-    QString mVariability;
-    QString mDirection;
+    Modifier mModifierForReset;
+    Dimensions mDims;
+    std::unique_ptr<Prefixes> mpPrefixes;
     QString mComment;
     std::unique_ptr<Annotation> mpAnnotation;
-
-    static QString getModifierValueFromInheritedType(Model *pModel, QStringList modifierName);
-    // Element interface
-  public:
-    virtual QString getQualifiedName() const override;
-    virtual bool isComponent() const override {return true;}
-    virtual bool isExtend() const override {return false;}
+    FlatModelica::Expression mBinding;
+    FlatModelica::Expression mBindingForReset;
   };
 
   class Extend : public Element
@@ -648,17 +645,68 @@ private:
   public:
     Extend(Model *pParentModel, const QJsonObject &jsonObject);
     void deserialize(const QJsonObject &jsonObject);
-
-    Annotation *getExtendsAnnotation() const {return mpExtendsAnnotation.get();}
-    Modifier getExtendsModifier() const {return mExtendsModifier;}
   private:
-    std::unique_ptr<Annotation> mpExtendsAnnotation;
-    Modifier mExtendsModifier;
+    QString mBaseClass;
     // Element interface
   public:
+    virtual QString getName() const override {return "";}
     virtual QString getQualifiedName() const override;
+    virtual QString getRootType() const override;
+    virtual QString getType() const override {return mBaseClass;}
+    virtual bool isShortClassDefinition() const override {return false;}
     virtual bool isComponent() const override {return false;}
     virtual bool isExtend() const override {return true;}
+    virtual bool isClass() const override {return false;}
+  };
+
+  class Component : public Element
+  {
+  public:
+    Component(Model *pParentModel);
+    Component(Model *pParentModel, const QJsonObject &jsonObject);
+    void deserialize(const QJsonObject &jsonObject);
+
+    void setName(const QString &name) {mName = name;}
+    bool getCondition() const {return mCondition;}
+    void setType(const QString &type) {mType = type;}
+  private:
+    QString mName;
+    bool mCondition = true;
+    QString mType;
+    // Element interface
+  public:
+    virtual QString getName() const override {return mName;}
+    virtual QString getQualifiedName() const override;
+    virtual QString getRootType() const override;
+    virtual QString getType() const override {return mType;}
+    virtual bool isShortClassDefinition() const override {return false;}
+    virtual bool isComponent() const override {return true;}
+    virtual bool isExtend() const override {return false;}
+    virtual bool isClass() const override {return false;}
+  };
+
+  class ReplaceableClass : public Element
+  {
+  public:
+    ReplaceableClass(Model *pParentModel, const QJsonObject &jsonObject);
+    void deserialize(const QJsonObject &jsonObject);
+
+    QString getBaseClass() const {return mBaseClass;}
+  private:
+    QString mName;
+    bool mIsShortClassDefinition;
+    QString mBaseClass;
+    Source mSource;
+    // Element interface
+  public:
+    virtual QString getName() const override {return mName;}
+    virtual QString getQualifiedName() const override;
+    virtual QString getRootType() const override {return mName;}
+    virtual QString getType() const override {return mName;}
+    virtual bool isShortClassDefinition() const override {return mIsShortClassDefinition;}
+    virtual bool isComponent() const override {return false;}
+    virtual bool isExtend() const override {return false;}
+    virtual bool isClass() const override {return true;}
   };
 
   class Part
@@ -747,7 +795,8 @@ private:
     std::unique_ptr<Connector> mpStartConnector;
     std::unique_ptr<Annotation> mpAnnotation;
   };
+} // namespace ModelInstance
 
-}
+Q_DECLARE_METATYPE(ModelInstance::Choice)
 
 #endif // MODEL_H

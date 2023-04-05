@@ -7,18 +7,24 @@ GetModelInstanceAnnotation3.mos \
 GetModelInstanceAnnotation4.mos \
 GetModelInstanceAnnotation5.mos \
 GetModelInstanceAnnotation6.mos \
+GetModelInstanceAnnotation7.mos \
+GetModelInstanceAnnotation8.mos \
 GetModelInstanceAttributes1.mos \
 GetModelInstanceAttributes2.mos \
 GetModelInstanceBinding1.mos \
 GetModelInstanceBinding2.mos \
+GetModelInstanceBinding3.mos \
+GetModelInstanceBinding4.mos \
 GetModelInstanceChoices1.mos \
 GetModelInstanceChoices2.mos \
 GetModelInstanceComment1.mos \
 GetModelInstanceConditional1.mos \
 GetModelInstanceConditional2.mos \
 GetModelInstanceConnection1.mos \
+GetModelInstanceConnection2.mos \
 GetModelInstanceDerived1.mos \
 GetModelInstanceDerived2.mos \
+GetModelInstanceDerived3.mos \
 GetModelInstanceDuplicate1.mos \
 GetModelInstanceEnum1.mos \
 GetModelInstanceEnum2.mos \
@@ -34,12 +40,19 @@ GetModelInstanceIcon4.mos \
 GetModelInstanceInnerOuter1.mos \
 GetModelInstanceInnerOuter2.mos \
 GetModelInstanceInnerOuter3.mos \
+GetModelInstanceInnerOuter4.mos \
+GetModelInstanceMissingClass1.mos \
+GetModelInstanceMissingClass2.mos \
 GetModelInstanceMod1.mos \
 GetModelInstanceMod2.mos \
+GetModelInstanceMod3.mos \
+GetModelInstanceMod4.mos \
 GetModelInstanceReplaceable1.mos \
 GetModelInstanceReplaceable2.mos \
 GetModelInstanceReplaceable3.mos \
+GetModelInstanceReplaceable4.mos \
 GetModelInstanceStateMachine1.mos \
+ModifierToJSON1.mos \
 
 
 # test that currently fail. Move up when fixed.

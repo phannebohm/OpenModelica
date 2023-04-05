@@ -35,6 +35,7 @@ import Absyn;
 import AbsynUtil;
 import SCode;
 import DAE;
+import NFModifier.Modifier;
 
 protected
 
@@ -47,7 +48,6 @@ import Expression = NFExpression;
 import NFClass.Class;
 import NFInstNode.InstNode;
 import NFInstNode.InstNodeType;
-import NFModifier.Modifier;
 import NFModifier.ModifierScope;
 import Equation = NFEquation;
 import NFType.Type;
@@ -82,6 +82,7 @@ import NFFlatten.FunctionTree;
 import NFPrefixes.{Variability};
 import NFSections.Sections;
 import Package = NFPackage;
+import Parser;
 import Prefixes = NFPrefixes;
 import Restriction = NFRestriction;
 import Scalarize = NFScalarize;
@@ -504,6 +505,7 @@ protected
   SCode.Program program;
   String name, id1, id2;
   Boolean b, s;
+  InstContext.Type context;
 algorithm
   // do some quick checks
   // classPath is already fully qualified
@@ -526,11 +528,13 @@ algorithm
     // run the front-end front
     (program, name, expanded_cls) := frontEndLookup(absynProgram, classPath);
 
+    context := InstContext.set(NFInstContext.RELAXED, NFInstContext.FAST_LOOKUP);
+
     // if is derived qualify in the parent
     if InstNode.isDerivedClass(expanded_cls) then
-      cls := Lookup.lookupClassName(pathToQualify, InstNode.classParent(expanded_cls), NFInstContext.RELAXED, AbsynUtil.dummyInfo, checkAccessViolations = false);
+      cls := Lookup.lookupClassName(pathToQualify, InstNode.classParent(expanded_cls), context, AbsynUtil.dummyInfo, checkAccessViolations = false);
     else // qualify in the class
-      cls := Lookup.lookupClassName(pathToQualify, expanded_cls, NFInstContext.RELAXED, AbsynUtil.dummyInfo, checkAccessViolations = false);
+      cls := Lookup.lookupClassName(pathToQualify, expanded_cls, context, AbsynUtil.dummyInfo, checkAccessViolations = false);
     end if;
 
     qualPath := InstNode.fullPath(cls);
@@ -794,7 +798,7 @@ algorithm
   name := AbsynUtil.pathString(classPath);
 
   (program, top) := mkTop(absynProgram, name);
-  cls := Inst.lookupRootClass(classPath, top, NFInstContext.RELAXED);
+  cls := Inst.lookupRootClass(classPath, top, InstContext.set(NFInstContext.RELAXED, NFInstContext.FAST_LOOKUP));
 
   // Expand the class.
   expanded_cls := NFInst.expand(cls);
@@ -832,6 +836,7 @@ end getInheritedClasses;
 uniontype InstanceTree
   record COMPONENT
     InstNode node;
+    Option<Binding> binding;
     InstanceTree cls;
   end COMPONENT;
 
@@ -847,6 +852,7 @@ end InstanceTree;
 
 function getModelInstance
   input Absyn.Path classPath;
+  input String modifier;
   input Boolean prettyPrint;
   output Values.Value res;
 protected
@@ -855,24 +861,34 @@ protected
   InstContext.Type context;
   InstanceTree inst_tree;
   InstSettings inst_settings;
+  String str;
+  Modifier mod;
 algorithm
   context := InstContext.set(NFInstContext.RELAXED, NFInstContext.CLASS);
   context := InstContext.set(context, NFInstContext.INSTANCE_API);
   inst_settings := InstSettings.SETTINGS(mergeExtendsSections = false);
 
   (_, top) := mkTop(SymbolTable.getAbsyn(), AbsynUtil.pathString(classPath));
+  mod := parseModifier(modifier, top);
   cls_node := Inst.lookupRootClass(classPath, top, context);
-  cls_node := Inst.instantiateRootClass(cls_node, context);
+  cls_node := Inst.instantiateRootClass(cls_node, context, mod);
+  execStat("Inst.instantiateRootClass");
   inst_tree := buildInstanceTree(cls_node);
+  execStat("NFApi.buildInstanceTree");
   Inst.instExpressions(cls_node, context = context, settings = inst_settings);
   Inst.updateImplicitVariability(cls_node, Flags.isSet(Flags.EVAL_PARAM));
+  execStat("Inst.instExpressions");
 
   Typing.typeClassType(cls_node, NFBinding.EMPTY_BINDING, context, cls_node);
   Typing.typeComponents(cls_node, context);
+  execStat("Typing.typeComponents");
   Typing.typeBindings(cls_node, context);
+  execStat("Typing.typeBinding");
 
   json := dumpJSONInstanceTree(inst_tree, cls_node);
+  execStat("NFApi.dumpJSONInstanceTree");
   res := Values.STRING(JSON.toString(json, prettyPrint));
+  execStat("JSON.toString");
 end getModelInstance;
 
 function getModelInstanceIcon
@@ -894,6 +910,32 @@ algorithm
   json := dumpJSONInstanceIcon(cls_node);
   res := Values.STRING(JSON.toString(json, prettyPrint));
 end getModelInstanceIcon;
+
+function parseModifier
+  input String modifierValue;
+  input InstNode scope;
+  output Modifier outMod;
+protected
+  Absyn.Modification amod;
+  SCode.Mod smod;
+algorithm
+  try
+    // stringMod parses a single modifier ("x(start = 1) = 2"), but here we want
+    // to parse just a class modifier ("(x = 1, y = 2)"). So we add a dummy name
+    // to the string and then extract the modifier from the ElementArg.
+    Absyn.ElementArg.MODIFICATION(modification = SOME(amod)) :=
+      Parser.stringMod("dummy" + modifierValue);
+
+    // Then translate the Absyn mod to a Modifier, using the given scope (it
+    // doesn't matter much which scope it is, it just needs some scope or the
+    // instantiation will fail later).
+    smod := AbsynToSCode.translateMod(SOME(amod),
+      SCode.Final.NOT_FINAL(), SCode.Each.NOT_EACH(), AbsynUtil.dummyInfo);
+    outMod := Modifier.create(smod, "", NFModifier.ModifierScope.COMPONENT(""), scope);
+  else
+    outMod := Modifier.NOMOD();
+  end try;
+end parseModifier;
 
 function buildInstanceTree
   input InstNode node;
@@ -986,9 +1028,12 @@ algorithm
             comp_index :: local_comps := local_comps;
           end while;
 
-          tree := buildInstanceTreeComponent(comps[comp_index]);
+          if not AbsynUtil.isOnlyOuter(SCodeUtil.elementInnerOuter(e)) then
+            tree := buildInstanceTreeComponent(comps[comp_index]);
+            elements := tree :: elements;
+          end if;
         then
-          tree :: elements;
+          elements;
 
       else elements;
     end match;
@@ -1001,12 +1046,29 @@ function buildInstanceTreeComponent
   input Mutable<InstNode> compNode;
   output InstanceTree tree;
 protected
-  InstNode node;
+  InstNode node, inner_node, cls_node;
   InstanceTree cls;
+  Binding binding;
+  Option<Binding> opt_binding;
 algorithm
   node := Mutable.access(compNode);
-  cls := buildInstanceTree(InstNode.classScope(InstNode.resolveInner(node)));
-  tree := InstanceTree.COMPONENT(node, cls);
+  inner_node := InstNode.resolveInner(node);
+  cls_node := InstNode.classScope(inner_node);
+
+  if InstNode.isEmpty(cls_node) then
+    cls := InstanceTree.EMPTY();
+  else
+    cls := buildInstanceTree(cls_node);
+  end if;
+
+  if InstNode.isComponent(inner_node) then
+    binding := Component.getBinding(InstNode.component(inner_node));
+    opt_binding := if Binding.isBound(binding) then SOME(binding) else NONE();
+  else
+    opt_binding := NONE();
+  end if;
+
+  tree := InstanceTree.COMPONENT(node, opt_binding, cls);
 end buildInstanceTreeComponent;
 
 function dumpJSONInstanceTree
@@ -1014,7 +1076,7 @@ function dumpJSONInstanceTree
   input InstNode scope;
   input Boolean root = true;
   input Boolean isDeleted = false;
-  output JSON json = JSON.emptyObject();
+  output JSON json = JSON.makeNull();
 protected
   InstNode node;
   list<InstanceTree> elems;
@@ -1033,9 +1095,8 @@ algorithm
   json := JSON.addPairNotNull("dims", dumpJSONClassDims(node, def), json);
   json := JSON.addPair("restriction",
     JSON.makeString(Restriction.toString(InstNode.restriction(node))), json);
-  json := dumpJSONSCodeMod(SCodeUtil.elementMod(def), json);
 
-  json := JSON.addPairNotNull("prefixes", dumpJSONClassPrefixes(def, node), json);
+  json := JSON.addPairNotNull("prefixes", dumpJSONClassPrefixes(def, InstNode.parent(node)), json);
 
   json := dumpJSONCommentOpt(cmt, scope, json);
 
@@ -1051,7 +1112,7 @@ end dumpJSONInstanceTree;
 
 function dumpJSONInstanceIcon
   input InstNode node;
-  output JSON json = JSON.emptyObject();
+  output JSON json = JSON.makeNull();
 protected
   Option<SCode.Comment> cmt;
   SCode.Annotation ann;
@@ -1110,7 +1171,7 @@ end dumpJSONInstanceIcon;
 
 function dumpJSONInstanceIconExtends
   input InstNode ext;
-  output JSON json = JSON.emptyObject();
+  output JSON json = JSON.makeNull();
 algorithm
   json := JSON.addPair("$kind", JSON.makeString("extends"), json);
   json := JSON.addPair("baseClass", dumpJSONInstanceIcon(ext), json);
@@ -1120,6 +1181,11 @@ function dumpJSONNodePath
   input InstNode node;
   output JSON json = dumpJSONPath(InstNode.scopePath(node, ignoreBaseClass = true));
 end dumpJSONNodePath;
+
+function dumpJSONNodeEnclosingPath
+  input InstNode node;
+  output JSON json = dumpJSONPath(InstNode.enclosingScopePath(node, ignoreRedeclare = true));
+end dumpJSONNodeEnclosingPath;
 
 function dumpJSONPath
   input Absyn.Path path;
@@ -1148,7 +1214,7 @@ algorithm
       j := match e
         case InstanceTree.CLASS(isExtends = true) then dumpJSONExtends(e, isDeleted);
         case InstanceTree.CLASS() then dumpJSONReplaceableClass(e.node, scope);
-        case InstanceTree.COMPONENT() then dumpJSONComponent(e.node, e.cls);
+        case InstanceTree.COMPONENT() then dumpJSONComponent(e.node, e.binding, e.cls);
         else JSON.makeNull();
       end match;
 
@@ -1160,17 +1226,18 @@ end dumpJSONElements;
 function dumpJSONExtends
   input InstanceTree ext;
   input Boolean isDeleted;
-  output JSON json = JSON.emptyObject();
+  output JSON json = JSON.makeNull();
 protected
   InstNode node;
   SCode.Element cls_def, ext_def;
+  SCode.Mod mod;
 algorithm
   InstanceTree.CLASS(node = node) := ext;
   cls_def := InstNode.definition(node);
   ext_def := InstNode.extendsDefinition(node);
 
   json := JSON.addPair("$kind", JSON.makeString("extends"), json);
-  json := dumpJSONSCodeMod(SCodeUtil.elementMod(ext_def), json);
+  json := dumpJSONSCodeMod(getExtendsModifier(ext_def, node), node, json);
   json := dumpJSONCommentOpt(SCodeUtil.getElementComment(ext_def), node, json);
 
   if Class.isOnlyBuiltin(InstNode.getClass(node)) then
@@ -1180,57 +1247,77 @@ algorithm
   end if;
 end dumpJSONExtends;
 
+function getExtendsModifier
+  input SCode.Element definition;
+  input InstNode node;
+  output SCode.Mod mod;
+algorithm
+  mod := match definition
+    case SCode.EXTENDS() then definition.modifications;
+    case SCode.CLASS() then SCodeUtil.elementMod(InstNode.definition(InstNode.getDerivedNode(node, recursive = false)));
+    else SCode.NOMOD();
+  end match;
+end getExtendsModifier;
+
 function dumpJSONReplaceableClass
   input InstNode cls;
   input InstNode scope;
-  output JSON json = JSON.emptyObject();
+  output JSON json = JSON.makeNull();
 protected
   SCode.Element elem;
   SCode.ClassDef cdef;
   InstNode node, derivedNode;
   Absyn.Path path;
-  list<Absyn.Subscript> dims;
+  Option<list<Absyn.Subscript>> odims;
+  SCode.Comment cmt;
 algorithm
-  elem := InstNode.definition(cls);
+  node := InstNode.getRedeclaredNode(cls);
+  elem := InstNode.definition(node);
 
   json := JSON.addPair("$kind", JSON.makeString("class"), json);
-  json := JSON.addPair("name", JSON.makeString(InstNode.name(cls)), json);
+  json := JSON.addPair("name", JSON.makeString(InstNode.name(node)), json);
   json := JSON.addPairNotNull("prefixes", dumpJSONClassPrefixes(elem, scope), json);
 
-  SCode.Element.CLASS(classDef = cdef) := elem;
+  SCode.Element.CLASS(classDef = cdef, cmt = cmt) := elem;
 
   () := match cdef
-    case SCode.ClassDef.DERIVED(typeSpec = Absyn.TypeSpec.TPATH(path = path, arrayDim = SOME(dims)))
+    case SCode.ClassDef.DERIVED(typeSpec = Absyn.TypeSpec.TPATH(path = path, arrayDim = odims))
       algorithm
         try
           derivedNode := Lookup.lookupName(path, scope, NFInstContext.RELAXED, false);
-          json := JSON.addPair("baseClass", dumpJSONNodePath(derivedNode), json);
+          json := JSON.addPair("baseClass", dumpJSONNodeEnclosingPath(derivedNode), json);
         else
         end try;
 
-        json := JSON.addPairNotNull("dims", dumpJSONDims(dims, {}), json);
-        json := dumpJSONSCodeMod(cdef.modifications, json);
+        if isSome(odims) then
+          json := JSON.addPairNotNull("dims", dumpJSONDims(Util.getOption(odims), {}), json);
+        end if;
+
+        json := dumpJSONSCodeMod(cdef.modifications, scope, json);
       then
         ();
 
     case SCode.ClassDef.CLASS_EXTENDS()
       algorithm
-        json := dumpJSONSCodeMod(cdef.modifications, json);
+        json := dumpJSONSCodeMod(cdef.modifications, scope, json);
       then
         ();
 
     else ();
   end match;
 
-  json := JSON.addPair("source", dumpJSONSourceInfo(InstNode.info(cls)), json);
+  json := dumpJSONCommentAnnotation(SOME(cmt), scope, json,
+    {"Dialog", "choices", "choicesAllMatching"});
+  json := JSON.addPair("source", dumpJSONSourceInfo(InstNode.info(node)), json);
 end dumpJSONReplaceableClass;
 
 function dumpJSONComponent
   input InstNode component;
+  input Option<Binding> originalBinding;
   input InstanceTree cls;
   output JSON json = JSON.makeNull();
 protected
-  InstNode node;
+  InstNode node, scope;
   Component comp;
   SCode.Element elem;
   Boolean is_constant;
@@ -1247,6 +1334,7 @@ algorithm
 
   comp := InstNode.component(node);
   elem := InstNode.definition(node);
+  scope := InstNode.parent(node);
 
   () := match (comp, elem)
     case (Component.TYPED_COMPONENT(), SCode.Element.COMPONENT())
@@ -1255,10 +1343,10 @@ algorithm
         json := JSON.addPair("$kind", JSON.makeString("component"), json);
         json := JSON.addPair("name", JSON.makeString(InstNode.name(node)), json);
         json := JSON.addPair("type", dumpJSONComponentType(cls, node, comp.ty, isDeleted = true), json);
-        json := dumpJSONSCodeMod(elem.modifications, json);
+        json := dumpJSONSCodeMod(elem.modifications, scope, json);
         json := JSON.addPair("condition", JSON.makeBoolean(false), json);
-        json := JSON.addPairNotNull("prefixes", dumpJSONAttributes(elem.attributes, elem.prefixes, node), json);
-        json := dumpJSONCommentOpt(SOME(elem.comment), InstNode.parent(node), json);
+        json := JSON.addPairNotNull("prefixes", dumpJSONAttributes(elem.attributes, elem.prefixes, scope), json);
+        json := dumpJSONCommentOpt(SOME(elem.comment), scope, json);
       then
         ();
 
@@ -1273,19 +1361,19 @@ algorithm
             dumpJSONDims(elem.attributes.arrayDims, Type.arrayDims(comp.ty)), json);
         end if;
 
-        json := dumpJSONSCodeMod(elem.modifications, json);
+        json := dumpJSONSCodeMod(elem.modifications, scope, json);
 
         is_constant := comp.attributes.variability <= Variability.PARAMETER;
         if Binding.isExplicitlyBound(comp.binding) then
-          json := JSON.addPair("value", dumpJSONBinding(comp.binding, evaluate = is_constant), json);
+          json := JSON.addPair("value", dumpJSONBinding(comp.binding, originalBinding, evaluate = is_constant), json);
         end if;
 
         if Binding.isBound(comp.condition) then
           json := JSON.addPair("condition", dumpJSONBinding(comp.condition), json);
         end if;
 
-        json := JSON.addPairNotNull("prefixes", dumpJSONAttributes(elem.attributes, elem.prefixes, node), json);
-        json := dumpJSONCommentOpt(comp.comment, InstNode.parent(node), json);
+        json := JSON.addPairNotNull("prefixes", dumpJSONAttributes(elem.attributes, elem.prefixes, scope), json);
+        json := dumpJSONCommentOpt(comp.comment, scope, json);
       then
         ();
 
@@ -1305,12 +1393,29 @@ function dumpJSONComponentType
   input Boolean isDeleted = false;
   output JSON json;
 algorithm
-  json := match (cls, ty)
+  json := match (cls, Type.arrayElementType(ty))
     case (_, Type.ENUMERATION()) then dumpJSONEnumType(node);
+    case (_, Type.UNKNOWN()) then dumpJSONSCodeElementType(InstNode.definition(node));
     case (InstanceTree.CLASS(), _) then dumpJSONInstanceTree(cls, node, isDeleted = isDeleted);
     else dumpJSONTypeName(ty);
   end match;
 end dumpJSONComponentType;
+
+function dumpJSONSCodeElementType
+  input SCode.Element elem;
+  output JSON json = JSON.makeNull();
+algorithm
+  () := match elem
+    case SCode.Element.COMPONENT()
+      algorithm
+        json := JSON.addPair("name", dumpJSONPath(AbsynUtil.typeSpecPath(elem.typeSpec)), json);
+        json := JSON.addPair("missing", JSON.makeBoolean(true), json);
+      then
+        ();
+
+    else ();
+  end match;
+end dumpJSONSCodeElementType;
 
 function dumpJSONEnumType
   input InstNode enumNode;
@@ -1322,7 +1427,7 @@ protected
 algorithm
   def := InstNode.definition(node);
 
-  json := JSON.emptyObject();
+  json := JSON.makeNull();
   json := JSON.addPair("name", dumpJSONNodePath(node), json);
   json := JSON.addPairNotNull("dims", dumpJSONClassDims(node, def), json);
   json := JSON.addPair("restriction", JSON.makeString("enumeration"), json);
@@ -1347,7 +1452,7 @@ end dumpJSONEnumTypeLiterals;
 function dumpJSONEnumTypeLiteral
   input InstNode node;
   input InstNode scope;
-  output JSON json = JSON.emptyObject();
+  output JSON json = JSON.makeNull();
 algorithm
   json := JSON.addPair("$kind", JSON.makeString("component"), json);
   json := JSON.addPair("name", JSON.makeString(InstNode.name(node)), json);
@@ -1363,12 +1468,26 @@ end dumpJSONTypeName;
 
 function dumpJSONBinding
   input Binding binding;
+  input Option<Binding> originalBinding = NONE();
   input Boolean evaluate = true;
-  output JSON json = JSON.emptyObject();
+  output JSON json = JSON.makeNull();
 protected
   Expression exp;
+  Binding bind = binding;
+  InstContext.Type context;
 algorithm
-  exp := Binding.getExp(binding);
+  // If the binding has been evaluated by the frontend, try to use the original
+  // binding that we saved when building the instance tree instead.
+  if isSome(originalBinding) and Binding.isEvaluated(binding) then
+    try
+      context := InstContext.set(NFInstContext.RELAXED, NFInstContext.INSTANCE_API);
+      bind := Inst.instBinding(Util.getOption(originalBinding), context);
+      bind := Typing.typeBinding(bind, context);
+    else
+    end try;
+  end if;
+
+  exp := Binding.getExp(bind);
   exp := Expression.map(exp, Expression.expandSplitIndices);
   json := JSON.addPair("binding", Expression.toJSON(exp), json);
 
@@ -1526,9 +1645,9 @@ algorithm
   json := match repl
     case SCode.Replaceable.REPLACEABLE(cc = SOME(cc))
       algorithm
-        json := JSON.emptyObject();
+        json := JSON.makeNull();
         json := JSON.addPair("constrainedby", dumpJSONPath(cc.constrainingClass), json);
-        json := dumpJSONSCodeMod(cc.modifier, json);
+        json := dumpJSONSCodeMod(cc.modifier, scope, json);
         json := dumpJSONCommentOpt(SOME(cc.comment), scope, json);
       then
         json;
@@ -1556,14 +1675,30 @@ algorithm
     end if;
 
     if dumpAnnotation then
-      json := dumpJSONAnnotationOpt(cmt.annotation_, scope, failOnError, json);
+      json := dumpJSONAnnotationOpt(cmt.annotation_, scope, {}, failOnError, json);
     end if;
   end if;
 end dumpJSONCommentOpt;
 
+function dumpJSONCommentAnnotation
+  input Option<SCode.Comment> cmtOpt;
+  input InstNode scope;
+  input output JSON json;
+  input list<String> filter = {};
+  input Boolean failOnError = false;
+protected
+  SCode.Comment cmt;
+algorithm
+  if isSome(cmtOpt) then
+    SOME(cmt) := cmtOpt;
+    json := dumpJSONAnnotationOpt(cmt.annotation_, scope, filter, failOnError, json);
+  end if;
+end dumpJSONCommentAnnotation;
+
 function dumpJSONAnnotationOpt
   input Option<SCode.Annotation> annOpt;
   input InstNode scope;
+  input list<String> filter;
   input Boolean failOnError;
   input output JSON json;
 protected
@@ -1571,19 +1706,20 @@ protected
 algorithm
   if isSome(annOpt) then
     SOME(ann) := annOpt;
-    json := JSON.addPair("annotation", dumpJSONAnnotationMod(ann.modification, scope, failOnError), json);
+    json := JSON.addPair("annotation", dumpJSONAnnotationMod(ann.modification, scope, filter, failOnError), json);
   end if;
 end dumpJSONAnnotationOpt;
 
 function dumpJSONAnnotationMod
   input SCode.Mod mod;
   input InstNode scope;
+  input list<String> filter;
   input Boolean failOnError;
   output JSON json;
 algorithm
   json := match mod
     case SCode.Mod.MOD()
-      then dumpJSONAnnotationSubMods(mod.subModLst, scope, failOnError);
+      then dumpJSONAnnotationSubMods(mod.subModLst, scope, filter, failOnError);
 
     else JSON.makeNull();
   end match;
@@ -1592,11 +1728,14 @@ end dumpJSONAnnotationMod;
 function dumpJSONAnnotationSubMods
   input list<SCode.SubMod> subMods;
   input InstNode scope;
+  input list<String> filter;
   input Boolean failOnError;
   output JSON json = JSON.makeNull();
 algorithm
   for m in subMods loop
-    json := dumpJSONAnnotationSubMod(m, scope, failOnError, json);
+    if listEmpty(filter) or List.contains(filter, m.ident, stringEq) then
+      json := dumpJSONAnnotationSubMod(m, scope, failOnError, json);
+    end if;
   end for;
 end dumpJSONAnnotationSubMods;
 
@@ -1636,7 +1775,7 @@ algorithm
             fail();
           end if;
 
-          j := JSON.emptyObject();
+          j := JSON.makeNull();
           j := JSON.addPair("$error", JSON.makeString(ErrorExt.printCheckpointMessagesStr()), j);
           j := JSON.addPair("value", dumpJSONAbsynExpression(absyn_binding), j);
           json := JSON.addPair(name, j, json);
@@ -1648,7 +1787,7 @@ algorithm
 
     case (_, SCode.Mod.MOD())
       algorithm
-        json := JSON.addPair(name, dumpJSONAnnotationSubMods(mod.subModLst, scope, failOnError), json);
+        json := JSON.addPair(name, dumpJSONAnnotationSubMods(mod.subModLst, scope, {}, failOnError), json);
       then
         ();
 
@@ -1658,7 +1797,7 @@ end dumpJSONAnnotationSubMod;
 
 function dumpJSONSourceInfo
   input SourceInfo info;
-  output JSON json = JSON.emptyObject();
+  output JSON json = JSON.makeNull();
 algorithm
   json := JSON.addPair("filename", JSON.makeString(Testsuite.friendly(info.fileName)), json);
 
@@ -1694,7 +1833,7 @@ algorithm
 
     case Absyn.Exp.CALL()
       algorithm
-        json := JSON.emptyObject();
+        json := JSON.makeNull();
         json := JSON.addPair("$kind", JSON.makeString("call"), json);
         json := JSON.addPair("name", dumpJSONAbsynCref(exp.function_), json);
         json := dumpJSONAbsynFunctionArgs(exp.functionArgs, json);
@@ -1835,7 +1974,7 @@ end dumpJSONConnections;
 function dumpJSONConnection
   input Equation connEq;
   input InstNode scope;
-  output JSON json = JSON.emptyObject();
+  output JSON json = JSON.makeNull();
 protected
   Expression lhs, rhs;
   DAE.ElementSource src;
@@ -1843,7 +1982,7 @@ algorithm
   Equation.CONNECT(lhs = lhs, rhs = rhs, source = src) := connEq;
   json := JSON.addPair("lhs", Expression.toJSON(lhs), json);
   json := JSON.addPair("rhs", Expression.toJSON(rhs), json);
-  json := dumpJSONCommentOpt(ElementSource.getOptComment(src), scope, json, dumpComment = false);
+  json := dumpJSONCommentAnnotation(ElementSource.getOptComment(src), scope, json);
 end dumpJSONConnection;
 
 function dumpJSONStateCalls
@@ -1859,7 +1998,7 @@ end dumpJSONStateCalls;
 function dumpJSONStateCall
   input Equation callEq;
   input InstNode scope;
-  output JSON json = JSON.emptyObject();
+  output JSON json = JSON.makeNull();
 protected
   Call call;
   list<Expression> args;
@@ -1874,7 +2013,7 @@ algorithm
           j := JSON.addElement(Expression.toJSON(arg), j);
         end for;
         json := JSON.addPair("arguments", j, json);
-        json := dumpJSONCommentOpt(ElementSource.getOptComment(src), scope, json, dumpComment = false);
+        json := dumpJSONCommentAnnotation(ElementSource.getOptComment(src), scope, json);
       then
         ();
 
@@ -1893,7 +2032,7 @@ algorithm
 
   for c in ClassTree.getComponents(cls_tree) loop
     if InstNode.isReplaceable(c) then
-      j := JSON.emptyObject();
+      j := JSON.makeNull();
       j := JSON.addPair("name", JSON.makeString(InstNode.name(c)), j);
       j := JSON.addPair("type", dumpJSONTypeName(InstNode.getType(c)), j);
       json := JSON.addElement(j, json);
@@ -1909,16 +2048,19 @@ end dumpJSONReplaceableElements;
 
 function dumpJSONSCodeMod
   input SCode.Mod mod;
+  input InstNode scope;
   input output JSON json;
 protected
   JSON j;
 algorithm
-  j := dumpJSONSCodeMod_impl(mod);
+  j := dumpJSONSCodeMod_impl(mod, scope);
   json := JSON.addPairNotNull("modifiers", j, json);
 end dumpJSONSCodeMod;
 
 function dumpJSONSCodeMod_impl
   input SCode.Mod mod;
+  input InstNode scope;
+  input Boolean isChoices = false;
   output JSON json = JSON.makeNull();
 protected
   JSON binding_json;
@@ -1927,7 +2069,7 @@ algorithm
     case SCode.Mod.MOD()
       algorithm
         for m in mod.subModLst loop
-          json := JSON.addPair(m.ident, dumpJSONSCodeMod_impl(m.mod), json);
+          json := JSON.addPair(m.ident, dumpJSONSCodeMod_impl(m.mod, scope), json);
         end for;
 
         if SCodeUtil.finalBool(mod.finalPrefix) then
@@ -1962,12 +2104,39 @@ algorithm
 
         binding_json := JSON.makeString(SCodeDump.unparseElementStr(mod.element));
         json := JSON.addPair("$value", binding_json, json);
+
+        if isChoices then
+          json := dumpJSONRedeclareType(mod.element, scope, json);
+        end if;
       then
         ();
 
     else ();
   end match;
 end dumpJSONSCodeMod_impl;
+
+function dumpJSONRedeclareType
+  input SCode.Element element;
+  input InstNode scope;
+  input output JSON json;
+protected
+  Absyn.Path path;
+  InstContext.Type context;
+  InstNode cls;
+algorithm
+  () := matchcontinue element
+    case SCode.Element.COMPONENT()
+      algorithm
+        path := AbsynUtil.typeSpecPath(element.typeSpec);
+        context := InstContext.set(NFInstContext.RELAXED, NFInstContext.FAST_LOOKUP);
+        cls := Lookup.lookupName(path, scope, context, checkAccessViolations = false);
+        json := JSON.addPair("$type", dumpJSONNodePath(cls), json);
+      then
+        ();
+
+    else ();
+  end matchcontinue;
+end dumpJSONRedeclareType;
 
 function dumpJSONChoicesAnnotation
   input list<SCode.SubMod> mods;
@@ -1993,7 +2162,7 @@ algorithm
         else m;
       end match;
 
-      j := JSON.addElement(dumpJSONSCodeMod_impl(m.mod), j);
+      j := JSON.addElement(dumpJSONSCodeMod_impl(m.mod, scope, isChoices = true), j);
     end for;
 
     json := JSON.addPair("choice", j, json);
@@ -2003,6 +2172,23 @@ algorithm
     json := dumpJSONAnnotationSubMod(m, scope, failOnError, json);
   end for;
 end dumpJSONChoicesAnnotation;
+
+function modifierToJSON
+  input String modifier;
+  input Boolean prettyPrint;
+  output Values.Value jsonString;
+protected
+  Absyn.Modification amod;
+  SCode.Mod smod;
+  JSON json;
+algorithm
+  Absyn.ElementArg.MODIFICATION(modification = SOME(amod)) :=
+    Parser.stringMod("dummy" + modifier);
+  smod := AbsynToSCode.translateMod(SOME(amod),
+    SCode.Final.NOT_FINAL(), SCode.Each.NOT_EACH(), AbsynUtil.dummyInfo);
+  json := dumpJSONSCodeMod_impl(smod, InstNode.EMPTY_NODE());
+  jsonString := Values.STRING(JSON.toString(json, prettyPrint));
+end modifierToJSON;
 
   annotation(__OpenModelica_Interface="backend");
 end NFApi;

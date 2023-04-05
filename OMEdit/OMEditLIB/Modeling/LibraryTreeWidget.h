@@ -76,8 +76,7 @@ public:
     SaveFolderStructure
   };
   LibraryTreeItem(QAbstractItemModel *pParent);
-  LibraryTreeItem(LibraryType type, QString text, QString nameStructure, OMCInterface::getClassInformation_res classInformation,
-                  QString fileName, bool isSaved, LibraryTreeItem *pParent = 0);
+  LibraryTreeItem(LibraryType type, QString text, QString nameStructure, QString fileName, bool isSaved, LibraryTreeItem *pParent = 0);
   ~LibraryTreeItem();
   bool isRootItem() const {return mIsRootItem;}
   int childrenSize() const {return mChildren.size();}
@@ -94,13 +93,14 @@ public:
   void setNameStructure(QString nameStructure) {mNameStructure = nameStructure;}
   const QString& getNameStructure() {return mNameStructure;}
   QString getWhereToMoveFMU();
-  void setClassInformation(OMCInterface::getClassInformation_res classInformation);
+  void updateClassInformation();
   void setFileName(QString fileName) {mFileName = fileName;}
   const QString& getFileName() const {return mFileName;}
   const QString& getVersion() const;
   const QString& getVersionDate() const;
   const QString& getVersionBuild() const;
   const QString& getDateModified() const;
+  const QString& getRevisionId() const;
   bool isFilePathValid();
   void setReadOnly(bool readOnly) {mReadOnly = readOnly;}
   bool isReadOnly() {return mReadOnly;}
@@ -196,14 +196,14 @@ public:
   const QList<ElementInfo *> &getComponentsList();
 private:
   bool mIsRootItem;
-  LibraryTreeItem *mpParentLibraryTreeItem;
+  LibraryTreeItem *mpParentLibraryTreeItem = 0;
   QList<LibraryTreeItem*> mChildren;
   QList<LibraryTreeItem*> mInheritedClasses;
   QList<ElementInfo*> mComponents;
-  bool mComponentsLoaded;
-  LibraryType mLibraryType;
-  bool mSystemLibrary;
-  ModelWidget *mpModelWidget;
+  bool mComponentsLoaded = false;
+  LibraryType mLibraryType = LibraryTreeItem::Modelica;
+  bool mSystemLibrary = false;
+  ModelWidget *mpModelWidget = 0;
   QString mName;
   QString mParentName;
   QString mNameStructure;
@@ -211,25 +211,26 @@ private:
   QString mVersionDate;
   QString mVersionBuild;
   QString mDateModified;
-  bool mReadOnly;
-  bool mIsSaved;
-  SaveContentsType mSaveContentsType;
+  QString mRevisionId;
+  bool mReadOnly = false;
+  bool mIsSaved = false;
+  SaveContentsType mSaveContentsType = LibraryTreeItem::SaveInOneFile;
   QPixmap mPixmap;
   QPixmap mDragPixmap;
   QString mClassTextBefore;
   QString mClassText;
   QString mClassTextAfter;
-  bool mExpanded;
-  bool mNonExisting;
-  bool mAccessAnnotations;
-  oms_element_t *mpOMSElement;
-  oms_system_enu_t mSystemType;
-  oms_component_enu_t mComponentType;
-  oms_connector_t *mpOMSConnector;
-  oms_busconnector_t *mpOMSBusConnector;
-  oms_tlmbusconnector_t *mpOMSTLMBusConnector;
-  const oms_fmu_info_t *mpFMUInfo;
-  const oms_external_tlm_model_info_t *mpExternalTLMModelInfo;
+  bool mExpanded = false;
+  bool mNonExisting = false;
+  bool mAccessAnnotations = false;
+  oms_element_t *mpOMSElement = 0;
+  oms_system_enu_t mSystemType = oms_system_none;
+  oms_component_enu_t mComponentType = oms_component_none;
+  oms_connector_t *mpOMSConnector = 0;
+  oms_busconnector_t *mpOMSBusConnector = 0;
+  oms_tlmbusconnector_t *mpOMSTLMBusConnector = 0;
+  const oms_fmu_info_t *mpFMUInfo = 0;
+  const oms_external_tlm_model_info_t *mpExternalTLMModelInfo = 0;
   QString mSubModelPath;
 signals:
   void loaded(LibraryTreeItem *pLibraryTreeItem);
@@ -328,22 +329,20 @@ public:
   void generateVerificationScenarios(LibraryTreeItem *pLibraryTreeItem);
   QString getUniqueTopLevelItemName(QString name, int number = 1);
   void emitDataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight) {emit dataChanged(topLeft, bottomRight);}
+  void createLibraryTreeItems(LibraryTreeItem *pLibraryTreeItem);
+  void unloadFileChildren(LibraryTreeItem *pLibraryTreeItem);
+  void emitModelStateChanged(const QString &name) {emit modelStateChanged(name);}
 private:
   LibraryWidget *mpLibraryWidget;
   LibraryTreeItem *mpRootLibraryTreeItem;
   QList<LibraryTreeItem*> mNonExistingLibraryTreeItemsList;
-  QModelIndex libraryTreeItemIndexHelper(const LibraryTreeItem *pLibraryTreeItem, const LibraryTreeItem *pParentLibraryTreeItem,
-                                         const QModelIndex &parentIndex) const;
+  QModelIndex libraryTreeItemIndexHelper(const LibraryTreeItem *pLibraryTreeItem, const LibraryTreeItem *pParentLibraryTreeItem, const QModelIndex &parentIndex) const;
   LibraryTreeItem* getLibraryTreeItemFromFileHelper(LibraryTreeItem *pLibraryTreeItem, QString fileName, int lineNumber);
   void readLibraryTreeItemClassTextFromText(LibraryTreeItem *pLibraryTreeItem, QString contents);
   QString readLibraryTreeItemClassTextFromFile(LibraryTreeItem *pLibraryTreeItem);
-public:
-  void createLibraryTreeItems(LibraryTreeItem *pLibraryTreeItem);
-private:
   LibraryTreeItem* createLibraryTreeItemImpl(QString name, LibraryTreeItem *pParentLibraryTreeItem, bool isSaved = true,
                                              bool isSystemLibrary = false, bool load = false, int row = -1, bool activateAccessAnnotations = false);
-  void createNonExistingLibraryTreeItem(LibraryTreeItem *pLibraryTreeItem, LibraryTreeItem *pParentLibraryTreeItem, bool isSaved = true,
-                                        int row = -1);
+  void createNonExistingLibraryTreeItem(LibraryTreeItem *pLibraryTreeItem, LibraryTreeItem *pParentLibraryTreeItem, bool isSaved = true, int row = -1);
   void createLibraryTreeItemsImpl(QFileInfo fileInfo, LibraryTreeItem *pParentLibraryTreeItem);
   LibraryTreeItem* createLibraryTreeItemImpl(LibraryTreeItem::LibraryType type, QString name, QString nameStructure, QString path, bool isSaved,
                                              LibraryTreeItem *pParentLibraryTreeItem, int row = -1);
@@ -357,13 +356,12 @@ private:
   void unloadClassHelper(LibraryTreeItem *pLibraryTreeItem, LibraryTreeItem *pParentLibraryTreeItem);
   void unloadClassChildren(LibraryTreeItem *pLibraryTreeItem);
   void unloadFileHelper(LibraryTreeItem *pLibraryTreeItem, LibraryTreeItem *pParentLibraryTreeItem);
-public:
-  void unloadFileChildren(LibraryTreeItem *pLibraryTreeItem);
-private:
   void deleteFileHelper(LibraryTreeItem *pLibraryTreeItem, LibraryTreeItem *pParentLibraryTreeItem);
   void deleteFileChildren(LibraryTreeItem *pLibraryTreeItem);
 protected:
   Qt::DropActions supportedDropActions() const override;
+signals:
+  void modelStateChanged(const QString &name);
 };
 
 class LibraryTreeView : public QTreeView

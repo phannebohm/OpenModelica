@@ -241,6 +241,7 @@ public
       mainModules := (DAEMode.main, "DAE-Mode") :: mainModules;
     end if;
 
+    // (do not change order SOLVE -> JACOBIAN)
     postOptModules := {
       (function Tearing.main(systemType = NBSystem.SystemType.ODE),   "Tearing"),
       (Partitioning.categorize,                                       "Categorize"),
@@ -548,7 +549,7 @@ protected
       case (NFPrefixes.Variability.IMPLICITLY_DISCRETE, _, _)         then BackendExtension.DISCRETE();
 
       case (NFPrefixes.Variability.PARAMETER, _, _)                   then BackendExtension.PARAMETER();
-      case (NFPrefixes.Variability.STRUCTURAL_PARAMETER, _, _)        then BackendExtension.PARAMETER();
+      case (NFPrefixes.Variability.STRUCTURAL_PARAMETER, _, _)        then BackendExtension.PARAMETER(); // CONSTANT ?
       case (NFPrefixes.Variability.NON_STRUCTURAL_PARAMETER, _, _)    then BackendExtension.PARAMETER();
       case (NFPrefixes.Variability.CONSTANT, _, _)                    then BackendExtension.CONSTANT();
 

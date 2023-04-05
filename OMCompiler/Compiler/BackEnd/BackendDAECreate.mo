@@ -131,15 +131,15 @@ algorithm
   (varlst, globalKnownVarLst, extvarlst, eqns, reqns, ieqns, constrs, clsAttrs, extObjCls, aliaseqns, _) :=
     lower2(listReverse(elems), functionTree, HashTableExpToExp.emptyHashTable());
 
-  vars := BackendVariable.listVar(varlst);
   globalKnownVars := BackendVariable.listVar(globalKnownVarLst);
   localKnownVars := BackendVariable.emptyVars();
   extVars := BackendVariable.listVar(extvarlst);
   aliasVars := BackendVariable.emptyVars();
   if Flags.isSet(Flags.VECTORIZE) then
     (varlst,eqns) := Vectorization.collectForLoops(varlst,eqns);
-    vars := BackendVariable.listVar(varlst);
   end if;
+  vars := BackendVariable.listVar(varlst);
+
   // handle alias equations
   (vars, globalKnownVars, extVars, aliasVars, eqns, reqns, ieqns) := handleAliasEquations(aliaseqns, vars, globalKnownVars, extVars, aliasVars, eqns, reqns, ieqns);
   (ieqns, eqns, reqns, extAliasVars, globalKnownVars, extVars) := getExternalObjectAlias(ieqns, eqns, reqns, globalKnownVars, extVars);
@@ -147,15 +147,11 @@ algorithm
 
   (globalKnownVarLst, eqns, reqns, ieqns) := patchRecordBindings(varlst, extvarlst, globalKnownVarLst, eqns, reqns, ieqns);
 
-  vars_1 := detectImplicitDiscrete(vars, globalKnownVars, eqns);
+  vars_1 := detectImplicitDiscrete(vars, globalKnownVars, eqns); // ieqns don't need to be searched because they can't contain when equations
   eqnarr := BackendEquation.listEquation(eqns);
   reqnarr := BackendEquation.listEquation(reqns);
   ieqnarr := BackendEquation.listEquation(ieqns);
   einfo := BackendDAE.EVENT_INFO(timeEvents, ZeroCrossings.new(), DoubleEnded.fromList({}), ZeroCrossings.new(), 0);
-  //TS,org//symjacs := {(NONE(), ({}, {}, ({}, {}), -1), {}),
-  //TS,org//  (NONE(), ({}, {}, ({}, {}), -1), {}),
-  //TS,org//  (NONE(), ({}, {}, ({}, {}), -1), {}),
-  //TS,org//  (NONE(), ({}, {}, ({}, {}), -1), {})};
   symjacs := {(NONE(), ({}, {}, ({}, {}), -1), {}, ({}, {}, ({}, {}), -1)),
               (NONE(), ({}, {}, ({}, {}), -1), {}, ({}, {}, ({}, {}), -1)),
               (NONE(), ({}, {}, ({}, {}), -1), {}, ({}, {}, ({}, {}), -1)),

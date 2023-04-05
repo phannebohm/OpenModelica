@@ -62,6 +62,7 @@ public
   import OldBackendDAE = BackendDAE;
 
   // New Backend imports
+  import Evaluation = NBEvaluation;
   import Replacements = NBReplacements;
   import StrongComponent = NBStrongComponent;
   import Solve = NBSolve;
@@ -2613,7 +2614,7 @@ public
     record EQUATION_ATTRIBUTES
       Option<Pointer<Equation>> derivative;
       EquationKind kind;
-      EvaluationStages evalStages;
+      Evaluation.Stages evalStages;
       Option<Pointer<Variable>> residualVar "also used to represent the equation itself";
     end EQUATION_ATTRIBUTES;
 
@@ -2656,17 +2657,17 @@ public
       oldAttributes := OldBackendDAE.EQUATION_ATTRIBUTES(
         differentiated  = Util.isSome(attributes.derivative),
         kind            = EquationKind.convert(attributes.kind),
-        evalStages      = EvaluationStages.convert(attributes.evalStages));
+        evalStages      = Evaluation.Stages.convert(attributes.evalStages));
     end convert;
   end EquationAttributes;
 
-  constant EquationAttributes EQ_ATTR_DEFAULT_DYNAMIC = EQUATION_ATTRIBUTES(NONE(), DYNAMIC_EQUATION(), DEFAULT_EVALUATION_STAGES, NONE());
-  constant EquationAttributes EQ_ATTR_DEFAULT_BINDING = EQUATION_ATTRIBUTES(NONE(), BINDING_EQUATION(), DEFAULT_EVALUATION_STAGES, NONE());
-  constant EquationAttributes EQ_ATTR_DEFAULT_INITIAL = EQUATION_ATTRIBUTES(NONE(), INITIAL_EQUATION(), DEFAULT_EVALUATION_STAGES, NONE());
-  constant EquationAttributes EQ_ATTR_DEFAULT_DISCRETE = EQUATION_ATTRIBUTES(NONE(), DISCRETE_EQUATION(), DEFAULT_EVALUATION_STAGES, NONE());
-  constant EquationAttributes EQ_ATTR_DEFAULT_AUX = EQUATION_ATTRIBUTES(NONE(), AUX_EQUATION(), DEFAULT_EVALUATION_STAGES, NONE());
-  constant EquationAttributes EQ_ATTR_EMPTY_DISCRETE = EQUATION_ATTRIBUTES(NONE(), EMPTY_EQUATION(), DEFAULT_EVALUATION_STAGES, NONE());
-  constant EquationAttributes EQ_ATTR_DEFAULT_UNKNOWN = EQUATION_ATTRIBUTES(NONE(), UNKNOWN_EQUATION_KIND(), DEFAULT_EVALUATION_STAGES, NONE());
+  constant EquationAttributes EQ_ATTR_DEFAULT_DYNAMIC = EQUATION_ATTRIBUTES(NONE(), DYNAMIC_EQUATION(), NBEvaluation.DEFAULT_STAGES, NONE());
+  constant EquationAttributes EQ_ATTR_DEFAULT_BINDING = EQUATION_ATTRIBUTES(NONE(), BINDING_EQUATION(), NBEvaluation.DEFAULT_STAGES, NONE());
+  constant EquationAttributes EQ_ATTR_DEFAULT_INITIAL = EQUATION_ATTRIBUTES(NONE(), INITIAL_EQUATION(), NBEvaluation.DEFAULT_STAGES, NONE());
+  constant EquationAttributes EQ_ATTR_DEFAULT_DISCRETE = EQUATION_ATTRIBUTES(NONE(), DISCRETE_EQUATION(), NBEvaluation.DEFAULT_STAGES, NONE());
+  constant EquationAttributes EQ_ATTR_DEFAULT_AUX = EQUATION_ATTRIBUTES(NONE(), AUX_EQUATION(), NBEvaluation.DEFAULT_STAGES, NONE());
+  constant EquationAttributes EQ_ATTR_EMPTY_DISCRETE = EQUATION_ATTRIBUTES(NONE(), EMPTY_EQUATION(), NBEvaluation.DEFAULT_STAGES, NONE());
+  constant EquationAttributes EQ_ATTR_DEFAULT_UNKNOWN = EQUATION_ATTRIBUTES(NONE(), UNKNOWN_EQUATION_KIND(), NBEvaluation.DEFAULT_STAGES, NONE());
 
   uniontype EquationKind
     record BINDING_EQUATION end BINDING_EQUATION;
@@ -2717,28 +2718,6 @@ public
       end match;
     end isInitial;
   end EquationKind;
-
-  uniontype EvaluationStages
-    record EVALUATION_STAGES
-      Boolean dynamicEval;
-      Boolean algebraicEval;
-      Boolean zerocrossEval;
-      Boolean discreteEval;
-    end EVALUATION_STAGES;
-
-    function convert
-      input EvaluationStages evalStages;
-      output OldBackendDAE.EvaluationStages oldEvalStages;
-    algorithm
-      oldEvalStages := OldBackendDAE.EVALUATION_STAGES(
-        dynamicEval   = evalStages.dynamicEval,
-        algebraicEval = evalStages.algebraicEval,
-        zerocrossEval = evalStages.zerocrossEval,
-        discreteEval  = evalStages.discreteEval);
-    end convert;
-  end EvaluationStages;
-
-  constant EvaluationStages DEFAULT_EVALUATION_STAGES = EVALUATION_STAGES(true,true,false,true);
 
   uniontype EquationPointers
     record EQUATION_POINTERS
@@ -3090,27 +3069,26 @@ public
     end getEqnIndex;
 
     function compress "O(n)
-      Reorders the elements in order to remove all the gaps.
+      Recollects the elements in order to remove all the gaps.
       Be careful: This changes the indices of the elements."
       input output EquationPointers equations;
+    protected
+      Pointer<Equation> eqn;
+      list<Pointer<Equation>> eqns = {};
     algorithm
-      // delete all empty equations
-      for i in 1:ExpandableArray.getLastUsedIndex(equations.eqArr) loop
+      // collect non-empty equations
+      for i in ExpandableArray.getLastUsedIndex(equations.eqArr):-1:1 loop
         if ExpandableArray.occupied(i, equations.eqArr) then
-          () := match Pointer.access(ExpandableArray.get(i, equations.eqArr))
-            case Equation.DUMMY_EQUATION() algorithm
-              equations.eqArr := ExpandableArray.delete(i, equations.eqArr);
+          eqn := ExpandableArray.get(i, equations.eqArr);
+          () := match Pointer.access(eqn)
+            case Equation.DUMMY_EQUATION() then ();
+            else algorithm
+              eqns := eqn :: eqns;
             then ();
-            else ();
           end match;
         end if;
       end for;
-      // compress the array
-      equations.eqArr := ExpandableArray.compress(equations.eqArr);
-      // fix the mapping. ToDo: can this be done more efficiently?
-      for i in 1:ExpandableArray.getNumberOfElements(equations.eqArr) loop
-        UnorderedMap.add(Equation.getEqnName(ExpandableArray.get(i, equations.eqArr)), i, equations.map);
-      end for;
+      equations := fromList(eqns);
     end compress;
 
     function sort

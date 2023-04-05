@@ -2654,7 +2654,7 @@ external "builtin";
 annotation(preferredView="text");
 end copyClass;
 
-function linearize "creates a model with symbolic linearization matrixes"
+function linearize "creates a model with symbolic linearization matrices"
   input TypeName className "the class that should simulated";
   input Real startTime = "<default>" "the start time of the simulation. <default> = 0.0";
   input Real stopTime = 1.0 "the stop time of the simulation. <default> = 1.0";
@@ -2673,12 +2673,12 @@ function linearize "creates a model with symbolic linearization matrixes"
   output String linearizationResult;
 external "builtin";
 annotation(Documentation(info="<html>
-<p>Creates a model with symbolic linearization matrixes.</p>
-<p>At stopTime the linearization matrixes are evaluated and a modelica model is created.</p>
+<p>Creates a model with symbolic linearization matrices.</p>
+<p>At stopTime the linearization matrices are evaluated and a modelica model is created.</p>
 <p>The only required argument is the className, while all others have some default values.</p>
 <h2>Usage:</h2>
 <p><b>linearize</b>(<em>A</em>, stopTime=0.0);</p>
-<p>Creates the file \"linear_A.mo\" that contains the linearized matrixes at stopTime.</p>
+<p>Creates the file \"linear_A.mo\" that contains the linearized matrices at stopTime.</p>
 </html>", revisions="<html>
 <table>
 <tr><th>Revision</th><th>Author</th><th>Comment</th></tr>
@@ -4244,6 +4244,10 @@ function getClassInformation
   output String preferredView;
   output Boolean state;
   output String access;
+  output String versionDate;
+  output String versionBuild;
+  output String dateModified;
+  output String revisionId;
 external "builtin";
 annotation(
   Documentation(info="<html>
@@ -4401,6 +4405,7 @@ end convertPackageToLibrary;
 function getModelInstance
   "Dumps a model instance as a JSON string."
   input TypeName className;
+  input String modifier = "";
   input Boolean prettyPrint = false;
   output String result;
 external "builtin";
@@ -4414,6 +4419,14 @@ function getModelInstanceIcon
   output String result;
 external "builtin";
 end getModelInstanceIcon;
+
+function modifierToJSON
+  "Parses a modifier given as a string and dumps it as JSON."
+  input String modifier;
+  input Boolean prettyPrint = false;
+  output String json;
+external "builtin";
+end modifierToJSON;
 
 function storeAST
   output Integer id;

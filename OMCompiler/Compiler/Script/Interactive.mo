@@ -9553,7 +9553,8 @@ protected function deleteEquationInEqlist
 algorithm
   outAbsynEquationItemLst := match (inAbsynEquationItemLst1,inComponentRef2,inComponentRef3)
     local
-      list<Absyn.EquationItem> res,xs;
+      list<Absyn.EquationItem> res,xs,loopRes,forEqList;
+      Absyn.ForIterators forIterator;
       Absyn.ComponentRef cn1,cn2,c1,c2;
       Absyn.EquationItem x;
 
@@ -9563,6 +9564,16 @@ algorithm
         AbsynUtil.crefEqual(c1,cn1) and AbsynUtil.crefEqual(c2,cn2)
       then
         deleteEquationInEqlist(xs, c1, c2);
+    case ((Absyn.EQUATIONITEM(equation_ = Absyn.EQ_FOR(forEquations = forEqList, iterators = forIterator)) :: xs),c1,c2)
+      equation
+        res = deleteEquationInEqlist(xs, c1, c2);
+        loopRes = deleteEquationInEqlist(forEqList, c1, c2);
+
+        if listLength(loopRes) > 0 then
+          loopRes = { Absyn.EQUATIONITEM(Absyn.EQ_FOR(forIterator, loopRes), NONE(), AbsynUtil.dummyInfo) };
+        end if;
+      then
+        listAppend(loopRes, res);
     case ((x :: xs),c1,c2)
       equation
         res = deleteEquationInEqlist(xs, c1, c2);
@@ -10621,6 +10632,45 @@ algorithm
     case (_,_,_,SOME(str),_) then str;
   end matchcontinue;
 end getNamedAnnotation;
+
+public function getStringNamedAnnotation
+"Calls getNamedAnnotation and makes sure we don't fail if annotation is not String type."
+  input Absyn.Path inPath;
+  input Absyn.Program inProgram;
+  input Absyn.Path id;
+  output String outString;
+algorithm
+  try
+    Absyn.STRING(outString) := getNamedAnnotation(inPath, inProgram, id, SOME(Absyn.STRING("")), getAnnotationExp);
+  else
+    outString := "";
+  end try;
+end getStringNamedAnnotation;
+
+public function getIntegerNamedAnnotation
+"Reads the Integer annotation and converts it to String."
+  input Absyn.Path inPath;
+  input Absyn.Program inProgram;
+  input Absyn.Path id;
+  output String outString;
+protected
+  Absyn.Class cdef;
+  Option<Absyn.Exp> exp;
+  Integer ann;
+algorithm
+  try
+    cdef := InteractiveUtil.getPathedClassInProgram(inPath, inProgram);
+    exp := AbsynUtil.getNamedAnnotationInClass(cdef,id,getAnnotationExp);
+    if isSome(exp) then
+      SOME(Absyn.INTEGER(ann)) := exp;
+      outString := intString(ann);
+    else
+      outString := "";
+    end if;
+  else
+    outString := "";
+  end try;
+end getIntegerNamedAnnotation;
 
 constant Absyn.Path USES_PATH = Absyn.Path.IDENT("uses");
 

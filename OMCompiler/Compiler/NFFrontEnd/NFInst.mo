@@ -305,7 +305,7 @@ function lookupRootClass
   input InstContext.Type context;
   output InstNode clsNode;
 algorithm
-  clsNode := Lookup.lookupClassName(path, topScope, NFInstContext.RELAXED,
+  clsNode := Lookup.lookupClassName(path, topScope, InstContext.set(context, NFInstContext.RELAXED),
     AbsynUtil.dummyInfo, checkAccessViolations = false);
   clsNode := InstUtil.mergeScalars(clsNode, path);
   checkInstanceRestriction(clsNode, path, context);
@@ -315,8 +315,9 @@ end lookupRootClass;
 function instantiateRootClass
   input output InstNode clsNode;
   input InstContext.Type context;
+  input Modifier mod = Modifier.NOMOD();
 algorithm
-  clsNode := instantiate(clsNode, context = context);
+  clsNode := instantiate(clsNode, mod, context = context);
   checkPartialClass(clsNode, context);
 
   insertGeneratedInners(clsNode, InstNode.topScope(clsNode), context);
@@ -324,6 +325,7 @@ end instantiateRootClass;
 
 function instantiate
   input output InstNode node;
+  input Modifier mod = Modifier.NOMOD();
   input InstNode parent = InstNode.EMPTY_NODE();
   input InstContext.Type context;
   input Boolean instPartial = false "Whether to instantiate a partial class or not.";
@@ -331,7 +333,7 @@ algorithm
   node := expand(node);
 
   if instPartial or not InstNode.isPartial(node) or InstContext.inRelaxed(context) then
-    node := instClass(node, Modifier.NOMOD(), NFAttributes.DEFAULT_ATTR, true, 0, parent, context);
+    node := instClass(node, mod, NFAttributes.DEFAULT_ATTR, true, 0, parent, context);
   end if;
 end instantiate;
 
@@ -980,14 +982,14 @@ algorithm
         mod := Modifier.merge(outer_mod, mod);
 
         // Apply the modifiers of extends nodes.
-        ClassTree.mapExtends(cls_tree, function modifyExtends(scope = par));
+        ClassTree.mapExtends(cls_tree, function modifyExtends(scope = par, context = context));
 
         // Propagate the visibility of extends to their elements.
         ClassTree.mapExtends(cls_tree,
           function applyExtendsVisibility(visibility = ExtendsVisibility.PUBLIC));
 
         // Apply the modifiers of this scope.
-        applyModifier(mod, cls_tree, node);
+        applyModifier(mod, cls_tree, node, context);
 
         // Apply element redeclares.
         ClassTree.mapRedeclareChains(cls_tree,
@@ -996,7 +998,7 @@ algorithm
         // Redeclare classes with redeclare modifiers. Redeclared components could
         // also be handled here, but since each component is only instantiated once
         // it's more efficient to apply the redeclare when instantiating them instead.
-        redeclareClasses(cls_tree, par);
+        redeclareClasses(cls_tree, par, context);
 
         // Instantiate the extends nodes.
         ClassTree.mapExtends(cls_tree,
@@ -1063,7 +1065,7 @@ algorithm
         mod := instElementModifier(InstNode.definition(node), node, InstNode.parent(node));
         outer_mod := Modifier.merge(outerMod, cls.modifier);
         mod := Modifier.merge(outer_mod, mod);
-        applyModifier(mod, cls_tree, node);
+        applyModifier(mod, cls_tree, node, context);
 
         inst_cls := Class.INSTANCED_BUILTIN(ty, cls_tree, res);
         node := InstNode.updateClass(inst_cls, node);
@@ -1146,13 +1148,18 @@ algorithm
         // Cache the package node itself first, to avoid instantiation loops if
         // the package uses itself somehow.
         InstNode.setPackageCache(node, CachedData.PACKAGE(node));
-        // Instantiate the node.
-        inst := instantiate(node, context = context);
 
-        // Cache the instantiated node and instantiate expressions in it too.
-        if not InstNode.isPartial(inst) or InstContext.inRelaxed(context) then
-          InstNode.setPackageCache(node, CachedData.PACKAGE(inst));
-          instExpressions(inst, context = context);
+        if InstContext.inFastLookup(context) then
+          inst := expand(node);
+        else
+          // Instantiate the node.
+          inst := instantiate(node, context = context);
+
+          // Cache the instantiated node and instantiate expressions in it too.
+          if not InstNode.isPartial(inst) or InstContext.inRelaxed(context) then
+            InstNode.setPackageCache(node, CachedData.PACKAGE(inst));
+            instExpressions(inst, context = context);
+          end if;
         end if;
       then
         inst;
@@ -1169,6 +1176,7 @@ end instPackage;
 function modifyExtends
   input output InstNode extendsNode;
   input InstNode scope;
+  input InstContext.Type context;
 protected
   SCode.Element elem;
   Modifier ext_mod;
@@ -1186,7 +1194,7 @@ algorithm
   ext_mod := Modifier.merge(InstNode.getModifier(extendsNode), ext_mod);
 
   if not Class.isBuiltin(cls) then
-    ClassTree.mapExtends(cls_tree, function modifyExtends(scope = extendsNode));
+    ClassTree.mapExtends(cls_tree, function modifyExtends(scope = extendsNode, context = context));
 
     () := match elem
       case SCode.EXTENDS()
@@ -1211,7 +1219,7 @@ algorithm
     end match;
   end if;
 
-  applyModifier(ext_mod, cls_tree, extendsNode);
+  applyModifier(ext_mod, cls_tree, extendsNode, context);
 end modifyExtends;
 
 type ExtendsVisibility = enumeration(PUBLIC, DERIVED_PROTECTED, PROTECTED);
@@ -1315,6 +1323,7 @@ function applyModifier
   input Modifier modifier;
   input output ClassTree cls;
   input InstNode parent;
+  input InstContext.Type context;
 protected
   list<Modifier> mods;
   list<Mutable<InstNode>> node_ptrs;
@@ -1334,13 +1343,15 @@ algorithm
         for mod in mods loop
           try
             node := ClassTree.lookupElement(Modifier.name(mod), cls);
+            InstNode.componentApply(node, Component.mergeModifier, mod);
           else
             Error.addSourceMessage(Error.MISSING_MODIFIED_ELEMENT,
               {Modifier.name(mod), InstNode.name(parent)}, Modifier.info(mod));
-            fail();
-          end try;
 
-          InstNode.componentApply(node, Component.mergeModifier, mod);
+            if not InstContext.inInstanceAPI(context) then
+              fail();
+            end if;
+          end try;
         end for;
       then
         ();
@@ -1354,7 +1365,12 @@ algorithm
           else
             Error.addSourceMessage(Error.MISSING_MODIFIED_ELEMENT,
               {Modifier.name(mod), InstNode.name(parent)}, Modifier.info(mod));
-            fail();
+
+            if InstContext.inInstanceAPI(context) then
+              node_ptrs := {};
+            else
+              fail();
+            end if;
           end try;
 
           // Apply the modifier to each found node.
@@ -1395,6 +1411,7 @@ end applyModifier;
 function redeclareClasses
   input output ClassTree tree;
   input InstNode parent;
+  input InstContext.Type context;
 protected
   InstNode cls_node, redecl_node;
   Class cls;
@@ -1411,7 +1428,7 @@ algorithm
           if Modifier.isRedeclare(mod) then
             Modifier.REDECLARE(element = redecl_node, outerMod = mod, constrainingMod = cc_mod) := mod;
             cc_mod := getConstrainingMod(InstNode.definition(cls_node), parent, cc_mod);
-            cls_node := redeclareClass(redecl_node, cls_node, mod, cc_mod);
+            cls_node := redeclareClass(redecl_node, cls_node, mod, cc_mod, context);
             Mutable.update(cls_ptr, cls_node);
           end if;
         end for;
@@ -1435,7 +1452,7 @@ algorithm
 
   if InstNode.isClass(node) then
     for cls_ptr in listRest(chain) loop
-      node_ptr := redeclareClassElement(cls_ptr, node_ptr);
+      node_ptr := redeclareClassElement(cls_ptr, node_ptr, context);
     end for;
     node := Mutable.access(node_ptr);
   else
@@ -1453,13 +1470,14 @@ end redeclareElements;
 function redeclareClassElement
   input Mutable<InstNode> redeclareCls;
   input Mutable<InstNode> replaceableCls;
+  input InstContext.Type context;
   output Mutable<InstNode> outCls;
 protected
   InstNode rdcl_node, repl_node;
 algorithm
   rdcl_node := Mutable.access(redeclareCls);
   repl_node := Mutable.access(replaceableCls);
-  rdcl_node := redeclareClass(rdcl_node, repl_node, Modifier.NOMOD(), Modifier.NOMOD());
+  rdcl_node := redeclareClass(rdcl_node, repl_node, Modifier.NOMOD(), Modifier.NOMOD(), context);
   outCls := Mutable.create(rdcl_node);
 end redeclareClassElement;
 
@@ -1484,6 +1502,7 @@ function redeclareClass
   input InstNode originalNode;
   input Modifier outerMod;
   input Modifier constrainingMod;
+  input InstContext.Type context;
   output InstNode redeclaredNode;
 protected
   InstNode orig_node;
@@ -1491,6 +1510,7 @@ protected
   Class.Prefixes prefs;
   InstNodeType node_ty;
   Modifier mod;
+  Option<InstNode> orig_opt;
 algorithm
   // Check that the redeclare element is actually a class.
   if not InstNode.isClass(redeclareNode) then
@@ -1570,8 +1590,10 @@ algorithm
     end match;
   end if;
 
+  orig_opt := if InstContext.inInstanceAPI(context) then SOME(originalNode) else NONE();
+
   redeclaredNode := InstNode.replaceClass(new_cls, redeclareNode);
-  node_ty := InstNodeType.REDECLARED_CLASS(InstNode.parent(originalNode), InstNode.nodeType(originalNode));
+  node_ty := InstNodeType.REDECLARED_CLASS(InstNode.parent(originalNode), InstNode.nodeType(originalNode), orig_opt);
   redeclaredNode := InstNode.setNodeType(node_ty, redeclaredNode);
 end redeclareClass;
 
@@ -1737,21 +1759,24 @@ algorithm
         mod := Modifier.propagate(mod, node, node);
         (ty_node, ty_attr) := instTypeSpec(component.typeSpec, mod, attr,
           useBinding and not Binding.isBound(binding), parent, node, info, instLevel, context);
-        ty := InstNode.getClass(ty_node);
-        res := Class.restriction(ty);
 
-        if not InstContext.inRedeclared(context) then
-          checkPartialComponent(node, attr, ty_node, Class.isPartial(ty), res, context, info);
-        end if;
+        if not InstNode.isEmpty(ty_node) then
+          ty := InstNode.getClass(ty_node);
+          res := Class.restriction(ty);
 
-        checkBindingRestriction(res, binding, node, info);
+          if not InstContext.inRedeclared(context) then
+            checkPartialComponent(node, attr, ty_node, Class.isPartial(ty), res, context, info);
+          end if;
 
-        // Update some of the attributes now that we now the type of the component.
-        ty_attr := Attributes.updateVariability(ty_attr, ty, ty_node);
-        ty_attr := Attributes.updateComponentConnectorType(ty_attr, res, context, node);
+          checkBindingRestriction(res, binding, node, info);
 
-        if not referenceEq(attr, ty_attr) then
-          InstNode.componentApply(node, Component.setAttributes, ty_attr);
+          // Update some of the attributes now that we now the type of the component.
+          ty_attr := Attributes.updateVariability(ty_attr, ty, ty_node);
+          ty_attr := Attributes.updateComponentConnectorType(ty_attr, res, context, node);
+
+          if not referenceEq(attr, ty_attr) then
+            InstNode.componentApply(node, Component.setAttributes, ty_attr);
+          end if;
         end if;
       then
         ();
@@ -1989,7 +2014,7 @@ function instTypeSpec
   output InstNode node;
   output Attributes outAttributes;
 algorithm
-  node := match typeSpec
+  node := matchcontinue typeSpec
     case Absyn.TPATH()
       algorithm
         node := Lookup.lookupClassName(typeSpec.path, scope, context, info);
@@ -2003,13 +2028,20 @@ algorithm
       then
         node;
 
+    case Absyn.TPATH()
+      guard InstContext.inInstanceAPI(context)
+      algorithm
+        outAttributes := attributes;
+      then
+        InstNode.EMPTY_NODE();
+
     case Absyn.TCOMPLEX()
       algorithm
         print("NFInst.instTypeSpec: TCOMPLEX not implemented.\n");
       then
         fail();
 
-  end match;
+  end matchcontinue;
 end instTypeSpec;
 
 function checkRecursiveDefinition
@@ -2101,7 +2133,7 @@ algorithm
         // Instantiate expressions in the extends nodes.
         exts := ClassTree.getExtends(cls_tree);
         for ext in exts loop
-          instExpressions(ext, ext, sections, context);
+          instExpressions(ext, ext, sections, context, settings);
         end for;
 
         // A type must extend a basic type.
@@ -2126,11 +2158,11 @@ algorithm
         // Instantiate expressions in the extends nodes.
         if settings.mergeExtendsSections then
           for ext in ClassTree.getExtends(cls_tree) loop
-            sections := instExpressions(ext, ext, sections, context);
+            sections := instExpressions(ext, ext, sections, context, settings);
           end for;
         else
           for ext in ClassTree.getExtends(cls_tree) loop
-            _ := instExpressions(ext, ext, sections, context);
+            _ := instExpressions(ext, ext, sections, context, settings);
           end for;
         end if;
 
@@ -2158,7 +2190,7 @@ algorithm
 
     case Class.EXPANDED_DERIVED(dims = dims)
       algorithm
-        sections := instExpressions(cls.baseClass, scope, sections, context);
+        sections := instExpressions(cls.baseClass, scope, sections, context, settings);
 
         info := InstNode.info(node);
 
@@ -2310,7 +2342,10 @@ algorithm
       algorithm
         c.binding := instBinding(c.binding, context);
         c.condition := instBinding(c.condition, context);
-        instExpressions(c.classInst, node, context = context);
+
+        if not InstNode.isEmpty(c.classInst) then
+          instExpressions(c.classInst, node, context = context);
+        end if;
 
         for i in 1:arrayLength(dims) loop
           dims[i] := instDimension(dims[i], context, c.info);
@@ -2453,7 +2488,7 @@ algorithm
         e1 := instExp(absynExp.exp, scope, context, info);
         op := Operator.fromAbsyn(absynExp.op);
       then
-        Expression.UNARY(op, e1);
+        Expression.makeUnary(op, e1);
 
     case Absyn.Exp.LBINARY()
       algorithm
@@ -3479,7 +3514,9 @@ algorithm
           Structural.markExp(Binding.getUntypedExp(condition));
         end if;
 
-        updateImplicitVariability(c.classInst, eval or parentEval);
+        if not InstNode.isEmpty(c.classInst) then
+          updateImplicitVariability(c.classInst, eval or parentEval);
+        end if;
       then
         ();
 

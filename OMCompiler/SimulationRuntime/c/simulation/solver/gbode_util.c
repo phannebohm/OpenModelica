@@ -462,6 +462,38 @@ void projVector_gbf(double* a, double* b, int nIndx, int* indx) {
 /**
  * @brief Output debug information of the states and derivatives
  *
+ * that have been evaluated at the past accepted time points.
+ *
+ * @param stream   Prints only, if stream is active
+ * @param x        States at the past accepted time points
+ * @param k        Derivatives at the past accepted time points
+ * @param t        Past accepted time points
+ * @param nStates  Number of states
+ * @param size     Size of buffer
+ */
+void debugRingBufferSteps(enum LOG_STREAM stream, double* x, double* k, double *t, int nStates, int size) {
+
+  // If stream is not active do nothing
+  if (!ACTIVE_STREAM(stream)) return;
+
+  infoStreamPrint(stream, 1, "States and derivatives at past accepted time steps:");
+
+  int i;
+
+  infoStreamPrint(stream, 0, "states:");
+  for (i = 0; i < size; i++) {
+    printVector_gb(stream, "x", x + i * nStates, nStates, t[i]);
+  }
+  infoStreamPrint(stream, 0, "derivatives:");
+  for (i = 0; i < size; i++) {
+    printVector_gb(stream, "k", k + i * nStates, nStates, t[i]);
+  }
+  messageClose(stream);
+}
+
+/**
+ * @brief Output debug information of the states and derivatives
+ *
  * that have been evaluated at the intermediate points given by the
  * Butcher tableau.
  *
@@ -511,7 +543,7 @@ void printVector_gb(enum LOG_STREAM stream, char name[], double* a, int n, doubl
   char row_to_print[40960];
   unsigned int bufSize = 40960;
   unsigned int ct;
-  ct += snprintf(row_to_print, bufSize, "%s(%8g) =\t", name, time);
+  ct = snprintf(row_to_print, bufSize, "%s(%8g) =\t", name, time);
   for (int i=0;i<n;i++) {
     ct += snprintf(row_to_print+ct, bufSize-ct, "%18.12g", a[i]);
   }
@@ -538,7 +570,7 @@ void printIntVector_gb(enum LOG_STREAM stream, char name[], int* a, int n, doubl
   unsigned int ct;
   ct = snprintf(row_to_print, bufSize, "%s(%8g) =\t", name, time);
   for (int i=0;i<n;i++)
-    ct += snprintf(row_to_print+ct, bufSize-ct, "%d", a[i]);
+    ct += snprintf(row_to_print+ct, bufSize-ct, "%d ", a[i]);
   infoStreamPrint(stream, 0, "%s", row_to_print);
 }
 
@@ -682,24 +714,27 @@ modelica_boolean checkFastStatesChange(DATA_GBODE* gbData) {
   gbfData->nFastStates = gbData->nFastStates;
   gbfData->fastStatesIdx  = gbData->fastStatesIdx;
 
+  // check if number of fast states changed
   if (gbfData->nFastStates_old != gbData->nFastStates) {
-    if (ACTIVE_STREAM(LOG_SOLVER) && !fastStatesChange)
-    {
-      printIntVector_gb(LOG_SOLVER, "old fast States:", gbfData->fastStates_old, gbfData->nFastStates_old, gbfData->time);
-      printIntVector_gb(LOG_SOLVER, "new fast States:", gbData->fastStatesIdx, gbData->nFastStates, gbfData->time);
-    }
-    gbfData->nFastStates_old = gbData->nFastStates;
     fastStatesChange = TRUE;
   }
 
+  // look for changes in the ordering
   for (int k = 0; k < gbData->nFastStates; k++) {
     if (gbfData->fastStates_old[k] != gbData->fastStatesIdx[k]) {
-      if (ACTIVE_STREAM(LOG_SOLVER) && !fastStatesChange)
-      {
-        printIntVector_gb(LOG_SOLVER, "old fast States:", gbfData->fastStates_old, gbfData->nFastStates_old, gbfData->time);
-        printIntVector_gb(LOG_SOLVER, "new fast States:", gbData->fastStatesIdx, gbData->nFastStates, gbfData->time);
-      }
       fastStatesChange = TRUE;
+    }
+  }
+
+  if (ACTIVE_STREAM(LOG_SOLVER) && fastStatesChange)
+  {
+    printIntVector_gb(LOG_SOLVER, "old fast States:", gbfData->fastStates_old, gbfData->nFastStates_old, gbfData->time);
+    printIntVector_gb(LOG_SOLVER, "new fast States:", gbData->fastStatesIdx, gbData->nFastStates, gbfData->time);
+  }
+  // Update indices for the current fast states and corresponding counting
+  if (fastStatesChange) {
+    gbfData->nFastStates_old = gbData->nFastStates;
+    for (int k = 0; k < gbData->nFastStates; k++) {
       gbfData->fastStates_old[k] = gbData->fastStatesIdx[k];
     }
   }

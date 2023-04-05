@@ -57,7 +57,8 @@
 // In addition, the extra parameter is not always considered, in particular for cone and cylinder shapes.
 // See documentation of Modelica.Mechanics.MultiBody.Visualizers.Advanced.Shape model.
 // Also, the spring shape is implemented but has an undesired torsion near the end of each winding,
-// and it should be drawn with more facets for a nicer animation.
+// and it should be drawn with more facets for a nicer animation
+// (moreover, it misses normals and texture coordinates).
 
 class Pipecylinder : public osg::Geometry
 {
@@ -127,8 +128,10 @@ public:
   ~CADFile() = default;
   void scaleVertices(osg::Geode& geode, bool scaling, float scaleX, float scaleY, float scaleZ);
 
-public:
+private:
   std::unordered_map<const osg::ref_ptr<osg::Geometry>, osg::ref_ptr<osg::Vec3Array>> unscaledGeometryVertices;
+
+  friend class CADVisitor;
 };
 
 class CADVisitor : public osg::NodeVisitor

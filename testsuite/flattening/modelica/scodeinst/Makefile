@@ -1,7 +1,8 @@
 TEST=../../../rtest -v
 
 TESTFILES=\
-ActualStreamMinMax.mo \
+ActualStreamMinMax1.mo \
+ActualStreamMinMax2.mo \
 ActualStream.mo \
 ActualStreamNonCref1.mo \
 ActualStreamNoStream1.mo \
@@ -136,6 +137,7 @@ CevalFuncArray2.mo \
 CevalFuncArray3.mo \
 CevalFuncArray4.mo \
 CevalFuncArray5.mo \
+CevalFuncArray6.mo \
 CevalFuncAssert1.mo \
 CevalFuncAssert2.mo \
 CevalFuncFor1.mo \
@@ -888,6 +890,8 @@ PackageBinding1.mo \
 PackageConstant1.mo \
 PackageConstant3.mo \
 PackageConstant4.mo \
+PackageConstant5.mo \
+PackageConstant6.mo \
 ParameterBug.mos \
 ParameterDer.mo \
 PartialApplication1.mo \

@@ -3954,6 +3954,40 @@ algorithm
   end match;
 end excludeElementsFromFile;
 
+protected function getAllSubtypeOfCandidates
+  "Returns a list of all classes that needs to be considered by getAllSubtypeOf"
+  input Absyn.Path path;
+  input Absyn.Path parentClass;
+  input Absyn.Program program;
+  input output list<Absyn.Path> candidates;
+protected
+  Absyn.Class cdef;
+  list<String> names;
+  list<Absyn.Path> paths;
+  Boolean is_parent;
+algorithm
+  try
+    cdef := getPathedClassInProgram(path, program);
+  else
+    return;
+  end try;
+
+  // Only add non-partial classes.
+  if AbsynUtil.isNotPartial(cdef) then
+    candidates := path :: candidates;
+
+    // Only recurse into packages, unless it's the parent class in which case we
+    // also want to include local classes.
+    is_parent := AbsynUtil.pathEqual(path, parentClass);
+    if AbsynUtil.isPackageRestriction(cdef.restriction) or is_parent then
+      names := getClassnamesInClassListNoPartial(path, program, cdef, is_parent, false);
+      paths := list(AbsynUtil.suffixPath(path, n) for n in names);
+      candidates := List.fold(paths,
+        function getAllSubtypeOfCandidates(program = program, parentClass = parentClass), candidates);
+    end if;
+  end if;
+end getAllSubtypeOfCandidates;
+
 public function getAllSubtypeOf
   "Returns the list of all classes that extend from class_ given a parentClass where the lookup for class_ should start"
   input Absyn.Path inClass;
@@ -3963,40 +3997,50 @@ public function getAllSubtypeOf
   input Boolean includePartial;
   output list<Absyn.Path> paths;
 protected
-  Absyn.Class cdef;
-  String s1;
   list<String> strlst;
   Absyn.Path pp, fqpath;
-  Absyn.Program p;
   list<Absyn.Class> classes;
-  list<Option<Absyn.Path>> result_path_lst;
-  list<Absyn.Path> acc, extendPaths;
-  Boolean b,c;
+  list<Absyn.Path> result_path_lst;
+  list<Absyn.Path> acc, extendPaths, local_paths;
+  Boolean b;
   GraphicEnvCache genv;
+  Option<Absyn.Path> opt_path;
 algorithm
   Absyn.PROGRAM(classes=classes) := inProgram;
   strlst := List.map(List.filterOnTrue(classes, AbsynUtil.isNotPartial), AbsynUtil.getClassName);
-  result_path_lst := List.mapMap(strlst, AbsynUtil.makeIdentPathFromString, Util.makeOption);
-  (_,acc) := List.map3Fold(result_path_lst, getClassNamesRecursiveNoPartial, inProgram, true, false, {});
+  result_path_lst := list(AbsynUtil.makeIdentPathFromString(str) for str in strlst);
+  acc := List.fold(result_path_lst,
+    function getAllSubtypeOfCandidates(parentClass = inParentClass, program = inProgram), {});
 
   try
     genv := createEnvironment(inProgram, NONE(), inParentClass);
     fqpath := qualifyPath(genv, inClass);
   else
-    // print("Bummer PPPath: " + AbsynUtil.pathString(inParentClass) + "\n");
     fqpath := inClass;
   end try;
-  // print("FQPath: " + AbsynUtil.pathString(fqpath) + "\n");
-  // print("PPPath: " + AbsynUtil.pathString(inParentClass) + "\n");
+
   paths := {};
+  local_paths := {};
+
   for pt in acc loop
-    // print("Path: " + AbsynUtil.pathString(pt) + ":\n");
     extendPaths := getAllInheritedClasses(pt, inProgram);
-    // print("  " + stringDelimitList(List.map(extendPaths, AbsynUtil.pathStringDefault), ", ")); print("\n"); System.fflush();
-    b := List.applyAndFold1(extendPaths, boolOr, AbsynUtil.pathSuffixOfr, fqpath, false);
-    paths := if b then pt::paths else paths;
+
+    if List.contains(extendPaths, fqpath, AbsynUtil.pathSuffixOfr) then
+      // Put classes declared locally in the parent class first in the list and
+      // remove the parent prefix from their name, since they're usually meant
+      // to be the default option.
+      opt_path := AbsynUtil.removePrefixOpt(inParentClass, pt);
+
+      if isSome(opt_path) then
+        SOME(pt) := opt_path;
+        local_paths := pt :: local_paths;
+      else
+        paths := pt :: paths;
+      end if;
+    end if;
   end for;
-  paths := List.unique(paths);
+
+  paths := List.unique(listAppend(local_paths, paths));
 end getAllSubtypeOf;
 
 public function updateConnectionAnnotation
@@ -4229,53 +4273,6 @@ algorithm
 
   outEquations := Dangerous.listReverseInPlace(outEquations);
 end updateConnectionNamesInEqList;
-
-public function getClassNamesRecursiveNoPartial
-"Returns a string with all the classes for a given path."
-  input Option<Absyn.Path> inPath;
-  input Absyn.Program inProgram;
-  input Boolean inShowProtected;
-  input Boolean includeConstants;
-  input list<Absyn.Path> inAcc;
-  output Option<Absyn.Path> opath;
-  output list<Absyn.Path> paths;
-algorithm
-  (opath,paths) := matchcontinue (inPath,inProgram,inShowProtected,includeConstants,inAcc)
-    local
-      Absyn.Class cdef;
-      String s1;
-      list<String> strlst;
-      Absyn.Path pp;
-      Absyn.Program p;
-      list<Absyn.Class> classes;
-      list<Option<Absyn.Path>> result_path_lst;
-      list<Absyn.Path> acc;
-      Boolean b,c;
-
-    case (SOME(pp),p,b,c,acc)
-      equation
-        cdef = getPathedClassInProgram(pp, p);
-        if AbsynUtil.isNotPartial(cdef) then
-          acc = pp::acc;
-          strlst = getClassnamesInClassListNoPartial(pp, p, cdef, b, c);
-          result_path_lst = List.map(List.map1(strlst, joinPaths, pp), Util.makeOption);
-          (_,acc) = List.map3Fold(result_path_lst, getClassNamesRecursiveNoPartial, p, b, c, acc);
-        end if;
-      then (inPath,acc);
-
-    case (NONE(),p as Absyn.PROGRAM(classes=classes),b,c,acc)
-      equation
-        strlst = List.map(List.filterOnTrue(classes, AbsynUtil.isNotPartial), AbsynUtil.getClassName);
-        result_path_lst = List.mapMap(strlst, AbsynUtil.makeIdentPathFromString, Util.makeOption);
-        (_,acc) = List.map3Fold(result_path_lst, getClassNamesRecursiveNoPartial, p, b, c, acc);
-      then (inPath,acc);
-    case (SOME(pp),_,_,_,_)
-      equation
-        s1 = AbsynUtil.pathString(pp);
-        Error.addMessage(Error.LOOKUP_ERROR, {s1,"<TOP>"});
-      then (inPath,{});
-  end matchcontinue;
-end getClassNamesRecursiveNoPartial;
 
 protected function getClassnamesInClassListNoPartial
   input Absyn.Path inPath;

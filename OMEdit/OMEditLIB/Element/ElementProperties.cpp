@@ -38,6 +38,7 @@
 #include "Modeling/Commands.h"
 #include "Options/OptionsDialog.h"
 #include "OMPlot.h"
+#include "FlatModelica/Parser.h"
 
 #include <QApplication>
 #include <QMenu>
@@ -61,10 +62,11 @@
  * \param tab
  * \param groupBox
  */
-Parameter::Parameter(Element *pElement, bool showStartAttribute, QString tab, QString groupBox)
+Parameter::Parameter(Element *pElement, bool showStartAttribute, QString tab, QString groupBox, ElementParametersOld *pElementParametersOld)
 {
   mpElement = pElement;
-  mpModelInstanceComponent = 0;
+  mpModelInstanceElement = 0;
+  mpElementParametersOld = pElementParametersOld;
   mTab = tab;
   mGroup = groupBox;
   mShowStartAttribute = showStartAttribute;
@@ -85,9 +87,9 @@ Parameter::Parameter(Element *pElement, bool showStartAttribute, QString tab, QS
     mValueType = Parameter::Normal;
   } else if (pOMCProxy->isWhat(StringHandler::Enumeration, mpElement->getElementInfo()->getClassName())) {
     mValueType = Parameter::Enumeration;
-  } else if (OptionsDialog::instance()->getGeneralSettingsPage()->getReplaceableSupport() && mpElement->getElementInfo()->getReplaceable()) { // replaceable component or short element definition
+  } else if (mpElement->getElementInfo()->getReplaceable()) { // replaceable component or short element definition
     mValueType = mpElement->getElementInfo()->getIsElement() ? Parameter::ReplaceableClass : Parameter::ReplaceableComponent;
-  } else if (OptionsDialog::instance()->getGeneralSettingsPage()->getReplaceableSupport() && mpElement->getElementInfo()->getIsElement()) { // non replaceable short element definition
+  } else if (mpElement->getElementInfo()->getIsElement()) { // non replaceable short element definition
     mValueType = Parameter::ReplaceableClass;
   } else {
     mValueType = Parameter::Normal;
@@ -143,12 +145,12 @@ Parameter::Parameter(Element *pElement, bool showStartAttribute, QString tab, QS
   mpCommentLabel = new Label(mpElement->getElementInfo()->getComment());
 }
 
-Parameter::Parameter(ModelInstance::Component *pComponent, ElementParameters *pElementParameters)
+Parameter::Parameter(ModelInstance::Element *pElement, ElementParameters *pElementParameters)
 {
   mpElement = 0;
-  mpModelInstanceComponent = pComponent;
+  mpModelInstanceElement = pElement;
   mpElementParameters = pElementParameters;
-  const ModelInstance::DialogAnnotation dialogAnnotation = mpModelInstanceComponent->getAnnotation()->getDialogAnnotation();
+  const ModelInstance::DialogAnnotation dialogAnnotation = mpModelInstanceElement->getAnnotation()->getDialogAnnotation();
   mTab = dialogAnnotation.getTab();
   mGroup = dialogAnnotation.getGroup();
   mGroupDefined = !mGroup.isEmpty();
@@ -168,48 +170,50 @@ Parameter::Parameter(ModelInstance::Component *pComponent, ElementParameters *pE
   }
   mConnectorSizing = dialogAnnotation.isConnectorSizing();
 
-  QString start = "";
-  bool isParameter = (mpModelInstanceComponent->getVariability().compare(QStringLiteral("parameter")) == 0);
   // If mShowStartAttribute is not set then check for start modifier
-  if (!mShowStartAndFixed) {
-    start = mpModelInstanceComponent->getModifier().getModifierValue(QStringList() << "start");
-    mShowStartAndFixed = !start.isEmpty();
+  if (!mShowStartAndFixed && !isParameter()) {
+    mShowStartAndFixed = mpModelInstanceElement->getModifier().hasModifier("start");
   }
   /* if mShowStartAndFixed and group name is empty then set group name to Initialization.
    * else set group name to Parameters for actual parameters or elements that have dialog annotation or replaceable elements.
    */
   if (mShowStartAndFixed && mGroup.isEmpty()) {
     mGroup = "Initialization";
-  } else if (mGroup.isEmpty() && (isParameter || mpModelInstanceComponent->getAnnotation()->hasDialogAnnotation() || mpModelInstanceComponent->getReplaceable()->isReplaceable())) {
+  } else if (mGroup.isEmpty() && (isParameter() || mpModelInstanceElement->getAnnotation()->hasDialogAnnotation() || mpModelInstanceElement->getPrefixes()->getReplaceable())) {
     mGroup = "Parameters";
   }
 
   mpNameLabel = new Label;
   mpFixedCheckBox = new FixedCheckBox;
   connect(mpFixedCheckBox, SIGNAL(clicked()), SLOT(showFixedMenu()));
-  setFixedState("false", true);
+  setFixedState("", true);
   // set the value type based on element type.
-  if (mpModelInstanceComponent->getType().compare(QStringLiteral("Boolean")) == 0) {
-    if (mpModelInstanceComponent->getAnnotation()->getChoices().isCheckBox() || mpModelInstanceComponent->getAnnotation()-> getChoices().isDymolaCheckBox()) {
+  if (mpModelInstanceElement->getRootType().compare(QStringLiteral("Boolean")) == 0) {
+    if (mpModelInstanceElement->getAnnotation()->getChoices().isCheckBox() || mpModelInstanceElement->getAnnotation()-> getChoices().isDymolaCheckBox()) {
       mValueType = Parameter::CheckBox;
     } else {
       mValueType = Parameter::Boolean;
     }
-  } else if (mpModelInstanceComponent->getModel() && mpModelInstanceComponent->getModel()->isEnumeration()) {
+  } else if (mpModelInstanceElement->getModel() && mpModelInstanceElement->getModel()->isEnumeration()) {
     mValueType = Parameter::Enumeration;
-  } else if (OptionsDialog::instance()->getGeneralSettingsPage()->getReplaceableSupport() && mpModelInstanceComponent->getReplaceable()->isReplaceable()) {
+  } else if (mpModelInstanceElement->getPrefixes()->getReplaceable()) {
     // replaceable component or short element definition
-    if (mpModelInstanceComponent->getModel()) {
+    if (mpModelInstanceElement->isShortClassDefinition()) {
       mValueType = Parameter::ReplaceableClass;
-      mpModifyReplaceableButton = new QToolButton;
-      mpModifyReplaceableButton->setText("M");
-      mpModifyReplaceableButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
-      connect(mpModifyReplaceableButton, SIGNAL(clicked()), SLOT(modifyReplaceableButtonClicked()));
     } else {
       mValueType = Parameter::ReplaceableComponent;
     }
-  } else if (!mpModelInstanceComponent->getAnnotation()->getChoices().getChoices().isEmpty()) {
+    if (mpModelInstanceElement->getModel() || mpModelInstanceElement->isShortClassDefinition()) {
+      mpEditRedeclareClassButton = new QToolButton;
+      mpEditRedeclareClassButton->setIcon( QIcon(":/Resources/icons/edit-icon.svg"));
+      mpEditRedeclareClassButton->setToolTip(tr("Edit"));
+      mpEditRedeclareClassButton->setAutoRaise(true);
+      connect(mpEditRedeclareClassButton, SIGNAL(clicked()), SLOT(editRedeclareClassButtonClicked()));
+    }
+  } else if (!mpModelInstanceElement->getAnnotation()->getChoices().getChoices().isEmpty()) {
     mValueType = Parameter::Choices;
+  } else if (mpModelInstanceElement->getAnnotation()->isChoicesAllMatching()) {
+    mValueType = Parameter::ChoicesAllMatching;
   } else {
     mValueType = Parameter::Normal;
   }
@@ -221,9 +225,9 @@ Parameter::Parameter(ModelInstance::Component *pComponent, ElementParameters *pE
   connect(mpFileSelectorButton, SIGNAL(clicked()), SLOT(fileSelectorButtonClicked()));
   createValueWidget();
   // Get unit value
-  mUnit = mpModelInstanceComponent->getModifierValueFromType(QStringList() << "unit");
+  mUnit = mpModelInstanceElement->getModifierValueFromType(QStringList() << "unit");
   // Get displayUnit value
-  QString displayUnit = mpModelInstanceComponent->getModifierValueFromType(QStringList() << "displayUnit");
+  QString displayUnit = mpModelInstanceElement->getModifierValueFromType(QStringList() << "displayUnit");
   if (displayUnit.isEmpty()) {
     displayUnit = mUnit;
   }
@@ -257,24 +261,38 @@ Parameter::Parameter(ModelInstance::Component *pComponent, ElementParameters *pE
     mpUnitComboBox->setCurrentIndex(1);
   }
   connect(mpUnitComboBox, SIGNAL(currentIndexChanged(int)), SLOT(unitComboBoxChanged(int)));
-  QString comment = mpModelInstanceComponent->getReplaceable()->getComment();
-  if (comment.isEmpty()) {
-    comment = mpModelInstanceComponent->getComment();
-  }
+  const QString comment = mpModelInstanceElement->getComment();
   mpCommentLabel = new Label(comment);
 
   if (mValueType == Parameter::ReplaceableClass) {
-    QString className = mpModelInstanceComponent->getModel()->getName();
-    setValueWidget(comment.isEmpty() ? className : QString("%1 - %2").arg(className, comment), true, mUnit);
+    auto pReplaceableClass = dynamic_cast<ModelInstance::ReplaceableClass*>(mpModelInstanceElement);
+    setValueWidget(pReplaceableClass->getBaseClass(), true, mUnit);
   } else if (mValueType == Parameter::ReplaceableComponent) {
-    setValueWidget(QString("replaceable %1 %2").arg(mpModelInstanceComponent->getParentModel()->getName(), mpModelInstanceComponent->getName()), true, mUnit);
+    QString value = "redeclare " % mpModelInstanceElement->getType()
+                    % " " % mpModelInstanceElement->getName();
+    QString modifiers = mpModelInstanceElement->getModifier().getValueWithSubModifiers();
+    if (!modifiers.isEmpty()) {
+      value = value % "(" % modifiers % ")";
+    }
+    setValueWidget(value, true, mUnit);
   } else {
-    setValueWidget(mpModelInstanceComponent->getModifier().getValue(), true, mUnit);
-  }
-  if (!start.isEmpty()) {
-    setValueWidget(start, true, mUnit);
+    ElementParameters::applyStartFixedAndDisplayUnitModifiers(this, mpModelInstanceElement->getModifier(), true);
   }
   update();
+}
+
+/*!
+ * \brief Parameter::isParameter
+ * Returns true if parameter
+ * \return
+ */
+bool Parameter::isParameter() const
+{
+  if (mpModelInstanceElement) {
+    return mpModelInstanceElement->getPrefixes()->getVariability().compare(QStringLiteral("parameter")) == 0;
+  } else {
+    return mpElement->getElementInfo()->getVariablity().compare("parameter") == 0;
+  }
 }
 
 /*!
@@ -284,7 +302,7 @@ Parameter::Parameter(ModelInstance::Component *pComponent, ElementParameters *pE
 void Parameter::updateNameLabel()
 {
   if (MainWindow::instance()->isNewApi()) {
-    mpNameLabel->setText(mpModelInstanceComponent->getName() + (mShowStartAndFixed ? ".start" : ""));
+    mpNameLabel->setText(mpModelInstanceElement->getName() + (mShowStartAndFixed ? ".start" : ""));
   } else {
     mpNameLabel->setText(mpElement->getName() + (mShowStartAttribute ? ".start" : ""));
   }
@@ -338,6 +356,7 @@ void Parameter::setValueWidget(QString value, bool defaultValue, QString fromUni
     case Parameter::ReplaceableClass:
     case Parameter::ReplaceableComponent:
     case Parameter::Choices:
+    case Parameter::ChoicesAllMatching:
       if (defaultValue) {
         mpValueComboBox->lineEdit()->setPlaceholderText(value);
       } else {
@@ -401,6 +420,7 @@ QWidget* Parameter::getValueWidget()
     case Parameter::ReplaceableClass:
     case Parameter::ReplaceableComponent:
     case Parameter::Choices:
+    case Parameter::ChoicesAllMatching:
       return mpValueComboBox;
     case Parameter::CheckBox:
       return mpValueCheckBox;
@@ -423,6 +443,7 @@ bool Parameter::isValueModified()
     case Parameter::ReplaceableClass:
     case Parameter::ReplaceableComponent:
     case Parameter::Choices:
+    case Parameter::ChoicesAllMatching:
       return mpValueComboBox->lineEdit()->isModified();
     case Parameter::CheckBox:
       return mValueCheckBoxModified;
@@ -445,6 +466,7 @@ QString Parameter::getValue()
     case Parameter::ReplaceableClass:
     case Parameter::ReplaceableComponent:
     case Parameter::Choices:
+    case Parameter::ChoicesAllMatching:
       return mpValueComboBox->lineEdit()->text().trimmed();
     case Parameter::CheckBox:
       return mpValueCheckBox->isChecked() ? "true" : "false";
@@ -457,7 +479,7 @@ QString Parameter::getValue()
 void Parameter::setFixedState(QString fixed, bool defaultValue)
 {
   mOriginalFixedValue = fixed;
-  if (fixed.compare("true") == 0) {
+  if (fixed.compare(QStringLiteral("true")) == 0) {
     mpFixedCheckBox->setTickState(defaultValue, true);
   } else {
     mpFixedCheckBox->setTickState(defaultValue, false);
@@ -481,6 +503,7 @@ void Parameter::setEnabled(bool enable)
     case Parameter::ReplaceableComponent:
     case Parameter::ReplaceableClass:
     case Parameter::Choices:
+    case Parameter::ChoicesAllMatching:
       mpValueComboBox->setEnabled(enable);
       break;
     case Parameter::CheckBox:
@@ -491,6 +514,14 @@ void Parameter::setEnabled(bool enable)
       mpValueTextBox->setEnabled(enable);
       break;
   }
+  mpUnitComboBox->setEnabled(enable);
+  // if enable is true then enable/disable the unit combobox based on value
+  if (enable) {
+    enableDisableUnitComboBox(getValue());
+  }
+  if (mpEditRedeclareClassButton) {
+    mpEditRedeclareClassButton->setEnabled(enable);
+  }
 }
 
 /*!
@@ -499,7 +530,7 @@ void Parameter::setEnabled(bool enable)
  */
 void Parameter::update()
 {
-  mEnable.evaluate(mpModelInstanceComponent->getParentModel());
+  mEnable.evaluate(mpModelInstanceElement->getParentModel());
   setEnabled(mEnable);
 }
 
@@ -509,7 +540,7 @@ void Parameter::createValueWidget()
   OMCProxy *pOMCProxy = MainWindow::instance()->getOMCProxy();
   QString className;
   if (MainWindow::instance()->isNewApi()) {
-    className = mpModelInstanceComponent->getType();
+    className = mpModelInstanceElement->getType();
   } else {
     className = mpElement->getElementInfo()->getClassName();
   }
@@ -532,7 +563,7 @@ void Parameter::createValueWidget()
       mpValueComboBox->setEditable(true);
       mpValueComboBox->addItem("", "");
       if (MainWindow::instance()->isNewApi()) {
-        foreach (auto pModelInstanceElement, mpModelInstanceComponent->getModel()->getElements()) {
+        foreach (auto pModelInstanceElement, mpModelInstanceElement->getModel()->getElements()) {
           if (pModelInstanceElement->isComponent()) {
             auto pModelInstanceComponent = dynamic_cast<ModelInstance::Component*>(pModelInstanceElement);
             enumerationLiterals.append(pModelInstanceComponent->getName());
@@ -556,47 +587,62 @@ void Parameter::createValueWidget()
 
     case Parameter::ReplaceableComponent:
     case Parameter::ReplaceableClass:
+    case Parameter::Choices:
+    case Parameter::ChoicesAllMatching:
       if (MainWindow::instance()->isNewApi()) {
-        constrainedByClassName = mpModelInstanceComponent->getReplaceable()->getConstrainedby();
-        if (constrainedByClassName.isEmpty()) {
-          constrainedByClassName = mpModelInstanceComponent->getType();
+        if (mValueType == Parameter::ReplaceableComponent || mValueType == Parameter::ReplaceableClass) {
+          constrainedByClassName = mpModelInstanceElement->getPrefixes()->getReplaceable()->getConstrainedby();
+          if (constrainedByClassName.isEmpty()) {
+            constrainedByClassName = mpModelInstanceElement->getType();
+          }
         }
-        choices = mpModelInstanceComponent->getAnnotation()->getChoices().getChoices();
-        parentClassName = mpModelInstanceComponent->getParentModel()->getName();
-        if (mpModelInstanceComponent->getModel()) {
-          restriction = mpModelInstanceComponent->getModel()->getRestriction();
+        choices = mpModelInstanceElement->getAnnotation()->getChoices().getChoices();
+        parentClassName = mpModelInstanceElement->getParentModel()->getName();
+        if (mpModelInstanceElement->getModel()) {
+          restriction = mpModelInstanceElement->getModel()->getRestriction();
         } else {
-          restriction = mpModelInstanceComponent->getType();
+          restriction = mpModelInstanceElement->getType();
         }
-        elementName = mpModelInstanceComponent->getName();
+        elementName = mpModelInstanceElement->getName();
       } else {
         constrainedByClassName = mpElement->getElementInfo()->getConstrainedByClassName();
         if (mpElement->hasChoices()) {
           choices = mpElement->getChoices();
         }
-        parentClassName = mpElement->getElementInfo()->getParentClassName();
+        parentClassName = mpElementParametersOld->getElementParentClassName();
         restriction = mpElement->getElementInfo()->getRestriction();
         elementName = mpElement->getName();
       }
-
-      mpValueComboBox = new QComboBox;
-      mpValueComboBox->setEditable(true);
-      mpValueComboBox->addItem("", "");
 
       if (constrainedByClassName.contains(QStringLiteral("$Any"))) {
         constrainedByClassName = className;
       }
 
+      mpValueComboBox = new QComboBox;
+      mpValueComboBox->setEditable(true);
+      mpValueComboBox->addItem("", "");
       // add choices if there are any
       for (i = 0; i < choices.size(); i++) {
         QString choice = choices[i];
-        QString comment = StringHandler::getModelicaComment(choice);
+        QString comment;
+        if (MainWindow::instance()->isNewApi()) {
+          comment = choice;
+        } else {
+          comment = StringHandler::removeFirstLastQuotes(FlatModelica::Parser::getModelicaComment(choice));
+        }
         mpValueComboBox->addItem(comment, choice);
       }
 
-      // do replaceable only if not choicesAllMatching=false
-      // if choicesAllMatching is not defined, consider choicesAllMatching=true
-      replaceableChoices = pOMCProxy->getAllSubtypeOf(constrainedByClassName, parentClassName);
+      // choicesAllMatching
+      if (MainWindow::instance()->isNewApi()) {
+        if (mpModelInstanceElement->getAnnotation()->isChoicesAllMatching()) {
+          replaceableChoices = pOMCProxy->getAllSubtypeOf(constrainedByClassName, parentClassName);
+        }
+      } else {
+        // do replaceable only if not choicesAllMatching=false
+        // if choicesAllMatching is not defined, consider choicesAllMatching=true
+        replaceableChoices = pOMCProxy->getAllSubtypeOf(constrainedByClassName, parentClassName);
+      }
       for (i = 0; i < replaceableChoices.size(); i++) {
         replaceableChoice = replaceableChoices[i];
         // if replaceableChoices points to a class in this scope, remove scope
@@ -611,22 +657,14 @@ void Parameter::createValueWidget()
           }
           replaceableText = replaceableChoices[i] + str;
           mpValueComboBox->addItem(replaceableText, replaceable);
-        } else {
+        } else if (mValueType == Parameter::ReplaceableComponent) {
           replaceable = QString("redeclare %1 %2").arg(replaceableChoice, elementName);
           mpValueComboBox->addItem(replaceable, replaceable);
+        } else {
+          mpValueComboBox->addItem(replaceableChoice, replaceableChoice);
         }
       }
 
-      connect(mpValueComboBox, SIGNAL(currentIndexChanged(int)), SLOT(valueComboBoxChanged(int)));
-      break;
-
-    case Parameter::Choices:
-      mpValueComboBox = new QComboBox;
-      mpValueComboBox->setEditable(true);
-      mpValueComboBox->addItem("", "");
-      foreach (QString choice, mpModelInstanceComponent->getAnnotation()->getChoices().getChoices()) {
-        mpValueComboBox->addItem(choice, choice);
-      }
       connect(mpValueComboBox, SIGNAL(currentIndexChanged(int)), SLOT(valueComboBoxChanged(int)));
       break;
 
@@ -645,8 +683,8 @@ void Parameter::createValueWidget()
  */
 void Parameter::enableDisableUnitComboBox(const QString &value)
 {
-  // Do not do anything when the value is empty.
-  if (value.isEmpty()) {
+  // Do not do anything when the value is empty OR parameter is not enabled
+  if (value.isEmpty() || !mEnable) {
     return;
   }
   /* Enable/disable the unit combobox based on the literalConstant
@@ -678,27 +716,72 @@ void Parameter::updateValueBinding(const FlatModelica::Expression expression)
 {
   if (MainWindow::instance()->isNewApi()) {
     // update the binding with the new value
-    mpModelInstanceComponent->setBinding(expression);
+    mpModelInstanceElement->setBinding(expression);
     mpElementParameters->updateParameters();
   }
 }
 
-void Parameter::modifyReplaceableButtonClicked()
+/*!
+ * \brief Parameter::editRedeclareClassButtonClicked
+ * Slot activate when mpEditRedeclareClassButton clicked signal is raised.
+ * Opens ElementParameters dialog for the redeclare class.
+ */
+void Parameter::editRedeclareClassButtonClicked()
 {
-  QString className = mpModelInstanceComponent->getType();
-  qDebug() << className;
-
-  MainWindow::instance()->getProgressBar()->setRange(0, 0);
-  MainWindow::instance()->showProgressBar();
-  ElementParameters *pElementParameters = new ElementParameters(mpModelInstanceComponent, mpElementParameters->getGraphicsView(),
-                                                                mpElementParameters->isInherited(), true, mpElementParameters);
-  MainWindow::instance()->hideProgressBar();
-  MainWindow::instance()->getStatusBar()->clearMessage();
-  if (pElementParameters->exec() == QDialog::Accepted) {
-    qDebug() << pElementParameters->getModification();
-    setValueWidget(pElementParameters->getModification(), false, mUnit);
+  QString type;
+  if (mpValueComboBox->currentIndex() == 0) {
+    if (mValueType == Parameter::ReplaceableComponent) {
+      type = mpModelInstanceElement->getType();
+    } else if (mValueType == Parameter::ReplaceableClass) {
+      auto pReplaceableClass = dynamic_cast<ModelInstance::ReplaceableClass*>(mpModelInstanceElement);
+      type = pReplaceableClass->getBaseClass();
+    }
+  } else {
+    type = mpModelInstanceElement->getAnnotation()->getChoices().getType(mpValueComboBox->currentIndex() - 1);
   }
-  pElementParameters->deleteLater();
+
+  // if type is empty then try to parse the Modelica code of element redeclaration to get the type
+  if (type.isEmpty()) {
+    if (mValueType == Parameter::ReplaceableComponent) {
+      type = FlatModelica::Parser::getTypeFromElementRedeclaration(mpValueComboBox->lineEdit()->text());
+    } else if (mValueType == Parameter::ReplaceableClass) {
+      type = FlatModelica::Parser::getShortClassTypeFromElementRedeclaration(mpValueComboBox->lineEdit()->text());
+    }
+  }
+
+  if (type.isEmpty()) {
+    QMessageBox::critical(MainWindow::instance(), QString("%1 - %2").arg(Helper::applicationName, Helper::error),
+                          tr("Unable to find the redeclare class %1.").arg(type), Helper::ok);
+  } else {
+    ModelInstance::Model *pCurrentModel = mpModelInstanceElement->getModel();
+    const QJsonObject newModelJSON = MainWindow::instance()->getOMCProxy()->getModelInstance(type, mpValueComboBox->lineEdit()->text());
+    if (!newModelJSON.isEmpty()) {
+      const QJsonObject modifierJSON = MainWindow::instance()->getOMCProxy()->modifierToJSON(mpValueComboBox->lineEdit()->text());
+      if (!modifierJSON.isEmpty()) {
+        ModelInstance::Modifier elementModifier;
+        elementModifier.deserialize(QJsonValue(modifierJSON));
+        mpModelInstanceElement->setModifier(elementModifier);
+      }
+      ModelInstance::Model *pNewModel = new ModelInstance::Model(newModelJSON);
+      mpModelInstanceElement->setModel(pNewModel);
+      MainWindow::instance()->getProgressBar()->setRange(0, 0);
+      MainWindow::instance()->showProgressBar();
+      ElementParameters *pElementParameters = new ElementParameters(mpModelInstanceElement, mpElementParameters->getGraphicsView(), mpElementParameters->isInherited(), true, mpElementParameters);
+      MainWindow::instance()->hideProgressBar();
+      MainWindow::instance()->getStatusBar()->clearMessage();
+      if (pElementParameters->exec() == QDialog::Accepted) {
+        if (!pElementParameters->getModification().isEmpty()) {
+          setValueWidget(pElementParameters->getModification(), false, mUnit, true);
+        }
+      }
+      pElementParameters->deleteLater();
+      // reset the modifier
+      mpModelInstanceElement->resetModifier();
+      // reset the actual model of the element
+      mpModelInstanceElement->setModel(pCurrentModel);
+      delete pNewModel;
+    }
+  }
 }
 
 /*!
@@ -996,12 +1079,12 @@ QVBoxLayout *ParametersScrollArea::getLayout()
  * \param inherited
  * \param pParent
  */
-ElementParameters::ElementParameters(ModelInstance::Component *pComponent, GraphicsView *pGraphicsView, bool inherited, bool nested, QWidget *pParent)
+ElementParameters::ElementParameters(ModelInstance::Element *pElement, GraphicsView *pGraphicsView, bool inherited, bool nested, QWidget *pParent)
   : QDialog(pParent)
 {
   const QString className = pGraphicsView->getModelWidget()->getLibraryTreeItem()->getNameStructure();
-  setWindowTitle(tr("%1 - %2 - %3 in %4").arg(Helper::applicationName).arg(tr("Element Parameters")).arg(pComponent->getQualifiedName()).arg(className));
-  mpElement = pComponent;
+  setWindowTitle(tr("%1 - %2 - %3 in %4").arg(Helper::applicationName).arg(tr("Element Parameters")).arg(pElement->getQualifiedName()).arg(className));
+  mpElement = pElement;
   mpGraphicsView = pGraphicsView;
   mInherited = inherited;
   mNested = nested;
@@ -1017,6 +1100,62 @@ ElementParameters::~ElementParameters()
 {
   qDeleteAll(mParametersList.begin(), mParametersList.end());
   mParametersList.clear();
+}
+
+/*!
+ * \brief ElementParameters::applyStartFixedAndDisplayUnitModifiers
+ * \param pParameter
+ * \param modifier
+ * \param defaultValue
+ */
+void ElementParameters::applyStartFixedAndDisplayUnitModifiers(Parameter *pParameter, const ModelInstance::Modifier &modifier, bool defaultValue)
+{
+  if (pParameter) {
+    // if builtin type
+    if (MainWindow::instance()->getOMCProxy()->isBuiltinType(pParameter->getModelInstanceElement()->getRootType())) {
+      const QString value = modifier.getValue();
+      // if value is not empty then use it otherwise try to read start and fixed modifiers
+      if (pParameter->isShowStartAttribute() || (value.isEmpty() && !pParameter->isParameter())) {
+        bool hasStart = modifier.hasModifier("start");
+        bool hasFixed = modifier.hasModifier("fixed");
+        if (hasStart || hasFixed) {
+          if (!pParameter->isGroupDefined() && !pParameter->isParameter()) {
+            pParameter->setGroup("Initialization");
+          }
+          pParameter->setShowStartAndFixed(true);
+        }
+        if (hasStart) {
+          pParameter->setValueWidget(StringHandler::removeFirstLastQuotes(modifier.getModifier("start")), defaultValue, pParameter->getUnit());
+        }
+        if (hasFixed) {
+          pParameter->setFixedState(StringHandler::removeFirstLastQuotes(modifier.getModifier("fixed")), defaultValue);
+        }
+      } else {
+        pParameter->setValueWidget(value, defaultValue, pParameter->getUnit());
+      }
+    } else { // if not builtin type then use all sub modifiers
+      pParameter->setValueWidget(modifier.getValueWithSubModifiers(), defaultValue, pParameter->getUnit());
+    }
+    // displayUnit
+    QString displayUnit = StringHandler::removeFirstLastQuotes(modifier.getModifier("displayUnit"));
+    if (!displayUnit.isEmpty()) {
+      int index = pParameter->getUnitComboBox()->findData(displayUnit);
+      if (index < 0) {
+        // add modifier as additional display unit if compatible
+        index = pParameter->getUnitComboBox()->count() - 1;
+        OMCProxy *pOMCProxy = MainWindow::instance()->getOMCProxy();
+        if (index > -1 &&
+            (pOMCProxy->convertUnits(pParameter->getUnitComboBox()->itemData(0).toString(), displayUnit)).unitsCompatible) {
+          pParameter->getUnitComboBox()->addItem(Utilities::convertUnitToSymbol(displayUnit), displayUnit);
+          index ++;
+        }
+      }
+      if (index > -1) {
+        pParameter->getUnitComboBox()->setCurrentIndex(index);
+        pParameter->setDisplayUnit(displayUnit);
+      }
+    }
+  }
 }
 
 /*!
@@ -1111,11 +1250,11 @@ void ElementParameters::setUpDialog()
           }
           pGroupBoxGridLayout->addWidget(pParameter->getValueWidget(), layoutIndex, columnIndex++);
 
-//          if (pParameter->getModifyReplaceableButton()) {
-//            pGroupBoxGridLayout->addWidget(pParameter->getModifyReplaceableButton(), layoutIndex, columnIndex++);
-//          } else {
-//            pGroupBoxGridLayout->addItem(new QSpacerItem(1, 1), layoutIndex, columnIndex++);
-//          }
+          if (pParameter->getEditRedeclareClassButton()) {
+            pGroupBoxGridLayout->addWidget(pParameter->getEditRedeclareClassButton(), layoutIndex, columnIndex++);
+          } else {
+            pGroupBoxGridLayout->addItem(new QSpacerItem(1, 1), layoutIndex, columnIndex++);
+          }
 
           if (pParameter->getLoadSelectorFilter().compare("-") != 0 || pParameter->getLoadSelectorCaption().compare("-") != 0 ||
               pParameter->getSaveSelectorFilter().compare("-") != 0 || pParameter->getSaveSelectorCaption().compare("-") != 0) {
@@ -1151,8 +1290,8 @@ void ElementParameters::setUpDialog()
   pModifiersTabLayout->addWidget(mpModifiersTextBox);
   pModifiersTab->setLayout(pModifiersTabLayout);
   mpParametersTabWidget->addTab(pModifiersTab, "Modifiers");
-  // Issue #7494. Hide any empty tab.
-  for (int i = 0; i < mpParametersTabWidget->count(); ++i) {
+  // Issue #7494. Hide any empty tab. We start the loop from 1 since we don't want to remove General tab which is always the first tab.
+  for (int i = 1; i < mpParametersTabWidget->count(); ++i) {
     ParametersScrollArea *pParametersScrollArea = qobject_cast<ParametersScrollArea*>(mpParametersTabWidget->widget(i));
     if (pParametersScrollArea) {
       bool tabIsEmpty = true;
@@ -1198,24 +1337,23 @@ void ElementParameters::setUpDialog()
 void ElementParameters::createTabsGroupBoxesAndParameters(ModelInstance::Model *pModelInstance)
 {
   foreach (auto pElement, pModelInstance->getElements()) {
-    if (pElement->isComponent()) {
-      auto pComponent = dynamic_cast<ModelInstance::Component*>(pElement);
+    if (pElement->isComponent() || pElement->isShortClassDefinition()) {
       // if we already have the parameter with same name then just skip this one.
-      if (findParameter(pComponent->getName())) {
+      if (findParameter(pElement->getName())) {
         continue;
       }
       /* Ticket #2531
        * Do not show the protected & final parameters.
        */
-      if (!pComponent->isPublic() || pComponent->isFinal()) {
+      if (!pElement->getPrefixes()->isPublic() || pElement->getPrefixes()->isFinal()) {
         continue;
       }
       // if connectorSizing is present then don't show the parameter
-      if (pComponent->getAnnotation()->getDialogAnnotation().isConnectorSizing()) {
+      if (pElement->getAnnotation()->getDialogAnnotation().isConnectorSizing()) {
         continue;
       }
       // create the Parameter
-      Parameter *pParameter = new Parameter(pComponent, this);
+      Parameter *pParameter = new Parameter(pElement, this);
       if (!mTabsMap.contains(pParameter->getTab())) {
         ParametersScrollArea *pParametersScrollArea = new ParametersScrollArea;
         GroupBox *pGroupBox = new GroupBox(pParameter->getGroup());
@@ -1236,8 +1374,7 @@ void ElementParameters::createTabsGroupBoxesAndParameters(ModelInstance::Model *
       }
       mParametersList.append(pParameter);
     } else if (pElement->isExtend() && pElement->getModel()) {
-      auto pExtend = dynamic_cast<ModelInstance::Extend*>(pElement);
-      createTabsGroupBoxesAndParameters(pExtend->getModel());
+      createTabsGroupBoxesAndParameters(pElement->getModel());
     }
   }
 }
@@ -1252,7 +1389,7 @@ void ElementParameters::fetchElementExtendsModifiers(ModelInstance::Model *pMode
   foreach (auto pElement, pModelInstance->getElements()) {
     if (pElement->isExtend() && pElement->getModel()) {
       auto pExtend = dynamic_cast<ModelInstance::Extend*>(pElement);
-      foreach (auto modifier, pExtend->getExtendsModifier().getModifiers()) {
+      foreach (auto modifier, pExtend->getModifier().getModifiers()) {
         Parameter *pParameter = findParameter(modifier.getName());
         if (pParameter) {
           /* Ticket #2531
@@ -1263,40 +1400,7 @@ void ElementParameters::fetchElementExtendsModifiers(ModelInstance::Model *pMode
             delete pParameter;
             continue;
           }
-          pParameter->setValueWidget(modifier.getValue(), true, pParameter->getUnit());
-          foreach (auto subModifier, modifier.getModifiers()) {
-            if (subModifier.getName().compare(QStringLiteral("start")) == 0 || subModifier.getName().compare(QStringLiteral("fixed")) == 0) {
-              QString startOrFixed = subModifier.getValueWithoutQuotes();
-              if (!startOrFixed.isEmpty()) {
-                if (!pParameter->isGroupDefined()) {
-                  pParameter->setGroup("Initialization");
-                }
-                pParameter->setShowStartAndFixed(true);
-                if (subModifier.getName().compare(QStringLiteral("start")) == 0) {
-                  pParameter->setValueWidget(startOrFixed, true, pParameter->getUnit());
-                } else { // fixed modifier
-                  pParameter->setFixedState(startOrFixed, true);
-                }
-              }
-            } else if (subModifier.getName().compare(QStringLiteral("displayUnit")) == 0) {
-              QString displayUnit = subModifier.getValueWithoutQuotes();
-              int index = pParameter->getUnitComboBox()->findData(displayUnit);
-              if (index < 0) {
-                // add extends modifier as additional display unit if compatible
-                index = pParameter->getUnitComboBox()->count() - 1;
-                OMCProxy *pOMCProxy = MainWindow::instance()->getOMCProxy();
-                if (index > -1 &&
-                    (pOMCProxy->convertUnits(pParameter->getUnitComboBox()->itemData(0).toString(), displayUnit)).unitsCompatible) {
-                  pParameter->getUnitComboBox()->addItem(Utilities::convertUnitToSymbol(displayUnit), displayUnit);
-                  index ++;
-                }
-              }
-              if (index > -1) {
-                pParameter->getUnitComboBox()->setCurrentIndex(index);
-                pParameter->setDisplayUnit(displayUnit);
-              }
-            }
-          }
+          ElementParameters::applyStartFixedAndDisplayUnitModifiers(pParameter, modifier, true);
         }
       }
       fetchElementExtendsModifiers(pExtend->getModel());
@@ -1312,42 +1416,7 @@ void ElementParameters::fetchElementModifiers()
 {
   foreach (auto modifier, mpElement->getModifier().getModifiers()) {
     Parameter *pParameter = findParameter(modifier.getName());
-    if (pParameter) {
-      pParameter->setValueWidget(modifier.getValue(), mInherited, pParameter->getUnit());
-      foreach (auto subModifier, modifier.getModifiers()) {
-        if (subModifier.getName().compare(QStringLiteral("start")) == 0 || subModifier.getName().compare(QStringLiteral("fixed")) == 0) {
-          QString startOrFixed = subModifier.getValueWithoutQuotes();
-          if (!startOrFixed.isEmpty()) {
-            if (!pParameter->isGroupDefined()) {
-              pParameter->setGroup("Initialization");
-            }
-            pParameter->setShowStartAndFixed(true);
-            if (subModifier.getName().compare(QStringLiteral("start")) == 0) {
-              pParameter->setValueWidget(startOrFixed, mInherited, pParameter->getUnit());
-            } else { // fixed modifier
-              pParameter->setFixedState(startOrFixed, mInherited);
-            }
-          }
-        } else if (subModifier.getName().compare(QStringLiteral("displayUnit")) == 0) {
-          QString displayUnit = subModifier.getValueWithoutQuotes();
-          int index = pParameter->getUnitComboBox()->findData(displayUnit);
-          if (index < 0) {
-            // add modifier as additional display unit if compatible
-            index = pParameter->getUnitComboBox()->count() - 1;
-            OMCProxy *pOMCProxy = MainWindow::instance()->getOMCProxy();
-            if (index > -1 &&
-                (pOMCProxy->convertUnits(pParameter->getUnitComboBox()->itemData(0).toString(), displayUnit)).unitsCompatible) {
-              pParameter->getUnitComboBox()->addItem(Utilities::convertUnitToSymbol(displayUnit), displayUnit);
-              index ++;
-            }
-          }
-          if (index > -1) {
-            pParameter->getUnitComboBox()->setCurrentIndex(index);
-            pParameter->setDisplayUnit(displayUnit);
-          }
-        }
-      }
-    }
+    ElementParameters::applyStartFixedAndDisplayUnitModifiers(pParameter, modifier, mInherited);
   }
 }
 
@@ -1363,49 +1432,11 @@ void ElementParameters::fetchClassExtendsModifiers()
     if (pElement->isExtend() && pElement->getModel()) {
       auto pExtend = dynamic_cast<ModelInstance::Extend*>(pElement);
       if (pExtend->getModel()->getName().compare(mpElement->getParentModel()->getName()) == 0) {
-        foreach (auto modifier, pExtend->getExtendsModifier().getModifiers()) {
+        foreach (auto modifier, pExtend->getModifier().getModifiers()) {
           if (modifier.getName().compare(mpElement->getName()) == 0) {
             foreach (auto subModifier, modifier.getModifiers()) {
               Parameter *pParameter = findParameter(subModifier.getName());
-              if (pParameter) {
-                pParameter->setValueWidget(subModifier.getValue(), false, pParameter->getUnit());
-                foreach (auto subSubModifier, subModifier.getModifiers()) {
-                  if (subSubModifier.getName().compare(QStringLiteral("start")) == 0 || subSubModifier.getName().compare(QStringLiteral("fixed")) == 0) {
-                    QString startOrFixed = subSubModifier.getValueWithoutQuotes();
-                    if (!startOrFixed.isEmpty()) {
-                      if (!pParameter->isGroupDefined()) {
-                        pParameter->setGroup("Initialization");
-                      }
-                      pParameter->setShowStartAndFixed(true);
-                      if (subSubModifier.getName().compare(QStringLiteral("start")) == 0) {
-                        pParameter->setValueWidget(startOrFixed, false, pParameter->getUnit());
-                      } else { // fixed modifier
-                        pParameter->setFixedState(startOrFixed, false);
-                      }
-                    }
-                  } else if (subSubModifier.getName().compare(QStringLiteral("displayUnit")) == 0) {
-                    QString displayUnit = subSubModifier.getValueWithoutQuotes();
-                    int index = pParameter->getUnitComboBox()->findData(displayUnit);
-                    if (index < 0) {
-                      // add extends modifier as additional display unit if compatible
-                      index = pParameter->getUnitComboBox()->count() - 1;
-                      OMCProxy *pOMCProxy = MainWindow::instance()->getOMCProxy();
-                      if (index > -1 &&
-                          (pOMCProxy->convertUnits(pParameter->getUnitComboBox()->itemData(0).toString(), displayUnit)).unitsCompatible) {
-                        pParameter->getUnitComboBox()->addItem(Utilities::convertUnitToSymbol(displayUnit), displayUnit);
-                        index ++;
-                      }
-                      if (index > -1) {
-                        pParameter->getUnitComboBox()->setCurrentIndex(index);
-                        pParameter->setDisplayUnit(displayUnit);
-                      }
-                    } else {
-                      pParameter->setValueWidget(modifier.getValueWithoutQuotes(), false, pParameter->getUnit());
-                    }
-                  }
-                }
-              }
-              break;
+              ElementParameters::applyStartFixedAndDisplayUnitModifiers(pParameter, modifier, false);
             }
           }
           break;
@@ -1444,7 +1475,7 @@ Parameter* ElementParameters::findParameter(LibraryTreeItem *pLibraryTreeItem, c
 Parameter* ElementParameters::findParameter(const QString &parameter, Qt::CaseSensitivity caseSensitivity) const
 {
   foreach (Parameter *pParameter, mParametersList) {
-    if (pParameter->getModelInstanceComponent()->getName().compare(parameter, caseSensitivity) == 0) {
+    if (pParameter->getModelInstanceElement()->getName().compare(parameter, caseSensitivity) == 0) {
       return pParameter;
     }
   }
@@ -1476,88 +1507,98 @@ void ElementParameters::commentLinkClicked(QString link)
  */
 void ElementParameters::updateElementParameters()
 {
-  if (isNested()) {
-    mModification = "Test";
-  } else {
-    ModelWidget *pModelWidget = mpGraphicsView->getModelWidget();
-    ModelInfo oldModelInfo = pModelWidget->createModelInfo();
-    QString className = pModelWidget->getLibraryTreeItem()->getNameStructure();
-    OMCProxy *pOMCProxy = MainWindow::instance()->getOMCProxy();
-    bool valueChanged = false;
-    QMap<QString, QString> elementModifiersMap;
-    // any parameter changed
-    foreach (Parameter *pParameter, mParametersList) {
-      // if parameter is not visible then continue
-      if (pParameter->getGroup().isEmpty()) {
-        continue;
-      }
-      QString elementModifierKey = pParameter->getNameLabel()->text();
-      QString elementModifierValue = pParameter->getValue();
-      // convert the value to display unit
-      if (!pParameter->getUnit().isEmpty() && pParameter->getUnit().compare(pParameter->getUnitComboBox()->itemData(pParameter->getUnitComboBox()->currentIndex()).toString()) != 0) {
-        bool ok = true;
-        qreal elementModifierRealValue = elementModifierValue.toDouble(&ok);
-        // if the modifier is a literal constant
-        if (ok) {
-          OMCInterface::convertUnits_res convertUnit = pOMCProxy->convertUnits(pParameter->getUnitComboBox()->itemData(pParameter->getUnitComboBox()->currentIndex()).toString(), pParameter->getUnit());
-          if (convertUnit.unitsCompatible) {
-            elementModifierRealValue = Utilities::convertUnit(elementModifierRealValue, convertUnit.offset, convertUnit.scaleFactor);
-            elementModifierValue = StringHandler::number(elementModifierRealValue);
-          }
-        } else { // if expression
-          elementModifierValue = Utilities::arrayExpressionUnitConversion(pOMCProxy, elementModifierValue, pParameter->getUnitComboBox()->itemData(pParameter->getUnitComboBox()->currentIndex()).toString(), pParameter->getUnit());
+  ModelWidget *pModelWidget = mpGraphicsView->getModelWidget();
+  ModelInfo oldModelInfo = pModelWidget->createModelInfo();
+  QString className = pModelWidget->getLibraryTreeItem()->getNameStructure();
+  OMCProxy *pOMCProxy = MainWindow::instance()->getOMCProxy();
+  bool valueChanged = false;
+  QMap<QString, QString> elementModifiersMap;
+  // any parameter changed
+  foreach (Parameter *pParameter, mParametersList) {
+    // if parameter is not visible then continue
+    if (pParameter->getGroup().isEmpty()) {
+      continue;
+    }
+    QString elementModifierKey = pParameter->getNameLabel()->text();
+    QString elementModifierValue = pParameter->getValue();
+    // convert the value to display unit
+    if (!pParameter->getUnit().isEmpty() && pParameter->getUnit().compare(pParameter->getUnitComboBox()->itemData(pParameter->getUnitComboBox()->currentIndex()).toString()) != 0) {
+      bool ok = true;
+      qreal elementModifierRealValue = elementModifierValue.toDouble(&ok);
+      // if the modifier is a literal constant
+      if (ok) {
+        OMCInterface::convertUnits_res convertUnit = pOMCProxy->convertUnits(pParameter->getUnitComboBox()->itemData(pParameter->getUnitComboBox()->currentIndex()).toString(), pParameter->getUnit());
+        if (convertUnit.unitsCompatible) {
+          elementModifierRealValue = Utilities::convertUnit(elementModifierRealValue, convertUnit.offset, convertUnit.scaleFactor);
+          elementModifierValue = StringHandler::number(elementModifierRealValue);
         }
-      }
-      if (pParameter->isValueModified()) {
-        valueChanged = true;
-        elementModifiersMap.insert(elementModifierKey, elementModifierValue);
-      }
-      if (pParameter->isShowStartAndFixed() && (pParameter->getFixedState().compare(pParameter->getOriginalFixedValue()) != 0)) {
-        valueChanged = true;
-        elementModifierKey = elementModifierKey.replace(".start", ".fixed");
-        elementModifierValue = pParameter->getFixedState();
-        elementModifiersMap.insert(elementModifierKey, elementModifierValue);
-      }
-      // remove the .start or .fixed from modifier key
-      if (pParameter->isShowStartAndFixed()) {
-        if (elementModifierKey.endsWith(".start")) {
-          elementModifierKey.chop(QString(".start").length());
-        }
-        if (elementModifierKey.endsWith(".fixed")) {
-          elementModifierKey.chop(QString(".fixed").length());
-        }
-      }
-      // if displayUnit is changed
-      const QString unit = pParameter->getUnitComboBox()->itemData(pParameter->getUnitComboBox()->currentIndex()).toString();
-      if (pParameter->getUnitComboBox()->isEnabled() && !unit.isEmpty() && pParameter->getDisplayUnit().compare(unit) != 0) {
-        valueChanged = true;
-        elementModifiersMap.insert(elementModifierKey % ".displayUnit", "\"" + unit + "\"");
+      } else { // if expression
+        elementModifierValue = Utilities::arrayExpressionUnitConversion(pOMCProxy, elementModifierValue, pParameter->getUnitComboBox()->itemData(pParameter->getUnitComboBox()->currentIndex()).toString(), pParameter->getUnit());
       }
     }
-    // any new modifier is added
-    if (!mpModifiersTextBox->text().isEmpty()) {
-      QString regexp ("\\s*([A-Za-z0-9._]+\\s*)\\(\\s*([A-Za-z0-9._]+)\\s*=\\s*([A-Za-z0-9._]+)\\s*\\)$");
-      QRegExp modifierRegExp (regexp);
-  #if (QT_VERSION >= QT_VERSION_CHECK(5, 14, 0))
-      QStringList modifiers = mpModifiersTextBox->text().split(",", Qt::SkipEmptyParts);
-  #else // QT_VERSION_CHECK
-      QStringList modifiers = mpModifiersTextBox->text().split(",", QString::SkipEmptyParts);
-  #endif // QT_VERSION_CHECK
-      foreach (QString modifier, modifiers) {
-        modifier = modifier.trimmed();
-        if (modifierRegExp.exactMatch(modifier)) {
-          valueChanged = true;
-          QString elementModifierKey = modifier.mid(0, modifier.indexOf("("));
-          QString elementModifierValue = modifier.mid(modifier.indexOf("("));
-          elementModifiersMap.insert(elementModifierKey, elementModifierValue);
+    if (pParameter->isValueModified()) {
+      valueChanged = true;
+      elementModifiersMap.insert(elementModifierKey, elementModifierValue);
+    }
+    if (pParameter->isShowStartAndFixed() && (pParameter->getFixedState().compare(pParameter->getOriginalFixedValue()) != 0)) {
+      valueChanged = true;
+      elementModifierKey = elementModifierKey.replace(".start", ".fixed");
+      elementModifierValue = pParameter->getFixedState();
+      elementModifiersMap.insert(elementModifierKey, elementModifierValue);
+    }
+    // remove the .start or .fixed from modifier key
+    if (pParameter->isShowStartAndFixed()) {
+      if (elementModifierKey.endsWith(".start")) {
+        elementModifierKey.chop(QString(".start").length());
+      }
+      if (elementModifierKey.endsWith(".fixed")) {
+        elementModifierKey.chop(QString(".fixed").length());
+      }
+    }
+    // if displayUnit is changed
+    const QString unit = pParameter->getUnitComboBox()->itemData(pParameter->getUnitComboBox()->currentIndex()).toString();
+    if (pParameter->getUnitComboBox()->isEnabled() && !unit.isEmpty() && pParameter->getDisplayUnit().compare(unit) != 0) {
+      valueChanged = true;
+      elementModifiersMap.insert(elementModifierKey % ".displayUnit", "\"" + unit + "\"");
+    }
+  }
+  // any new modifier is added
+  if (!mpModifiersTextBox->text().isEmpty()) {
+    QString regexp ("\\s*([A-Za-z0-9._]+\\s*)\\(\\s*([A-Za-z0-9._]+)\\s*=\\s*([A-Za-z0-9._]+)\\s*\\)$");
+    QRegExp modifierRegExp (regexp);
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 14, 0))
+    QStringList modifiers = mpModifiersTextBox->text().split(",", Qt::SkipEmptyParts);
+#else // QT_VERSION_CHECK
+    QStringList modifiers = mpModifiersTextBox->text().split(",", QString::SkipEmptyParts);
+#endif // QT_VERSION_CHECK
+    foreach (QString modifier, modifiers) {
+      modifier = modifier.trimmed();
+      if (modifierRegExp.exactMatch(modifier)) {
+        valueChanged = true;
+        QString elementModifierKey = modifier.mid(0, modifier.indexOf("("));
+        QString elementModifierValue = modifier.mid(modifier.indexOf("("));
+        elementModifiersMap.insert(elementModifierKey, elementModifierValue);
+      } else {
+        MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica, GUIMessages::getMessage(GUIMessages::WRONG_MODIFIER).arg(modifier),
+                                                              Helper::scriptingKind, Helper::errorLevel));
+      }
+    }
+  }
+  // if valueChanged is true then put the change in the undo stack.
+  if (valueChanged) {
+    if (mNested) {
+      QStringList modifications;
+      QMap<QString, QString>::iterator newElementModifier;
+      for (newElementModifier = elementModifiersMap.begin(); newElementModifier != elementModifiersMap.end(); ++newElementModifier) {
+        QString modifierValue = newElementModifier.value().trimmed();
+        if (modifierValue.startsWith("(") && modifierValue.contains("=")) {
+          modifications.append(newElementModifier.key() % modifierValue);
         } else {
-          MessagesWidget::instance()->addGUIMessage(MessageItem(MessageItem::Modelica, GUIMessages::getMessage(GUIMessages::WRONG_MODIFIER).arg(modifier),
-                                                                Helper::scriptingKind, Helper::errorLevel));
+          modifications.append(newElementModifier.key() % "=" % modifierValue);
         }
       }
-    }
-    // if valueChanged is true then put the change in the undo stack.
-    if (valueChanged) {
+      mModification = "(" % modifications.join(",") % ")";
+    } else {
       // apply the new Component modifiers if any
       QMap<QString, QString>::iterator newElementModifier;
       for (newElementModifier = elementModifiersMap.begin(); newElementModifier != elementModifiersMap.end(); ++newElementModifier) {
@@ -1567,7 +1608,7 @@ void ElementParameters::updateElementParameters()
         if (mInherited) {
           pOMCProxy->setExtendsModifierValue(className, mpElement->getParentModel()->getName(), modifierKey, modifierValue);
         } else {
-          pOMCProxy->setComponentModifierValue(className, modifierKey, modifierValue);
+          pOMCProxy->setElementModifierValue(className, modifierKey, modifierValue);
         }
       }
       ModelInfo newModelInfo = pModelWidget->createModelInfo();
@@ -1588,7 +1629,7 @@ void ElementParameters::reject()
   foreach (Parameter *pParameter, mParametersList) {
     // reset any changed parameter binding
     if (pParameter->isValueModified()) {
-      pParameter->getModelInstanceComponent()->resetBinding();
+      pParameter->getModelInstanceElement()->resetBinding();
     }
   }
   QDialog::reject();
@@ -1624,14 +1665,17 @@ ElementParametersOld::~ElementParametersOld()
 }
 
 /*!
- * \brief ElementParameters::updateParameters
- * Updates the parameters.
+ * \brief ElementParametersOld::getElementParentClassName
+ * Returns the class name where the component is defined.
+ * \return
  */
-void ElementParametersOld::updateParameters()
+QString ElementParametersOld::getElementParentClassName() const
 {
-  foreach (Parameter *pParameter, mParametersList) {
-    pParameter->update();
+  QString parentClassName = mpElement->getGraphicsView()->getModelWidget()->getLibraryTreeItem()->getNameStructure();
+  if (mpElement->isInheritedElement() && mpElement->getReferenceElement() && mpElement->getReferenceElement()->getGraphicsView()) {
+    parentClassName = mpElement->getReferenceElement()->getGraphicsView()->getModelWidget()->getLibraryTreeItem()->getNameStructure();
   }
+  return parentClassName;
 }
 
 /*!
@@ -1721,12 +1765,6 @@ void ElementParametersOld::setUpDialog()
             pGroupBoxGridLayout->addItem(new QSpacerItem(1, 1), layoutIndex, columnIndex++);
           }
           pGroupBoxGridLayout->addWidget(pParameter->getValueWidget(), layoutIndex, columnIndex++);
-
-          if (pParameter->getModifyReplaceableButton()) {
-            pGroupBoxGridLayout->addWidget(pParameter->getModifyReplaceableButton(), layoutIndex, columnIndex++);
-          } else {
-            pGroupBoxGridLayout->addItem(new QSpacerItem(1, 1), layoutIndex, columnIndex++);
-          }
 
           if (pParameter->getLoadSelectorFilter().compare("-") != 0 || pParameter->getLoadSelectorCaption().compare("-") != 0 ||
               pParameter->getSaveSelectorFilter().compare("-") != 0 || pParameter->getSaveSelectorCaption().compare("-") != 0) {
@@ -1973,7 +2011,7 @@ void ElementParametersOld::createTabsGroupBoxesAndParametersHelper(LibraryTreeIt
       pGroupBox->setGroupImage(groupImage);
     }
     // create the Parameter
-    Parameter *pParameter = new Parameter(pElement, showStartAttribute, tab, groupBox);
+    Parameter *pParameter = new Parameter(pElement, showStartAttribute, tab, groupBox, this);
     pParameter->setEnabled(enable);
     pParameter->setLoadSelectorFilter(loadSelectorFilter);
     pParameter->setLoadSelectorCaption(loadSelectorCaption);
@@ -2443,7 +2481,7 @@ void ElementAttributes::initializeDialog()
     mpNameTextBox->setText(mpElement->getModelComponent()->getName());
     mpNameTextBox->setCursorPosition(0);
     // get dimensions
-    QString dimensions = mpElement->getModelComponent()->getAbsynDimensionsString();
+    QString dimensions = mpElement->getModelComponent()->getDimensions().getAbsynDimensionsString();
     mpDimensionsTextBox->setText(QString("[%1]").arg(dimensions));
     // get Comment
     mpCommentTextBox->setText(mpElement->getModelComponent()->getComment());
@@ -2451,7 +2489,7 @@ void ElementAttributes::initializeDialog()
     // get classname
     mpPathTextBox->setText(mpElement->getModelComponent()->getType());
     // get Variability
-    const QString variability = mpElement->getModelComponent()->getVariability();
+    const QString variability = mpElement->getModelComponent()->getPrefixes()->getVariability();
     if (variability.compare(QStringLiteral("constant")) == 0) {
       mpConstantRadio->setChecked(true);
     } else if (variability.compare(QStringLiteral("parameter")) == 0) {
@@ -2462,11 +2500,11 @@ void ElementAttributes::initializeDialog()
       mpDefaultRadio->setChecked(true);
     }
     // get Properties
-    mpFinalCheckBox->setChecked(mpElement->getModelComponent()->isFinal());
-    mpProtectedCheckBox->setChecked(!mpElement->getModelComponent()->isPublic());
-    mpReplaceAbleCheckBox->setChecked(mpElement->getModelComponent()->getReplaceable()->isReplaceable());
+    mpFinalCheckBox->setChecked(mpElement->getModelComponent()->getPrefixes()->isFinal());
+    mpProtectedCheckBox->setChecked(!mpElement->getModelComponent()->getPrefixes()->isPublic());
+    mpReplaceAbleCheckBox->setChecked(mpElement->getModelComponent()->getPrefixes()->getReplaceable());
     // get Casuality
-    const QString direction = mpElement->getModelComponent()->getDirection();
+    const QString direction = mpElement->getModelComponent()->getPrefixes()->getDirection();
     if (direction.compare(QStringLiteral("input")) == 0) {
       mpInputRadio->setChecked(true);
     } else if (direction.compare(QStringLiteral("output")) == 0) {
@@ -2475,8 +2513,8 @@ void ElementAttributes::initializeDialog()
       mpNoneRadio->setChecked(true);
     }
     // get InnerOuter
-    mpInnerCheckBox->setChecked(mpElement->getModelComponent()->isInner());
-    mpOuterCheckBox->setChecked(mpElement->getModelComponent()->isOuter());
+    mpInnerCheckBox->setChecked(mpElement->getModelComponent()->getPrefixes()->isInner());
+    mpOuterCheckBox->setChecked(mpElement->getModelComponent()->getPrefixes()->isOuter());
   } else {
     // get Class Name
     mpNameTextBox->setText(mpElement->getElementInfo()->getName());
@@ -2578,16 +2616,16 @@ void ElementAttributes::updateElementAttributes()
     OMCProxy *pOMCProxy = MainWindow::instance()->getOMCProxy();
     QString modelName = pModelWidget->getLibraryTreeItem()->getNameStructure();
     bool attributesChanged = false;
-    attributesChanged |= mpElement->getModelComponent()->isFinal() != mpFinalCheckBox->isChecked();
-    attributesChanged |= !mpElement->getModelComponent()->isPublic() != mpProtectedCheckBox->isChecked();
-    attributesChanged |= mpElement->getModelComponent()->getReplaceable()->isReplaceable() != mpReplaceAbleCheckBox->isChecked();
-    attributesChanged |= mpElement->getModelComponent()->getVariability().compare(variability) != 0;
-    attributesChanged |= mpElement->getModelComponent()->isInner() != mpInnerCheckBox->isChecked();
-    attributesChanged |= mpElement->getModelComponent()->isOuter() != mpOuterCheckBox->isChecked();
-    attributesChanged |= mpElement->getModelComponent()->getDirection().compare(causality) != 0;
+    attributesChanged |= mpElement->getModelComponent()->getPrefixes()->isFinal() != mpFinalCheckBox->isChecked();
+    attributesChanged |= !mpElement->getModelComponent()->getPrefixes()->isPublic() != mpProtectedCheckBox->isChecked();
+    attributesChanged |= mpElement->getModelComponent()->getPrefixes()->getReplaceable() ? true : false != mpReplaceAbleCheckBox->isChecked();
+    attributesChanged |= mpElement->getModelComponent()->getPrefixes()->getVariability().compare(variability) != 0;
+    attributesChanged |= mpElement->getModelComponent()->getPrefixes()->isInner() != mpInnerCheckBox->isChecked();
+    attributesChanged |= mpElement->getModelComponent()->getPrefixes()->isOuter() != mpOuterCheckBox->isChecked();
+    attributesChanged |= mpElement->getModelComponent()->getPrefixes()->getDirection().compare(causality) != 0;
 
     QString isFinal = mpFinalCheckBox->isChecked() ? "true" : "false";
-    QString flow = (mpElement->getModelComponent()->getConnector().compare(QStringLiteral("flow")) == 0) ? "true" : "false";
+    QString flow = (mpElement->getModelComponent()->getPrefixes()->getConnector().compare(QStringLiteral("flow")) == 0) ? "true" : "false";
     QString isProtected = mpProtectedCheckBox->isChecked() ? "true" : "false";
     QString isReplaceAble = mpReplaceAbleCheckBox->isChecked() ? "true" : "false";
     QString isInner = mpInnerCheckBox->isChecked() ? "true" : "false";
@@ -2613,7 +2651,7 @@ void ElementAttributes::updateElementAttributes()
     }
     // update the element dimensions
     const QString dimensions = StringHandler::removeFirstLastSquareBrackets(mpDimensionsTextBox->text());
-    if (mpElement->getModelComponent()->getAbsynDimensionsString().compare(dimensions) != 0) {
+    if (mpElement->getModelComponent()->getDimensions().getAbsynDimensionsString().compare(dimensions) != 0) {
       const QString arrayIndex = QString("{%1}").arg(dimensions);
       if (pOMCProxy->setComponentDimensions(modelName, mpElement->getName(), arrayIndex)) {
         attributesChanged = true;

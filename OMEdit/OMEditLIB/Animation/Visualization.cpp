@@ -41,12 +41,13 @@
 #include <QOpenGLContext> // must be included before OSG headers
 #include <osg/GL> // for having direct access to glClear()
 
+#include <osg/Array>
 #include <osg/Drawable>
-#include <osg/Material>
 #include <osg/Shape>
 #include <osg/ShapeDrawable>
 #include <osg/StateAttribute>
 #include <osg/Texture2D>
+#include <osgDB/Options>
 #include <osgDB/ReadFile>
 #include <osgGA/OrbitManipulator>
 #include <osgUtil/CullVisitor>
@@ -316,7 +317,7 @@ void OMVisualBase::initVisObjects()
     }
     shape._type = std::string(expNode->value());
 
-    if (isCADType(shape._type))
+    if (isCADFile(shape._type))
     {
       shape._fileName = extractCADFilename(shape._type);
       if (!fileExists(shape._fileName)) {
@@ -327,10 +328,14 @@ void OMVisualBase::initVisObjects()
         continue;
       }
 
-      if (dxfFileType(shape._fileName)) {
-        shape._type = "dxf";
-      } else if (stlFileType(shape._fileName)) {
-        shape._type = "stl";
+      if (isDXFFile(shape._fileName)) {
+        shape._type = "DXF";
+      } else if (isSTLFile(shape._fileName)) {
+        shape._type = "STL";
+      } else if (isOBJFile(shape._fileName)) {
+        shape._type = "OBJ";
+      } else if (is3DSFile(shape._fileName)) {
+        shape._type = "3DS";
       }
     }
 
@@ -790,8 +795,8 @@ void OMVisualBase::chooseVectorScales(osgViewer::View* view, OpenThreads::Mutex*
 
         // Store the radius of relevant shapes
         for (ShapeObject& shape : relevantShapes) {
-          // Consider OpenSceneGraph shape drawables only
-          if (shape._type.compare("dxf") == 0 || shape._type.compare("stl") == 0) {
+          // Consider OSG shape drawables only
+          if (isCADType(shape._type)) {
             continue;
           }
 
@@ -1281,24 +1286,31 @@ void OSGScene::setUpScene(std::vector<ShapeObject>& shapes)
     osg::ref_ptr<osg::MatrixTransform> transf = new osg::MatrixTransform();
     transf->setName(shape._id);
 
-    if (shape._type.compare("stl") == 0)
-    { //cad node
-      //std::cout<<"It's a stl and the filename is "<<shape._fileName<<std::endl;
+    if (isAdvancedCADType(shape._type))
+    { //advanced cad node
+      //std::cout<<"It's an advanced cad and the filename is "<<shape._fileName<<std::endl;
       osg::ref_ptr<osg::Node> node = osgDB::readNodeFile(shape._fileName);
       if (node.valid())
       {
-        osg::ref_ptr<osg::Material> material = new osg::Material();
-        material->setDiffuse(osg::Material::FRONT, osg::Vec4f(0.0, 0.0, 0.0, 0.0));
-
-        osg::ref_ptr<osg::StateSet> ss = node->getOrCreateStateSet();
-        ss->setAttribute(material.get());
-
         osg::ref_ptr<CADFile> cad = new CADFile(node.get());
 
         transf->addChild(cad.get());
       }
     }
-    else if (shape._type.compare("dxf") == 0)
+    else if (isSTLType(shape._type))
+    { //stl node
+      //std::cout<<"It's a stl and the filename is "<<shape._fileName<<std::endl;
+      // Disable mesh optimization because it is too expensive (see OSG commit a082b57)
+      osg::ref_ptr<osgDB::Options> options = new osgDB::Options("noTriStripPolygons");
+      osg::ref_ptr<osg::Node> node = osgDB::readNodeFile(shape._fileName, options.get());
+      if (node.valid())
+      {
+        osg::ref_ptr<CADFile> cad = new CADFile(node.get());
+
+        transf->addChild(cad.get());
+      }
+    }
+    else if (isDXFType(shape._type))
     { //geode with dxf drawable
       //std::cout<<"It's a dxf and the filename is "<<shape._fileName<<std::endl;
       osg::ref_ptr<DXFile> dxfDraw = new DXFile(shape._fileName);
@@ -1313,16 +1325,9 @@ void OSGScene::setUpScene(std::vector<ShapeObject>& shapes)
     else
     { //geode with shape drawable
       osg::ref_ptr<osg::ShapeDrawable> shapeDraw = new osg::ShapeDrawable();
-      shapeDraw->setColor(osg::Vec4(1.0, 1.0, 1.0, 1.0));
 
       osg::ref_ptr<osg::Geode> geode = new osg::Geode();
       geode->addDrawable(shapeDraw.get());
-
-      osg::ref_ptr<osg::Material> material = new osg::Material();
-      material->setDiffuse(osg::Material::FRONT, osg::Vec4f(0.0, 0.0, 0.0, 0.0));
-
-      osg::ref_ptr<osg::StateSet> ss = geode->getOrCreateStateSet();
-      ss->setAttribute(material.get());
 
       transf->addChild(geode.get());
     }
@@ -1348,24 +1353,13 @@ void OSGScene::setUpScene(std::vector<VectorObject>& vectors)
     transf->addCullCallback(_atCullCallback.get());
 
     osg::ref_ptr<osg::ShapeDrawable> shapeDraw0 = new osg::ShapeDrawable(); // shaft cylinder
-    shapeDraw0->setColor(osg::Vec4(1.0, 1.0, 1.0, 1.0));
-
     osg::ref_ptr<osg::ShapeDrawable> shapeDraw1 = new osg::ShapeDrawable(); // first head cone
-    shapeDraw1->setColor(osg::Vec4(1.0, 1.0, 1.0, 1.0));
-
     osg::ref_ptr<osg::ShapeDrawable> shapeDraw2 = new osg::ShapeDrawable(); // second head cone
-    shapeDraw2->setColor(osg::Vec4(1.0, 1.0, 1.0, 1.0));
 
     osg::ref_ptr<osg::Geode> geode = new osg::Geode();
     geode->addDrawable(shapeDraw0.get());
     geode->addDrawable(shapeDraw1.get());
     geode->addDrawable(shapeDraw2.get());
-
-    osg::ref_ptr<osg::Material> material = new osg::Material();
-    material->setDiffuse(osg::Material::FRONT, osg::Vec4f(0.0, 0.0, 0.0, 0.0));
-
-    osg::ref_ptr<osg::StateSet> ss = geode->getOrCreateStateSet();
-    ss->setAttribute(material.get());
 
     transf->addChild(geode.get());
 
@@ -1421,7 +1415,10 @@ void UpdateVisitor::apply(osg::MatrixTransform& node)
  */
 void UpdateVisitor::apply(osg::Geode& node)
 {
-  //std::cout<<"GEODE "<< _visualizer->_id<<" "<<_visualizer->getTransparency()<<std::endl;
+  //std::cout<<"GEODE "<<_visualizer->_id<<std::endl;
+  bool changeMaterial = _changeMaterialProperties;
+  bool changeTexture = false;
+
   switch (_visualizer->getStateSetAction())
   {
   case StateSetAction::update:
@@ -1431,12 +1428,13 @@ void UpdateVisitor::apply(osg::Geode& node)
     case VisualizerType::shape:
      {
       ShapeObject* shape = _visualizer->asShape();
-      if (shape->_type.compare("dxf") == 0 or shape->_type.compare("stl") == 0)
+      if (isCADType(shape->_type))
       {
         //it's a cad file so we have to rescale the underlying geometry vertices
-        if (shape->getTransformNode().valid() && shape->getTransformNode()->getNumChildren() > 0)
+        osg::ref_ptr<osg::Transform> transformNode = shape->getTransformNode();
+        if (transformNode.valid() && transformNode->getNumChildren() > 0)
         {
-          osg::ref_ptr<CADFile> cad = dynamic_cast<CADFile*>(shape->getTransformNode()->getChild(0));
+          osg::ref_ptr<CADFile> cad = dynamic_cast<CADFile*>(transformNode->getChild(0));
           if (cad.valid())
           {
             cad->scaleVertices(node, shape->_extra.exp, shape->_length.exp, shape->_width.exp, shape->_height.exp);
@@ -1551,9 +1549,8 @@ void UpdateVisitor::apply(osg::Geode& node)
 
   case StateSetAction::modify:
    {
-     //apply texture
-     applyTexture(node.getOrCreateStateSet(), _visualizer->getTextureImagePath());
-     break;
+    changeTexture = true;
+    break;
    }//end case action modify
 
   default:
@@ -1561,13 +1558,53 @@ void UpdateVisitor::apply(osg::Geode& node)
 
   }//end switch action
 
-  if (_changeMaterialProperties) {
-    if (!_visualizer->isShape() or _visualizer->asShape()->_type.compare("dxf") != 0) {
-      //set color
-      changeColor(node.getOrCreateStateSet(), _visualizer->getColor());
+  if (changeMaterial || changeTexture) {
+    osg::ref_ptr<osg::StateSet> stateSet = nullptr;
+    bool geometryColors = false;
+    bool is3DSShape = false;
+
+    if (_visualizer->isShape()) {
+      ShapeObject* shape = _visualizer->asShape();
+      if (isCADType(shape->_type)) {
+        osg::ref_ptr<osg::Transform> transformNode = shape->getTransformNode();
+        if (transformNode.valid() && transformNode->getNumChildren() > 0) {
+          osg::ref_ptr<CADFile> cad = dynamic_cast<CADFile*>(transformNode->getChild(0));
+          if (cad.valid()) {
+            stateSet = cad->getOrCreateStateSet();
+            geometryColors = !shape->getVisualProperties()->getColor().custom();
+            is3DSShape = is3DSType(shape->_type);
+          }
+        }
+      }
+    }
+
+    osg::ref_ptr<osg::StateSet> ss = stateSet.valid() ? stateSet.get() : node.getOrCreateStateSet();
+    osg::Material::ColorMode mode = geometryColors ? osg::Material::AMBIENT_AND_DIFFUSE : osg::Material::OFF;
+
+    AbstractVisualProperties* visualProperties = _visualizer->getVisualProperties();
+    QColor      color            = visualProperties->getColor().get();
+    float       specular         = visualProperties->getSpecular().get();
+    float       transparency     = visualProperties->getTransparency().get();
+    std::string textureImagePath = visualProperties->getTextureImagePath().get();
+
+    if (changeMaterial) {
+      //set color and specular coefficient
+      changeColorOfMaterial(ss, mode, color, specular);
 
       //set transparency
-      changeTransparency(node.getOrCreateStateSet(), _visualizer->getTransparency());
+      changeTransparencyOfMaterial(ss, transparency);
+      if (geometryColors) {
+        if (is3DSShape) {
+          changeTransparencyOfGeometry<osg::Vec4ubArray, 255>(node, transparency);
+        } else {
+          changeTransparencyOfGeometry<osg::Vec4Array, 1>    (node, transparency);
+        }
+      }
+    }
+
+    if (changeTexture) {
+      //set texture
+      applyTexture(ss, textureImagePath);
     }
   }
 
@@ -1601,7 +1638,7 @@ osg::Image* UpdateVisitor::convertImage(const QImage& iImage)
 
 /*!
  * \brief UpdateVisitor::applyTexture
- * sets a texture for a geode
+ * sets a texture on a geode
  */
 void UpdateVisitor::applyTexture(osg::StateSet* ss, const std::string& imagePath)
 {
@@ -1634,7 +1671,7 @@ void UpdateVisitor::applyTexture(osg::StateSet* ss, const std::string& imagePath
         texture->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP);
         texture->setImage(image.get());
         texture->setResizeNonPowerOfTwoHint(false);// don't output console message about scaling
-        ss->setTextureAttributeAndModes(0, texture.get(), osg::StateAttribute::ON);
+        ss->setTextureAttributeAndModes(0, texture.get(), osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
       }
     }
     else
@@ -1646,34 +1683,67 @@ void UpdateVisitor::applyTexture(osg::StateSet* ss, const std::string& imagePath
 }
 
 /*!
- * \brief UpdateVisitor::changeColor
- * changes color for a geode
+ * \brief UpdateVisitor::changeColorOfMaterial
+ * changes color of a material
  */
-void UpdateVisitor::changeColor(osg::StateSet* ss, const QColor color)
+void UpdateVisitor::changeColorOfMaterial(osg::StateSet* ss, const osg::Material::ColorMode mode, const QColor color, const float specular)
 {
   if (ss)
   {
     osg::ref_ptr<osg::Material> material = dynamic_cast<osg::Material*>(ss->getAttribute(osg::StateAttribute::MATERIAL));
     if (!material.valid()) material = new osg::Material();
-    material->setDiffuse(osg::Material::FRONT, osg::Vec4f(color.redF(), color.greenF(), color.blueF(), color.alphaF()));
-    ss->setAttribute(material.get());
+    material->setColorMode(mode);
+    material->setAmbient  (osg::Material::FRONT_AND_BACK, osg::Vec4f(color.redF(), color.greenF(), color.blueF(), color.alphaF()));
+    material->setDiffuse  (osg::Material::FRONT_AND_BACK, osg::Vec4f(color.redF(), color.greenF(), color.blueF(), color.alphaF()));
+    material->setSpecular (osg::Material::FRONT_AND_BACK, osg::Vec4f(specular, specular, specular, 1.0));
+    material->setShininess(osg::Material::FRONT_AND_BACK, 8.0); // Material shininess in range [0., 128.]
+    ss->setAttributeAndModes(material.get(), osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
   }
 }
 
 /*!
- * \brief UpdateVisitor::changeTransparency
- * changes transparency for a geode
+ * \brief UpdateVisitor::changeTransparencyOfMaterial
+ * changes transparency of a material
  */
-void UpdateVisitor::changeTransparency(osg::StateSet* ss, const float transparency)
+void UpdateVisitor::changeTransparencyOfMaterial(osg::StateSet* ss, const float transparency)
 {
   if (ss)
   {
     osg::ref_ptr<osg::Material> material = dynamic_cast<osg::Material*>(ss->getAttribute(osg::StateAttribute::MATERIAL));
     if (!material.valid()) material = new osg::Material();
     material->setTransparency(osg::Material::FRONT_AND_BACK, transparency);
-    ss->setAttributeAndModes(material.get(), osg::StateAttribute::OVERRIDE);
+    ss->setAttributeAndModes(material.get(), osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
     ss->setMode(GL_BLEND, transparency ? osg::StateAttribute::ON : osg::StateAttribute::OFF);
     ss->setRenderingHint(transparency ? osg::StateSet::TRANSPARENT_BIN : osg::StateSet::OPAQUE_BIN);
+  }
+}
+
+/*!
+ * \brief UpdateVisitor::changeTransparencyOfGeometry
+ * changes transparency of a geode's geometry
+ */
+template<typename Vec4Array, unsigned int scale>
+void UpdateVisitor::changeTransparencyOfGeometry(osg::Geode& geode, const float transparency)
+{
+  using Vec4 = typename Vec4Array::ElementDataType;
+  using type = typename Vec4::value_type;
+  type opacity = (1.0 - transparency) * scale;
+  unsigned int num = geode.getNumDrawables();
+  for (unsigned int i = 0; i < num; i++) {
+    osg::Drawable* drawable = geode.getDrawable(i);
+    if (drawable) {
+      osg::Geometry* geometry = drawable->asGeometry();
+      if (geometry) {
+        Vec4Array* colors = dynamic_cast<Vec4Array*>(geometry->getColorArray());
+        if (colors) {
+          for (Vec4& color : colors->asVector()) {
+            color.a() = opacity;
+          }
+          colors->dirty();
+          drawable->dirtyDisplayList();
+        }
+      }
+    }
   }
 }
 
@@ -1817,7 +1887,7 @@ rAndT rotateModelica2OSG(osg::Matrix3 T, osg::Vec3f r, osg::Vec3f r_shape, osg::
   //std::cout << "hDir " <<       hDir[0] << ", " <<       hDir[1] << ", " <<       hDir[2] << std::endl;
 
   osg::Matrix3 T0;
-  if (type == "stl" || type == "dxf")
+  if (isCADType(type))
   {
     T0 = osg::Matrix3(dirs._lDir[0], dirs._lDir[1], dirs._lDir[2],
                       dirs._wDir[0], dirs._wDir[1], dirs._wDir[2],

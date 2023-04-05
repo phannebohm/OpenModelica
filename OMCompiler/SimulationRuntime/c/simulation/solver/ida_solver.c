@@ -60,7 +60,7 @@
 #include "epsilon.h"
 #include "external_input.h"
 #include "jacobianSymbolical.h"
-#include "util/jacobian_util.h"
+#include "simulation/jacobian_util.h"
 #include "model_help.h"
 #include "omc_math.h"
 #include "simulation/options.h"
@@ -1947,7 +1947,7 @@ static int getScalingFactors(DATA* data, IDA_SOLVER* idaData, SUNMatrix inScaleM
   for (i=0; i<SM_INDEXPTRS_S(idaData->scaleMatrix)[idaData->N]; ++i) {
     if (idaData->resScale[SM_INDEXVALS_S(idaData->scaleMatrix)[i]] < fabs(SM_DATA_S(idaData->scaleMatrix)[i])) {
         idaData->resScale[SM_INDEXVALS_S(idaData->scaleMatrix)[i]] = fabs(SM_DATA_S(idaData->scaleMatrix)[i]);
-      }
+    }
   }
 
   printVector(LOG_SOLVER_V, "Prime scale factors", idaData->ypScale, idaData->N, 0.0);

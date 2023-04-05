@@ -247,7 +247,7 @@ public:
   bool addComponent(QString className, QPointF position);
   void addComponentToView(QString name, LibraryTreeItem *pLibraryTreeItem, QString annotation, QPointF position,
                           ElementInfo *pComponentInfo, bool addObject, bool openingClass, bool emitComponentAdded);
-  void addElementToView(ModelInstance::Component *pComponent, bool inherited, bool addElementToOMC, bool createTransformation, QPointF position);
+  void addElementToView(ModelInstance::Component *pComponent, bool inherited, bool addElementToOMC, bool createTransformation, QPointF position, const QString &placementAnnotation, bool clearSelection);
   void addElementToList(Element *pElement) {mElementsList.append(pElement);}
   void addElementToOutOfSceneList(Element *pElement) {mOutOfSceneElementsList.append(pElement);}
   void addInheritedElementToList(Element *pElement) {mInheritedElementsList.append(pElement);}
@@ -542,12 +542,15 @@ public:
   }
   void addComponent(Element *pComponent) {mComponents.append(pComponent);}
   QList<Element*> getComponents() const {return mComponents;}
+  void addModifier(ModelInstance::Modifier modifier) {mModifiers.append(modifier);}
+  QList<ModelInstance::Modifier> getModifiers() const {return mModifiers;}
   void addConnection(LineAnnotation *pConnectionLineAnnotation) {mConnections.append(pConnectionLineAnnotation);}
   QList<LineAnnotation*> getConnections() const {return mConnections;}
   void addShape(ShapeAnnotation *pShapeAnnotation) {mShapes.append(pShapeAnnotation);}
   QList<ShapeAnnotation*> getShapes() const {return mShapes;}
 private:
   QList<Element*> mComponents;
+  QList<ModelInstance::Modifier> mModifiers;
   QList<LineAnnotation*> mConnections;
   QList<ShapeAnnotation*> mShapes;
   // QMimeData interface
@@ -598,7 +601,7 @@ public:
 
   bool isNewApi();
   QString getModelTextForOMCUndoCommand();
-  void addDependsOnModel(const QString &dependsOnModel) {mDependsOnModelsList.append(dependsOnModel);}
+  void addDependsOnModel(const QString &dependsOnModel);
   void clearDependsOnModels() {mDependsOnModelsList.clear();}
 
   void fetchExtendsModifiers(QString extendsClass);
@@ -649,8 +652,6 @@ public:
                                     const QString oldEditedCref = QString(""), const QString newEditedCref = QString(""));
   void createOMSimulatorRenameModelUndoCommand(const QString &commandText, const QString &cref, const QString &newCref);
   void processPendingModelUpdate();
-  void emitUpdateModel();
-  void updateModelIfDependsOn(const QString &modelName);
   ModelInfo createModelInfo() const;
 private:
   ModelWidgetContainer *mpModelWidgetContainer;
@@ -693,15 +694,13 @@ private:
   QStringList mElementsAnnotationsList;
   QTimer mUpdateModelTimer;
   QStringList mDependsOnModelsList;
+  bool mHasMissingType = false;
 
   void createUndoStack();
   void handleCanUndoRedoChanged();
   IconDiagramMap getIconDiagramMap(QString mapAnnotation);
   void getModelInheritedClasses();
   void drawModelInheritedClassShapes(ModelWidget *pModelWidget, StringHandler::ViewType viewType);
-
-
-
 
   void getModelIconDiagramShapes(StringHandler::ViewType viewType);
   void readCoOrdinateSystemFromInheritedClass(ModelWidget *pModelWidget, GraphicsView *pGraphicsView);
@@ -725,8 +724,7 @@ private:
   void dissociateBusWithConnector(QString busName, QString connectorName, GraphicsView *pGraphicsView);
   void associateBusWithConnectors(Element *pBusComponent, GraphicsView *pGraphicsView);
   static void removeInheritedClasses(LibraryTreeItem *pLibraryTreeItem);
-signals:
-  void updateModel(const QString &modelName);
+  bool dependsOnModel(const QString &modelName);
 private slots:
   void showIconView(bool checked);
   void showDiagramView(bool checked);
@@ -738,6 +736,7 @@ public slots:
   bool compositeModelEditorTextChanged();
   void handleCanUndoChanged(bool canUndo);
   void handleCanRedoChanged(bool canRedo);
+  void updateModelIfDependsOn(const QString &modelName);
 protected:
   virtual void closeEvent(QCloseEvent *event) override;
 };

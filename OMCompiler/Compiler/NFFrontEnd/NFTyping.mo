@@ -433,7 +433,11 @@ algorithm
         typeDimensions(c.dimensions, node, c.binding, context, c.info);
 
         // Construct the type of the component and update the node with it.
-        ty := typeClassType(c.classInst, c.binding, context, component);
+        if InstNode.isEmpty(c.classInst) then
+          ty := Type.UNKNOWN();
+        else
+          ty := typeClassType(c.classInst, c.binding, context, component);
+        end if;
         ty := Type.liftArrayLeftList(ty, arrayList(c.dimensions));
 
         if Binding.isBound(c.condition) then
@@ -447,7 +451,7 @@ algorithm
           c_typed := Component.setType(ty, c);
           InstNode.updateComponent(c_typed, node);
 
-          if not is_deleted then
+          if not is_deleted and not InstNode.isEmpty(c.classInst) then
             // Check that flow/stream variables are Real.
             checkComponentStreamAttribute(c.attributes.connectorType, ty, component);
 
@@ -943,7 +947,8 @@ algorithm
         try
           binding := typeBinding(binding, InstContext.set(context, NFInstContext.BINDING));
 
-          if not (InstContext.inAnnotation(context) and stringEq(name, "graphics")) then
+          if not (InstContext.inAnnotation(context) and stringEq(name, "graphics") or
+                  InstNode.isEmpty(c.classInst)) then
             binding := TypeCheck.matchBinding(binding, c.ty, name, node, context);
           end if;
 
@@ -967,7 +972,7 @@ algorithm
 
         InstNode.updateComponent(c, node);
 
-        if typeChildren then
+        if typeChildren and not InstNode.isEmpty(c.classInst) then
           typeBindings(c.classInst, context);
         end if;
       then
@@ -981,7 +986,7 @@ algorithm
           checkComponentBindingVariability(InstNode.name(component), c, c.binding, context);
         end if;
 
-        if typeChildren then
+        if typeChildren and not InstNode.isEmpty(c.classInst) then
           typeBindings(c.classInst, context);
         end if;
       then
@@ -1592,40 +1597,44 @@ protected
 algorithm
   ty := Expression.typeOf(exp);
 
+  // If the expression has already been typed, just get the dimension from the type.
   if Type.isKnown(ty) then
-    // If the expression has already been typed, just get the dimension from the type.
     (dim, error) := nthDimensionBoundsChecked(ty, dimIndex);
     typedExp := SOME(exp);
-  else
-    // Otherwise we try to type as little as possible of the expression to get
-    // the dimension we need, to avoid introducing unnecessary cycles.
-    (dim, error) := match exp
-      // An untyped array, use typeArrayDim to get the dimension.
-      case Expression.ARRAY(ty = Type.UNKNOWN())
-        then typeArrayDim(exp, dimIndex);
 
-      // A cref, use typeCrefDim to get the dimension.
-      case Expression.CREF()
-        then typeCrefDim(exp.cref, dimIndex, context, info);
-
-      // Any other expression, type the whole expression and get the dimension
-      // from the type.
-      else
-        algorithm
-          (e, ty, _) := typeExp(exp, context, info);
-
-          if Type.isConditionalArray(ty) then
-            e := Expression.map(e,
-              function evaluateArrayIf(target = Ceval.EvalTarget.GENERIC(info)));
-            (e, ty, _) := typeExp(e, context, info);
-          end if;
-
-          typedExp := SOME(e);
-        then
-          nthDimensionBoundsChecked(ty, dimIndex);
-
-    end match;
+    if not Dimension.isUnknown(dim) then
+      return;
+    end if;
   end if;
+
+  // Otherwise we try to type as little as possible of the expression to get
+  // the dimension we need, to avoid introducing unnecessary cycles.
+  (dim, error) := match exp
+    // An untyped array, use typeArrayDim to get the dimension.
+    case Expression.ARRAY(ty = Type.UNKNOWN())
+      then typeArrayDim(exp, dimIndex);
+
+    // A cref, use typeCrefDim to get the dimension.
+    case Expression.CREF()
+      then typeCrefDim(exp.cref, dimIndex, context, info);
+
+    // Any other expression, type the whole expression and get the dimension
+    // from the type.
+    else
+      algorithm
+        (e, ty, _) := typeExp(exp, context, info);
+
+        if Type.isConditionalArray(ty) then
+          e := Expression.map(e,
+            function evaluateArrayIf(target = Ceval.EvalTarget.GENERIC(info)));
+          (e, ty, _) := typeExp(e, context, info);
+        end if;
+
+        typedExp := SOME(e);
+      then
+        nthDimensionBoundsChecked(ty, dimIndex);
+
+  end match;
 end typeExpDim;
 
 function evaluateArrayIf

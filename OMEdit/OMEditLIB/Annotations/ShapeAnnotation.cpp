@@ -245,7 +245,7 @@ QStringList FilledShape::getShapeAnnotation()
     annotationString.append(QString("fillColor=%1").arg(mFillColor.toQString()));
   }
   /* get the line pattern */
-  if (mLinePattern.isDynamicSelectExpression() || mLinePattern.toQString().compare(QStringLiteral("LinePattern.LineSolid")) != 0) {
+  if (mLinePattern.isDynamicSelectExpression() || mLinePattern.toQString().compare(QStringLiteral("LinePattern.Solid")) != 0) {
     annotationString.append(QString("pattern=%1").arg(mLinePattern.toQString()));
   }
   /* get the fill pattern */
@@ -609,10 +609,10 @@ QList<QPointF> ShapeAnnotation::getExtentsForInheritedShapeFromIconDiagramMap(Gr
     ModelInstance::Extend *pExtend = dynamic_cast<ModelInstance::Extend*>(getExtend());
     if (pExtend) {
       if (pGraphicsView->getViewType() == StringHandler::Icon) {
-        extent = pExtend->getExtendsAnnotation()->getIconMap().getExtent();
+        extent = pExtend->getAnnotation()->getIconMap().getExtent();
         preserveAspectRatio = pExtend->getModel()->getAnnotation()->getIconAnnotation()->mMergedCoOrdinateSystem.getPreserveAspectRatio();
       } else {
-        extent = pExtend->getExtendsAnnotation()->getDiagramMap().getExtent();
+        extent = pExtend->getAnnotation()->getDiagramMap().getExtent();
         preserveAspectRatio = pExtend->getModel()->getAnnotation()->getDiagramAnnotation()->mMergedCoOrdinateSystem.getPreserveAspectRatio();
       }
     }
@@ -681,14 +681,14 @@ void ShapeAnnotation::applyTransformation()
   // if the extends have some new coordinate extents then use it to scale the shape
   LineAnnotation *pLineAnnotation = dynamic_cast<LineAnnotation*>(this);
   GraphicsView *pGraphicsView = 0;
-  if (MainWindow::instance()->isNewApi()) {
+  if (mpGraphicsView) {
     pGraphicsView = mpGraphicsView;
-  } else {
-    pGraphicsView = mpGraphicsView ? mpGraphicsView : mpReferenceShapeAnnotation->getGraphicsView();
+  } else if (mpReferenceShapeAnnotation) {
+    pGraphicsView = mpReferenceShapeAnnotation->getGraphicsView();
   }
 
   if (!mpParentComponent && pGraphicsView && !(pLineAnnotation && pLineAnnotation->getLineType() != LineAnnotation::ShapeType)
-      && ((mpReferenceShapeAnnotation && mpReferenceShapeAnnotation->getGraphicsView()) || (MainWindow::instance()->isNewApi() && mIsInheritedShape))) {
+      && ((mpReferenceShapeAnnotation && mpReferenceShapeAnnotation->getGraphicsView()) || (pGraphicsView->getModelWidget()->isNewApi() && mIsInheritedShape))) {
     QList<QPointF> extendsCoOrdinateExtents = getExtentsForInheritedShapeFromIconDiagramMap(pGraphicsView, mpReferenceShapeAnnotation);
     ExtentAnnotation extent = pGraphicsView->mMergedCoOrdinateSystem.getExtent();
     qreal left = extent.at(0).x();
@@ -1580,8 +1580,8 @@ void ShapeAnnotation::cornerItemReleased(const bool changed)
           QString newAnnotation = getOMCShapeAnnotation();
           pModelWidget->getUndoStack()->push(new UpdateShapeCommand(this, mOldAnnotation, newAnnotation));
           pModelWidget->updateClassAnnotationIfNeeded();
-          pModelWidget->updateModelText();
         }
+        pModelWidget->updateModelText();
       }
     } else {
       parseShapeAnnotation(mOldAnnotation);

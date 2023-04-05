@@ -1233,7 +1233,7 @@ algorithm
     case ("translateModel",vals as {Values.CODE(Absyn.C_TYPENAME(className)),_,_,_,_,_,Values.STRING(filenameprefix),_,_,_,_,_})
       equation
         (outCache,simSettings) = calculateSimulationSettings(outCache, vals);
-        (b,outCache) = translateModel(outCache, inEnv, className, filenameprefix, true, SOME(simSettings));
+        (b,outCache) = translateModel(outCache, inEnv, className, filenameprefix, true, true, SOME(simSettings));
       then
         Values.BOOL(b);
 
@@ -3085,11 +3085,14 @@ algorithm
     case ("convertPackageToLibrary", {Values.CODE(Absyn.C_TYPENAME(classpath)), Values.CODE(Absyn.C_TYPENAME(path)), Values.STRING(str)})
       then convertPackageToLibrary(classpath, path, str);
 
-    case ("getModelInstance", {Values.CODE(Absyn.C_TYPENAME(classpath)), Values.BOOL(b)})
-      then NFApi.getModelInstance(classpath, b);
+    case ("getModelInstance", {Values.CODE(Absyn.C_TYPENAME(classpath)), Values.STRING(str), Values.BOOL(b)})
+      then NFApi.getModelInstance(classpath, str, b);
 
     case ("getModelInstanceIcon", {Values.CODE(Absyn.C_TYPENAME(classpath)), Values.BOOL(b)})
       then NFApi.getModelInstanceIcon(classpath, b);
+
+    case ("modifierToJSON", {Values.STRING(str), Values.BOOL(b)})
+      then NFApi.modifierToJSON(str, b);
 
     case ("storeAST", {})
       then Values.INTEGER(SymbolTable.storeAST());
@@ -3183,7 +3186,7 @@ algorithm
 end getAdjacencyMatrix;
 
 /* -------------------------------------------------------------------
-                         RUN OLD FRONTEND
+                         RUN FRONTEND
    ------------------------------------------------------------------- */
 public function runFrontEnd
   input output FCore.Cache cache;
@@ -3382,22 +3385,22 @@ algorithm
   end if;
 end runFrontEndWorkNF;
 
-protected function translateModel " author: x02lucpo
- translates a model into cpp code and writes also a makefile"
+public function translateModel
   input FCore.Cache inCache;
   input FCore.Graph inEnv;
   input Absyn.Path className "path for the model";
   input String inFileNamePrefix;
-  input Boolean addDummy "if true, add a dummy state";
+  input Boolean runBackend "if true, run the backend as well. This will run SimCode and Codegen as well.";
+  input Boolean runSilent "if true, flat modelica code will not be dumped to out stream";
   input Option<SimCode.SimulationSettings> inSimSettingsOpt;
   output Boolean success;
   output FCore.Cache outCache;
-  output list<String> outStringLst;
+  output list<String> outLibs;
   output String outFileDir;
   output list<tuple<String,Values.Value>> resultValues;
 algorithm
-  (outCache,outStringLst,outFileDir,resultValues):=
-  match (inCache,inEnv,className,inFileNamePrefix,addDummy,inSimSettingsOpt)
+  (outCache,outLibs,outFileDir,resultValues):=
+  match (inCache,inEnv,className,inFileNamePrefix,inSimSettingsOpt)
     local
       FCore.Cache cache;
       FCore.Graph env;
@@ -3408,15 +3411,25 @@ algorithm
       String commandLineOptions;
       list<String> args;
       Boolean haveAnnotation;
+      SimCode.SimulationSettings simSettings;
+      GlobalScript.SimulationOptions defaulSimOpt;
 
-    case (cache,env,_,fileNamePrefix,_,_)
+    case (cache,env,_,fileNamePrefix,_)
       algorithm
+        if isSome(inSimSettingsOpt)  then
+          SOME(simSettings) := inSimSettingsOpt;
+        else
+          defaulSimOpt := buildSimulationOptionsFromModelExperimentAnnotation(className, fileNamePrefix, SOME(defaultSimulationOptions));
+          simSettings := convertSimulationOptionsToSimCode(defaulSimOpt);
+        end if;
+
         if Config.ignoreCommandLineOptionsAnnotation() then
           (success, cache, libs, file_dir, resultValues) :=
-            callTranslateModel(cache,env,className,fileNamePrefix,inSimSettingsOpt);
+            callTranslateModel(cache, env, className, fileNamePrefix, runBackend, runSilent, SOME(simSettings));
         else
           // read the __OpenModelica_commandLineOptions
-          Absyn.STRING(commandLineOptions) := Interactive.getNamedAnnotation(className, SymbolTable.getAbsyn(), Absyn.IDENT("__OpenModelica_commandLineOptions"), SOME(Absyn.STRING("")), Interactive.getAnnotationExp);
+          Absyn.STRING(commandLineOptions) := Interactive.getNamedAnnotation(className, SymbolTable.getAbsyn(), Absyn.IDENT
+                          ("__OpenModelica_commandLineOptions"), SOME(Absyn.STRING("")), Interactive.getAnnotationExp);
           haveAnnotation := boolNot(stringEq(commandLineOptions, ""));
           // backup the flags.
           flags := if haveAnnotation then FlagsUtil.backupFlags() else FlagsUtil.loadFlags();
@@ -3428,7 +3441,7 @@ algorithm
             end if;
 
             (success, cache, libs, file_dir, resultValues) :=
-              callTranslateModel(cache,env,className,fileNamePrefix,inSimSettingsOpt);
+              callTranslateModel(cache, env, className, fileNamePrefix, runBackend, runSilent, SOME(simSettings));
             // reset to the original flags
             FlagsUtil.saveFlags(flags);
           else
@@ -3442,70 +3455,6 @@ algorithm
   end match;
 end translateModel;
 
-protected function translateLabeledModel " author: Fatima
- translates a labeled model into cpp code and writes also a makefile"
-  input FCore.Cache inCache;
-  input FCore.Graph inEnv;
-  input Absyn.Path className "path for the model";
-  input String inFileNamePrefix;
-  input Boolean addDummy "if true, add a dummy state";
-  input Option<SimCode.SimulationSettings> inSimSettingsOpt;
-  input list<Absyn.NamedArg> inLabelstoCancel;
-  output FCore.Cache outCache;
-  output BackendDAE.BackendDAE outBackendDAE;
-  output list<String> outStringLst;
-  output String outFileDir;
-  output list<tuple<String,Values.Value>> resultValues;
-algorithm
-  (outCache,outStringLst,outFileDir,resultValues):=
-  match (inCache,inEnv,className,inFileNamePrefix,addDummy,inSimSettingsOpt,inLabelstoCancel)
-    local
-      FCore.Cache cache;
-      FCore.Graph env;
-      BackendDAE.BackendDAE indexed_dlow;
-      list<String> libs;
-      String file_dir, fileNamePrefix;
-      Absyn.Program p;
-      Flags.Flag flags;
-      String commandLineOptions;
-      list<String> args;
-      Boolean haveAnnotation;
-      list<Absyn.NamedArg> labelstoCancel;
-
-    case (cache,env,_,fileNamePrefix,_,_,labelstoCancel)
-      algorithm
-
-        if Config.ignoreCommandLineOptionsAnnotation() then
-          (true, cache, libs, file_dir, resultValues) :=
-            SimCodeMain.translateModel(SimCodeMain.TranslateModelKind.NORMAL(),cache,env,className,fileNamePrefix,addDummy,inSimSettingsOpt,Absyn.FUNCTIONARGS({},argNames =labelstoCancel));
-        else
-          // read the __OpenModelica_commandLineOptions
-          Absyn.STRING(commandLineOptions) := Interactive.getNamedAnnotation(className, SymbolTable.getAbsyn(), Absyn.IDENT("__OpenModelica_commandLineOptions"), SOME(Absyn.STRING("")), Interactive.getAnnotationExp);
-          haveAnnotation := boolNot(stringEq(commandLineOptions, ""));
-          // backup the flags.
-          flags := if haveAnnotation then FlagsUtil.backupFlags() else FlagsUtil.loadFlags();
-          try
-            // apply if there are any new flags
-            if haveAnnotation then
-              args := System.strtok(commandLineOptions, " ");
-              FlagsUtil.readArgs(args);
-            end if;
-
-            (true, cache, libs, file_dir, resultValues) :=
-              SimCodeMain.translateModel(SimCodeMain.TranslateModelKind.NORMAL(),cache,env,className,fileNamePrefix,addDummy,inSimSettingsOpt,Absyn.FUNCTIONARGS({},argNames =labelstoCancel));
-            // reset to the original flags
-            FlagsUtil.saveFlags(flags);
-          else
-            FlagsUtil.saveFlags(flags);
-            fail();
-          end try;
-        end if;
-      then
-        (cache,libs,file_dir,resultValues);
-
-  end match;
-end translateLabeledModel;
-
 protected function callTranslateModel
 "Call the main translate function. This function
  distinguish between the modes. Now between DAEMode and ODEmode.
@@ -3514,6 +3463,8 @@ protected function callTranslateModel
   input FCore.Graph inEnv;
   input Absyn.Path className "path for the model";
   input String inFileNamePrefix;
+  input Boolean runBackend "if true, run the backend as well. This will run SimCode and Codegen as well.";
+  input Boolean runSilent "if true, flat modelica code will not be dumped to out stream";
   input Option<SimCode.SimulationSettings> inSimSettingsOpt;
   output Boolean success;
   output FCore.Cache outCache;
@@ -3528,8 +3479,8 @@ algorithm
     success := true;
   else
     (success, outCache, outStringLst, outFileDir, resultValues) :=
-    SimCodeMain.translateModel(SimCodeMain.TranslateModelKind.NORMAL(),inCache,inEnv,
-      className,inFileNamePrefix,true,inSimSettingsOpt,Absyn.FUNCTIONARGS({},{}));
+    SimCodeMain.translateModel(SimCodeMain.TranslateModelKind.NORMAL(), inCache, inEnv,
+      className, inFileNamePrefix, runBackend, runSilent, inSimSettingsOpt, Absyn.FUNCTIONARGS({},{}));
   end if;
 end callTranslateModel;
 
@@ -3539,6 +3490,7 @@ protected function configureFMU_cmake
   input String fmutmp;
   input String fmuTargetName;
   input String logfile;
+  input list<String> externalLibLocations;
   input Boolean isWindows;
 protected
   String fmuSourceDir;
@@ -3573,6 +3525,7 @@ algorithm
       Integer uid;
       String cidFile, volumeID, containerID, userID;
       String dockerLogFile;
+      list<String> locations, libraries;
     case {"dynamic"}
       algorithm
         if isWindows then
@@ -3600,6 +3553,10 @@ algorithm
 
         // Temp log file outside of Docker volume
         dockerLogFile := crossTriple + ".tmp.log";
+        // Remove old log file
+        if System.regularFileExists(dockerLogFile) then
+          System.removeFile(dockerLogFile);
+        end if;
 
         // Create a docker volume for the FMU since we can't forward volumes
         // to the docker run command depending on where the FMU was generated (inside another volume)
@@ -3624,6 +3581,19 @@ algorithm
         cmd := "docker cp " + defaultFmiIncludeDirectoy + " " + containerID + ":/data/fmiInclude";
         runDockerCmd(cmd, dockerLogFile, cleanup=true, volumeID=volumeID, containerID=containerID);
 
+        // Copy the external library files to the container
+        (locations, libraries) := SimCodeUtil.getDirectoriesForDLLsFromLinkLibs(externalLibLocations);
+        for loc in locations loop
+          if System.directoryExists(loc) then
+            // Create path
+            cmd := "docker run --rm --hostname=" + containerID + " --volume=" + volumeID + ":/data busybox mkdir -p " + dquote + "/data" + loc + dquote;
+            runDockerCmd(cmd, dockerLogFile, cleanup=true, volumeID=volumeID, containerID=containerID);
+            // Copy files
+            cmd := "docker cp -a -L " + dquote + loc + dquote + " " + containerID + dquote + ":/data" + System.dirname(loc)  + dquote;
+            runDockerCmd(cmd, dockerLogFile, cleanup=true, volumeID=volumeID, containerID=containerID);
+          end if;
+        end for;
+
         // Build for target host
         userID := (if uid<>0 then "--user " + String(uid) else "");
         buildDir := "build_cmake_" + crossTriple;
@@ -3635,6 +3605,7 @@ algorithm
           fmiTarget := "";
         end if;
         cmakeCall := "cmake -DFMI_INTERFACE_HEADER_FILES_DIRECTORY=/fmu/fmiInclude " +
+                            "-DDOCKER_VOL_DIR=/fmu " +
                             fmiTarget +
                             CMAKE_BUILD_TYPE +
                             " ..";
@@ -4013,7 +3984,8 @@ algorithm
   FlagsUtil.setConfigBool(Flags.BUILDING_FMU, true);
   FlagsUtil.setConfigString(Flags.FMI_VERSION, FMUVersion);
   try
-    (success, cache, libs, _, _) := SimCodeMain.translateModel(SimCodeMain.TranslateModelKind.FMU(FMUType, fmuTargetName), cache, inEnv, className, filenameprefix, addDummy, SOME(simSettings));
+    (success, cache, libs, _, _) := SimCodeMain.translateModel(SimCodeMain.TranslateModelKind.FMU(FMUType, fmuTargetName),
+                                            cache, inEnv, className, filenameprefix, true, true, SOME(simSettings));
     true := success;
     outValue := Values.STRING((if not Testsuite.isRunning() then System.pwd() + Autoconf.pathDelimiter else "") + fmuTargetName + ".fmu");
   else
@@ -4094,7 +4066,7 @@ algorithm
   for platform in platforms loop
     configureLogFile := System.realpath(fmutmp)+"/resources/"+System.stringReplace(listGet(Util.stringSplitAtChar(platform," "),1),"/","-")+".log";
     if useCrossCompileCmake then
-      configureFMU_cmake(platform, fmutmp, filenameprefix, configureLogFile, isWindows);
+      configureFMU_cmake(platform, fmutmp, filenameprefix, configureLogFile, libs, isWindows);
     else
       configureFMU(platform, fmutmp, configureLogFile, isWindows, needs3rdPartyLibs);
     end if;
@@ -4209,7 +4181,8 @@ protected function translateModelXML " author: Alachew
 protected
   Boolean success;
 algorithm
-  (success,cache) := SimCodeMain.translateModel(SimCodeMain.TranslateModelKind.XML(),cache,env,className,fileNamePrefix,addDummy,inSimSettingsOpt);
+  (success,cache) := SimCodeMain.translateModel(SimCodeMain.TranslateModelKind.XML(), cache, env, className,
+                    fileNamePrefix, true, true, inSimSettingsOpt);
   outValue := Values.STRING(if success then ((if not Testsuite.isRunning() then System.pwd() + Autoconf.pathDelimiter else "") + fileNamePrefix+".xml") else "");
 end translateModelXML;
 
@@ -5605,7 +5578,7 @@ algorithm
         (cache,simSettings) := calculateSimulationSettings(cache, values);
         SimCode.SIMULATION_SETTINGS(method = method_str, outputFormat = outputFormat_str) := simSettings;
 
-        (success,cache,libsAndLibDirs,file_dir,resultValues) := translateModel(cache,env, classname, filenameprefix,true, SOME(simSettings));
+        (success,cache,libsAndLibDirs,file_dir,resultValues) := translateModel(cache,env, classname, filenameprefix, true, true, SOME(simSettings));
         //cname_str = AbsynUtil.pathString(classname);
         //SimCodeUtil.generateInitData(indexed_dlow_1, classname, filenameprefix, init_filename,
         //  starttime_r, stoptime_r, interval_r, tolerance_r, method_str,options_str,outputFormat_str);
@@ -7555,7 +7528,7 @@ protected function getClassInformation
   input Absyn.Program p;
   output Values.Value res_1;
 protected
-  String name,file,strPartial,strFinal,strEncapsulated,res,cmt,str_readonly,str_sline,str_scol,str_eline,str_ecol,version,preferredView,access;
+  String name,file,strPartial,strFinal,strEncapsulated,res,cmt,str_readonly,str_sline,str_scol,str_eline,str_ecol,version,preferredView,access,versionDate,versionBuild,dateModified,revisionId;
   String dim_str,lastIdent;
   Boolean partialPrefix,finalPrefix,encapsulatedPrefix,isReadOnly,isProtectedClass,isDocClass,isState;
   Absyn.Restriction restr;
@@ -7576,9 +7549,13 @@ algorithm
   end if;
   isDocClass := Interactive.getDocumentationClassAnnotation(path, p);
   version := CevalScript.getPackageVersion(path, p);
-  Absyn.STRING(preferredView) := Interactive.getNamedAnnotation(path, p, Absyn.IDENT("preferredView"), SOME(Absyn.STRING("")), Interactive.getAnnotationExp);
+  preferredView := Interactive.getStringNamedAnnotation(path, p, Absyn.IDENT("preferredView"));
   isState := getDymolaStateAnnotation(path, p);
   access := Interactive.getAccessAnnotation(path, p);
+  versionDate := Interactive.getStringNamedAnnotation(path, p, Absyn.IDENT("versionDate"));
+  versionBuild := Interactive.getIntegerNamedAnnotation(path, p, Absyn.IDENT("versionBuild"));
+  dateModified := Interactive.getStringNamedAnnotation(path, p, Absyn.IDENT("dateModified"));
+  revisionId := Interactive.getStringNamedAnnotation(path, p, Absyn.IDENT("revisionId"));
   res_1 := Values.TUPLE({
     Values.STRING(res),
     Values.STRING(cmt),
@@ -7597,7 +7574,11 @@ algorithm
     Values.STRING(version),
     Values.STRING(preferredView),
     Values.BOOL(isState),
-    Values.STRING(access)
+    Values.STRING(access),
+    Values.STRING(versionDate),
+    Values.STRING(versionBuild),
+    Values.STRING(dateModified),
+    Values.STRING(revisionId)
   });
 end getClassInformation;
 

@@ -109,6 +109,8 @@ OMEditApplication::OMEditApplication(int &argc, char **argv, threadData_t* threa
   // if user has requested to open the file by passing it in argument then,
   bool debug = false;
   bool newApi = false;
+  bool newApiProfiling = false;
+  bool newApiCommandLine = false;
   QString fileName = "";
   QStringList fileNames, invalidFlags;
   if (arguments().size() > 1 && !testsuiteRunning) {
@@ -118,16 +120,19 @@ OMEditApplication::OMEditApplication(int &argc, char **argv, threadData_t* threa
         debugArg.remove("--Debug=");
         if (0 == strcmp("true", debugArg.toUtf8().constData())) {
           debug = true;
-        } else {
-          debug = false;
         }
       } else if (strncmp(arguments().at(i).toUtf8().constData(), "--NAPI=",7) == 0) {
+        newApiCommandLine = true;
         QString napiArg = arguments().at(i);
         napiArg.remove("--NAPI=");
         if (0 == strcmp("true", napiArg.toUtf8().constData())) {
           newApi = true;
-        } else {
-          newApi = false;
+        }
+      } else if (strncmp(arguments().at(i).toUtf8().constData(), "--NAPIProfiling=",16) == 0) {
+        QString napiProfilingArg = arguments().at(i);
+        napiProfilingArg.remove("--NAPIProfiling=");
+        if (0 == strcmp("true", napiProfilingArg.toUtf8().constData())) {
+          newApiProfiling = true;
         }
       } else {
         fileName = arguments().at(i);
@@ -152,6 +157,8 @@ OMEditApplication::OMEditApplication(int &argc, char **argv, threadData_t* threa
   MainWindow *pMainwindow = MainWindow::instance();
   pMainwindow->setDebug(debug);
   pMainwindow->setNewApi(newApi);
+  pMainwindow->setNewApiCommandLine(newApiCommandLine);
+  pMainwindow->setNewApiProfiling(newApiProfiling);
   pMainwindow->setTestsuiteRunning(testsuiteRunning);
   pMainwindow->setUpMainWindow(threadData);
   if (pMainwindow->getExitApplicationStatus()) {        // if there is some issue in running the application.

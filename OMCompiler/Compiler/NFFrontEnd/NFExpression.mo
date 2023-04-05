@@ -6120,5 +6120,19 @@ public
     end match;
   end repairOperator;
 
+  function makeUnary
+    input Operator op;
+    input Expression exp;
+    output Expression unaryExp;
+  algorithm
+    if op.op == NFOperator.Op.ADD then
+      unaryExp := exp;
+    elseif op.op == NFOperator.Op.UMINUS then
+      unaryExp := negate(exp);
+    else
+      unaryExp := UNARY(op, exp);
+    end if;
+  end makeUnary;
+
 annotation(__OpenModelica_Interface="frontend");
 end NFExpression;

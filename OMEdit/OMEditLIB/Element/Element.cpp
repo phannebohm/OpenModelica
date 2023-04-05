@@ -156,103 +156,6 @@ void ElementInfo::updateElementInfo(const ElementInfo *pElementInfo)
   mDomain = pElementInfo->getDomain();
 }
 
-
-/*!
- * \brief ElementInfo::parseElementInfoString
- * Parses the component info string.
- * \param value
- */
-void ElementInfo::parseComponentInfoString(QString value)
-{
-  if (value.isEmpty()) {
-    return;
-  }
-  QStringList list = StringHandler::unparseStrings(value);
-  // read the class name
-  if (list.size() > 0) {
-    mClassName = list.at(0);
-    if (mClassName.startsWith(".")) {
-      mClassName.remove(0, 1);
-    }
-  } else {
-    return;
-  }
-  // read the name
-  if (list.size() > 1) {
-    mName = list.at(1);
-  } else {
-    return;
-  }
-  // read the class comment
-  if (list.size() > 2) {
-    mComment = list.at(2);
-  } else {
-    return;
-  }
-  // read the class access
-  if (list.size() > 3) {
-    mIsProtected = StringHandler::removeFirstLastQuotes(list.at(3)).contains("protected");
-  } else {
-    return;
-  }
-  // read the final attribute
-  if (list.size() > 4) {
-    mIsFinal = list.at(4).contains("true");
-  } else {
-    return;
-  }
-  // read the flow attribute
-  if (list.size() > 5) {
-    mIsFlow = list.at(5).contains("true");
-  } else {
-    return;
-  }
-  // read the stream attribute
-  if (list.size() > 6) {
-    mIsStream = list.at(6).contains("true");
-  } else {
-    return;
-  }
-  // read the replaceable attribute
-  if (list.size() > 7) {
-    mIsReplaceable = list.at(7).contains("true");
-  } else {
-    return;
-  }
-  // read the variability attribute
-  if (list.size() > 8) {
-    QMap<QString, QString>::iterator variability_it;
-    for (variability_it = mVariabilityMap.begin(); variability_it != mVariabilityMap.end(); ++variability_it) {
-      if (variability_it.key().compare(StringHandler::removeFirstLastQuotes(list.at(8))) == 0) {
-        mVariability = variability_it.value();
-        break;
-      }
-    }
-  }
-  // read the inner attribute
-  if (list.size() > 9) {
-    mIsInner = list.at(9).contains("inner");
-    mIsOuter = list.at(9).contains("outer");
-  } else {
-    return;
-  }
-  // read the casuality attribute
-  if (list.size() > 10) {
-    QMap<QString, QString>::iterator casuality_it;
-    for (casuality_it = mCasualityMap.begin(); casuality_it != mCasualityMap.end(); ++casuality_it) {
-      if (casuality_it.key().compare(StringHandler::removeFirstLastQuotes(list.at(10))) == 0) {
-        mCasuality = casuality_it.value();
-        break;
-      }
-    }
-  }
-  // read the array index value
-  if (list.size() > 11) {
-    setArrayIndex(list.at(11));
-  }
-}
-
-
 /*!
  * \brief ElementInfo::parseElementInfoString
  * Parses the component info string.
@@ -541,7 +444,7 @@ QString ElementInfo::getHTMLDescription() const
 void ElementInfo::fetchModifiers(OMCProxy *pOMCProxy, QString className, Element *pElement)
 {
   mModifiersMap.clear();
-  QStringList componentModifiersList = pOMCProxy->getComponentModifierNames(className, mName);
+  QStringList componentModifiersList = pOMCProxy->getElementModifierNames(className, mName);
   foreach (QString componentModifier, componentModifiersList) {
     QString modifierName = StringHandler::getFirstWordBeforeDot(componentModifier);
     // if we have already read the record modifier then continue
@@ -559,11 +462,11 @@ void ElementInfo::fetchModifiers(OMCProxy *pOMCProxy, QString className, Element
      */
     if (isModiferClassRecord(modifierName, pElement)) {
       QString originalModifierName = QString(mName).append(".").append(modifierName);
-      QString componentModifierValue = pOMCProxy->getComponentModifierValues(className, originalModifierName);
+      QString componentModifierValue = pOMCProxy->getElementModifierValues(className, originalModifierName);
       mModifiersMap.insert(modifierName, componentModifierValue);
     } else {
       QString originalModifierName = QString(mName).append(".").append(componentModifier);
-      QString componentModifierValue = pOMCProxy->getComponentModifierValue(className, originalModifierName);
+      QString componentModifierValue = pOMCProxy->getElementModifierValue(className, originalModifierName);
       mModifiersMap.insert(componentModifier, componentModifierValue);
     }
   }
@@ -606,7 +509,8 @@ bool ElementInfo::isModiferClassRecord(QString modifierName, Element *pElement)
   return result;
 }
 
-Element::Element(ModelInstance::Component *pModelComponent, bool inherited, GraphicsView *pGraphicsView, bool createTransformation, QPointF position)
+Element::Element(ModelInstance::Component *pModelComponent, bool inherited, GraphicsView *pGraphicsView, bool createTransformation, QPointF position,
+                 const QString &placementAnnotation)
   : QGraphicsItem(0), mpReferenceElement(0), mpParentElement(0)
 {
   setZValue(2000);
@@ -654,6 +558,8 @@ Element::Element(ModelInstance::Component *pModelComponent, bool inherited, Grap
     extent.append(QPointF(initialScale * boundingRect().right(), initialScale * boundingRect().bottom()));
     mTransformation.setExtent(extent);
     mTransformation.setRotateAngle(0.0);
+  } else if (!placementAnnotation.isEmpty()) {
+    mTransformation.parseTransformationString(placementAnnotation, boundingRect().width(), boundingRect().height());
   } else {
     mTransformation.parseTransformation(mpModelComponent->getAnnotation()->getPlacementAnnotation(), getCoOrdinateSystemNew());
   }
@@ -672,11 +578,6 @@ Element::Element(ModelInstance::Component *pModelComponent, bool inherited, Grap
   connect(this, SIGNAL(transformHasChanged()), SLOT(updateOriginItem()));
   connect(mpGraphicsView, SIGNAL(updateDynamicSelect(double)), this, SLOT(updateDynamicSelect(double)));
   connect(mpGraphicsView, SIGNAL(resetDynamicSelect()), this, SLOT(resetDynamicSelect()));
-//  /* Ticket:4204
-//   * If the child class use text annotation from base class then we need to call this
-//   * since when the base class is created the child class doesn't exist.
-//   */
-//  displayTextChangedRecursive();
 }
 
 Element::Element(ModelInstance::Model *pModel, Element *pParentElement)
@@ -1091,8 +992,7 @@ bool Element::hasShapeAnnotation(Element *pElement)
 bool Element::hasNonExistingClass()
 {
   if (mpGraphicsView->getModelWidget()->isNewApi()) {
-    //! @todo Fix this once we support non-existing components in the instance api.
-    return false;
+    return mpModel->isMissing();
   } else {
     if (mpLibraryTreeItem && mpLibraryTreeItem->isNonExisting()) {
       return true;
@@ -1487,7 +1387,7 @@ bool Element::isExpandableConnector() const
 bool Element::isArray() const
 {
   if (mpGraphicsView->getModelWidget()->isNewApi()) {
-    return mpModelComponent->isArray();
+    return mpModelComponent->getDimensions().isArray();
   } else {
     return (mpElementInfo && mpElementInfo->isArray());
   }
@@ -1501,7 +1401,7 @@ bool Element::isArray() const
 QStringList Element::getAbsynArrayIndexes() const
 {
   if (mpGraphicsView->getModelWidget()->isNewApi()) {
-    return mpModelComponent->getAbsynDimensions();
+    return mpModelComponent->getDimensions().getAbsynDimensions();
   } else if (mpElementInfo) {
     return QStringList() << mpElementInfo->getArrayIndex();
   } else {
@@ -1517,7 +1417,7 @@ QStringList Element::getAbsynArrayIndexes() const
 QStringList Element::getTypedArrayIndexes() const
 {
   if (mpGraphicsView->getModelWidget()->isNewApi()) {
-    return mpModelComponent->getTypedDimensions();
+    return mpModelComponent->getDimensions().getTypedDimensions();
   } else if (mpElementInfo) {
     return QStringList() << mpElementInfo->getArrayIndex();
   } else {
@@ -1554,7 +1454,7 @@ bool Element::isConnectorSizing()
   if (mpGraphicsView->getModelWidget()->isNewApi()) {
     if (isArray()) {
       // connectorSizing is only done on the single dimensional array.
-      QString parameter = mpModelComponent->getAbsynDimensions().at(0);
+      QString parameter = mpModelComponent->getDimensions().getAbsynDimensions().at(0);
       bool ok;
       parameter.toInt(&ok);
       // if the array index is not a number then look for parameter
@@ -1832,6 +1732,7 @@ void Element::reDrawElementNew()
   createStateElement();
   drawElement();
   updateConnections();
+  updateToolTip();
 }
 
 void Element::emitAdded()
@@ -2694,6 +2595,7 @@ void Element::createClassInheritedElements()
 void Element::createClassShapes()
 {
   if (mpGraphicsView->getModelWidget()->isNewApi()) {
+    mpGraphicsView->getModelWidget()->addDependsOnModel(mpModel->getName());
     QList<ModelInstance::Shape*> shapes;
     /* issue #9557
      * For connectors, the icon layer is used to represent a connector when it is shown in the icon layer of the enclosing model.
@@ -2719,7 +2621,7 @@ void Element::createClassShapes()
       } else if (ModelInstance::Text *pText = dynamic_cast<ModelInstance::Text*>(shape)) {
         mShapesList.append(new TextAnnotation(pText, this));
       } else if (ModelInstance::Bitmap *pBitmap = dynamic_cast<ModelInstance::Bitmap*>(shape)) {
-        mShapesList.append(new BitmapAnnotation(pBitmap, mpModel->getFileName(), this));
+        mShapesList.append(new BitmapAnnotation(pBitmap, mpModel->getSource().getFileName(), this));
       }
     }
   } else {
