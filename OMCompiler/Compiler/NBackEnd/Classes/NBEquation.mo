@@ -1313,7 +1313,17 @@ public
           Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for: " + Equation.toString(eq)});
         then fail();
       end match;
+      printEqRUST(toString(eq));
     end simplify;
+
+    function printEqRUST
+      input String eq;
+    external "C" printEqRUST_C(eq) annotation(Include="
+    static void printEqRUST_C(const char* eqstr) {
+
+    }
+    ");
+    end printEqRUST;
 
     function createName
       input Pointer<Equation> eqn_ptr;
