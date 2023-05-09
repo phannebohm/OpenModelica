@@ -75,6 +75,8 @@ target_link_libraries(omcruntime PUBLIC omc::simrt::runtime)
 target_link_libraries(omcruntime PUBLIC omc::3rd::ffi)
 target_link_libraries(omcruntime PUBLIC omc::3rd::libzmq)
 target_link_libraries(omcruntime PUBLIC omc::3rd::zlib)
+target_link_libraries(omcruntime PUBLIC omc::3rd::egg)
+target_link_libraries(omcruntime PUBLIC omc::3rd::egg_interface)
 
 if(OM_OMC_USE_LAPACK)
   target_link_libraries(omcruntime PUBLIC ${LAPACK_LIBRARIES})

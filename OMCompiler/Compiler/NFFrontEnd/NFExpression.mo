@@ -1858,6 +1858,104 @@ public
     end match;
   end toString;
 
+  function toPrefixString
+    "Prints an Expression in prefix notation, e.g. `2*x+y` is (+ (* 2 x) y)"
+    input Expression exp;
+    output String str;
+  protected
+    Type t;
+    ClockKind clk;
+    Expression first, first_inv;
+    list<Expression> rest, rest_inv;
+  algorithm
+    str := match exp
+      case INTEGER() then intString(exp.value);
+      case REAL() then realString(exp.value);
+      case STRING() then "\"" + System.escapedString(exp.value, false) + "\"";
+      case BOOLEAN() then boolString(exp.value);
+
+      case ENUM_LITERAL(ty = t as Type.ENUMERATION())
+        then AbsynUtil.pathString(t.typePath) + "." + exp.name;
+
+      //case CLKCONST(clk) then ClockKind.toString(clk);
+      case CREF() then ComponentRef.toString(exp.cref);
+      case TYPENAME() then Type.typenameString(Type.arrayElementType(exp.ty));
+      case ARRAY() then "{" + stringDelimitList(list(toString(e) for e in exp.elements), ", ") + "}";
+      case MATRIX() then "[" + stringDelimitList(list(stringDelimitList(list(toString(e) for e in el), ", ") for el in exp.elements), "; ") + "]";
+
+      //case RANGE() then operandString(exp.start, exp, false) +
+      //                  (
+      //                  if isSome(exp.step)
+      //                  then ":" + operandString(Util.getOption(exp.step), exp, false)
+      //                  else ""
+      //                  ) + ":" + operandString(exp.stop, exp, false);
+
+      //case TUPLE() then "(" + stringDelimitList(list(toString(e) for e in exp.elements), ", ") + ")";
+      //case RECORD() then List.toString(exp.elements, toString, AbsynUtil.pathString(exp.path), "(", ", ", ")", true);
+      case CALL() then Call.toPrefixString(exp.call);
+      //case SIZE() then "size(" + toString(exp.exp) +
+      //                  (
+      //                  if isSome(exp.dimIndex)
+      //                  then ", " + toString(Util.getOption(exp.dimIndex))
+      //                  else ""
+      //                  ) + ")";
+      case END() then "end";
+
+      case MULTARY() guard(listEmpty(exp.inv_arguments))
+                     then multaryPrefixString(exp.arguments, exp.operator);
+
+      case MULTARY() guard(listEmpty(exp.arguments) and Operator.isDashClassification(Operator.getMathClassification(exp.operator)))
+                     then "(- 0 " + multaryPrefixString(exp.inv_arguments, exp.operator) + ")";
+
+      case MULTARY() guard(listEmpty(exp.arguments))
+                     then "(/ 1 " + multaryPrefixString(exp.inv_arguments, exp.operator) + ")";
+
+      case MULTARY() then "(" + Operator.symbol(Operator.invert(exp.operator), "") + " " +
+                          multaryPrefixString(exp.arguments, exp.operator) + " " +
+                          multaryPrefixString(exp.inv_arguments, exp.operator) + ")";
+
+      case BINARY() then "(" + Operator.symbol(exp.operator, "") + " " +
+                         toPrefixString(exp.exp1) + " " +
+                         toPrefixString(exp.exp2) + ")";
+
+      case UNARY() then "(" + Operator.symbol(exp.operator, "") + " 0 " +
+                        toPrefixString(exp.exp) + ")";
+
+      case LBINARY() then "(" + Operator.symbol(exp.operator, "") + " " +
+                          toPrefixString(exp.exp1) + " " +
+                          toPrefixString(exp.exp2) + ")";
+
+      case LUNARY() then "(" + Operator.symbol(exp.operator, "") + " " +
+                         toPrefixString(exp.exp) + ")";
+
+      case RELATION() then "(" + Operator.symbol(exp.operator, "") + " " +
+                           toPrefixString(exp.exp1) + " " +
+                           toPrefixString(exp.exp2) + ")";
+
+      //case IF() then "if " + toString(exp.condition) + " then " + toString(exp.trueBranch) + " else " + toString(exp.falseBranch);
+
+      //case CAST() then if Flags.isSet(Flags.NF_API) then
+      //                   toString(exp.exp)
+      //                 else
+      //                   "CAST(" + Type.toString(exp.ty) + ", " + toString(exp.exp) + ")";
+
+      //case BOX() then "BOX(" + toString(exp.exp) + ")";
+      //case UNBOX() then "UNBOX(" + toString(exp.exp) + ")";
+      //case SUBSCRIPTED_EXP() then toString(exp.exp) + Subscript.toStringList(exp.subscripts);
+      //case TUPLE_ELEMENT() then toString(exp.tupleExp) + "[" + intString(exp.index) + "]";
+      //case RECORD_ELEMENT() then toString(exp.recordExp) + "[field: " + exp.fieldName + "]";
+      //case MUTABLE() then toString(Mutable.access(exp.exp));
+      //case EMPTY() then "#EMPTY#";
+      //case PARTIAL_FUNCTION_APPLICATION()
+      //  then "function " + ComponentRef.toString(exp.fn) + "(" + stringDelimitList(
+      //    list(n + " = " + toString(a) threaded for a in exp.args, n in exp.argNames), ", ") + ")";
+
+      else algorithm
+        print("PH: unable to prefix " + toString(exp) + "\n");
+      then "ERROR";
+    end match;
+  end toPrefixString;
+
   function toFlatString
     input Expression exp;
     output String str;
@@ -2071,6 +2169,24 @@ public
       str := "(" + str + ")";
     end if;
   end multaryString;
+
+  function multaryPrefixString
+    input list<Expression> arguments;
+    input Operator operator;
+    output String str;
+  protected
+    Expression first;
+    list<Expression> rest;
+  algorithm
+    first :: rest := arguments;
+    if listEmpty(rest) then
+      str := toPrefixString(first);
+    else
+      str := "(" + Operator.symbol(operator, "") + " " +
+             toPrefixString(first) + " " +
+             multaryPrefixString(rest, operator) + ")";
+    end if;
+  end multaryPrefixString;
 
   function priority
     input Expression exp;

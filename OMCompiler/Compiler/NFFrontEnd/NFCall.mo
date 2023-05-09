@@ -757,6 +757,79 @@ public
     end match;
   end toString;
 
+  function toPrefixString
+    input NFCall call;
+    output String str;
+  protected
+    String name, arg_str,c;
+    Expression argexp;
+    list<InstNode> iters;
+  algorithm
+    str := match call
+      case UNTYPED_CALL()
+        algorithm
+          name := ComponentRef.toString(call.ref);
+          arg_str := stringDelimitList(list(Expression.toPrefixString(arg) for arg in call.arguments), " ");
+        then
+          "(" + name + " " + arg_str + ")";
+
+      case ARG_TYPED_CALL()
+        algorithm
+          name := ComponentRef.toString(call.ref);
+          arg_str := stringDelimitList(list(Expression.toString(arg.value) for arg in call.positional_args), " ");
+          for arg in call.named_args loop
+            c := if arg_str == "" then "" else ", ";
+            arg_str := arg_str + c + Util.getOption(arg.name) + " = " + Expression.toString(arg.value);
+          end for;
+        then
+          "(" + name + " " + arg_str + ")";
+
+      //case UNTYPED_ARRAY_CONSTRUCTOR()
+      //  algorithm
+      //    name := AbsynUtil.pathString(Function.nameConsiderBuiltin(NFBuiltinFuncs.ARRAY_FUNC));
+      //    arg_str := Expression.toString(call.exp);
+      //    c := stringDelimitList(list(InstNode.name(Util.tuple21(iter)) + " in " +
+      //      Expression.toString(Util.tuple22(iter)) for iter in call.iters), ", ");
+      //  then
+      //    "{" + arg_str + " for " + c + "}";
+
+      //case UNTYPED_REDUCTION()
+      //  algorithm
+      //    name := ComponentRef.toString(call.ref);
+      //    arg_str := Expression.toString(call.exp);
+      //    c := stringDelimitList(list(InstNode.name(Util.tuple21(iter)) + " in " +
+      //      Expression.toString(Util.tuple22(iter)) for iter in call.iters), ", ");
+      //  then
+      //    name + "(" + arg_str + " for " + c + ")";
+
+      case TYPED_CALL()
+        algorithm
+          name := AbsynUtil.pathString(Function.nameConsiderBuiltin(call.fn));
+          arg_str := stringDelimitList(list(Expression.toPrefixString(arg) for arg in call.arguments), " ");
+        then
+          "(" + name + " " + arg_str + ")";
+
+      //case TYPED_ARRAY_CONSTRUCTOR()
+      //  algorithm
+      //    name := AbsynUtil.pathString(Function.nameConsiderBuiltin(NFBuiltinFuncs.ARRAY_FUNC));
+      //    arg_str := Expression.toString(call.exp);
+      //    c := stringDelimitList(list(InstNode.name(Util.tuple21(iter)) + " in " +
+      //      Expression.toString(Util.tuple22(iter)) for iter in call.iters), ", ");
+      //  then
+      //    "{" + arg_str + " for " + c + "}";
+
+      //case TYPED_REDUCTION()
+      //  algorithm
+      //    name := AbsynUtil.pathString(Function.nameConsiderBuiltin(call.fn));
+      //    arg_str := Expression.toString(call.exp);
+      //    c := stringDelimitList(list(InstNode.name(Util.tuple21(iter)) + " in " +
+      //      Expression.toString(Util.tuple22(iter)) for iter in call.iters), ", ");
+      //  then
+      //    name + "(" + arg_str + " for " + c + ")";
+
+    end match;
+  end toPrefixString;
+
   function toFlatString
     input NFCall call;
     output String str;

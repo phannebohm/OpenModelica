@@ -1291,7 +1291,10 @@ public
       eq := match eq
         case SCALAR_EQUATION() algorithm
           eq.lhs := SimplifyExp.simplifyDump(eq.lhs, true, name, indent);
+
+          printEqRUST(Expression.toPrefixString(eq.rhs), Expression.toString(eq.rhs));
           eq.rhs := SimplifyExp.simplifyDump(eq.rhs, true, name, indent);
+          //printEqRUST(Expression.toPrefixString(eq.rhs), "after ");
         then eq;
         case ARRAY_EQUATION() algorithm
           eq.lhs := SimplifyExp.simplifyDump(eq.lhs, true, name, indent);
@@ -1313,16 +1316,12 @@ public
           Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for: " + Equation.toString(eq)});
         then fail();
       end match;
-      printEqRUST(toString(eq));
     end simplify;
 
     function printEqRUST
-      input String eq;
-    external "C" printEqRUST_C(eq) annotation(Include="
-    static void printEqRUST_C(const char* eqstr) {
-
-    }
-    ");
+      input String eqStr;
+      input String comment;
+    external "C" rust_parse_equation(eqStr, comment) annotation(Library="omcruntime");
     end printEqRUST;
 
     function createName
