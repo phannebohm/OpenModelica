@@ -86,7 +86,7 @@ public
     extends Module.wrapper;
     input System.SystemType systemType;
   protected
-    constant Module.jacobianInterface func = getModule();
+    Module.jacobianInterface func;
   algorithm
     bdae := match bdae
       local
@@ -98,25 +98,27 @@ public
 
       case BackendDAE.MAIN(varData = BVariable.VAR_DATA_SIM(knowns = knowns), funcTree = funcTree)
         algorithm
-          (oldSystems, oldEvents, name) := match systemType
-            case NBSystem.SystemType.ODE    then (bdae.ode, bdae.ode_event, "ODE_JAC");
-            case NBSystem.SystemType.DAE    then (Util.getOption(bdae.dae), bdae.ode_event,"DAE_JAC");
+          (oldSystems, oldEvents, name, jacType) := match systemType
+            case NBSystem.SystemType.ODE    then (bdae.ode, bdae.ode_event, "ODE_JAC", JacobianType.ODE);
+            case NBSystem.SystemType.DAE    then (Util.getOption(bdae.dae), bdae.ode_event, "DAE_JAC",  JacobianType.DAE);
             else algorithm
               Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for: " + System.System.systemTypeString(systemType)});
             then fail();
           end match;
+
+          func = getModule(jacType);
 
           if Flags.isSet(Flags.JAC_DUMP) then
             print(StringUtil.headline_1("[symjacdump] Creating symbolic Jacobians:") + "\n");
           end if;
 
           for syst in listReverse(oldSystems) loop
-            (syst, funcTree) := systJacobian(syst, funcTree, knowns, name, func);
+            (syst, funcTree) := systJacobian(syst, funcTree, knowns, name, jacType, func);
             newEvents := syst::newEvents;
           end for;
 
           for syst in listReverse(oldEvents) loop
-            (syst, funcTree) := systJacobian(syst, funcTree, knowns, name, func);
+            (syst, funcTree) := systJacobian(syst, funcTree, knowns, name, jacType, func);
             newEvents := syst::newEvents;
           end for;
 
@@ -150,9 +152,7 @@ public
     input output FunctionTree funcTree;
     input String name;
   protected
-    constant Module.jacobianInterface func = if Flags.isSet(Flags.NLS_ANALYTIC_JACOBIAN)
-      then jacobianSymbolic
-      else jacobianNumeric;
+    constant Module.jacobianInterface func = getModule(JacobianType.NLS);
   algorithm
     (jacobian, funcTree) := func(
         name              = name,
@@ -259,13 +259,15 @@ public
 
   function getModule
     "Returns the module function that was chosen by the user."
+    input JacobianType jacType;
     output Module.jacobianInterface func;
   algorithm
-    if Flags.getConfigBool(Flags.GENERATE_SYMBOLIC_JACOBIAN) then
-      func := jacobianSymbolic;
-    else
-      func := jacobianNumeric;
-    end if;
+    func := match jacType
+      case JacobianType.ODE then if Flags.getConfigBool(Flags.GENERATE_SYMBOLIC_JACOBIAN) then jacobianSymbolic else jacobianNumeric;
+      case JacobianType.DAE then if Flags.getConfigBool(Flags.GENERATE_SYMBOLIC_JACOBIAN) then jacobianSymbolic else jacobianNumeric;
+      case JacobianType.LS  then jacobianSymbolic;
+      case JacobianType.NLS then if Flags.isSet(Flags.NLS_ANALYTIC_JACOBIAN) then jacobianSymbolic else jacobianNumeric;
+    end match;
   end getModule;
 
   function toString
@@ -666,6 +668,7 @@ protected
     input output FunctionTree funcTree;
     input VariablePointers knowns;
     input String name                                     "Context name for jacobian";
+    input JacobianType jacType;
     input Module.jacobianInterface func;
   protected
     list<Pointer<Variable>> derivative_vars, state_vars;
@@ -676,7 +679,7 @@ protected
     derivative_vars := list(var for var guard(BVariable.isStateDerivative(var)) in VariablePointers.toList(syst.unknowns));
     state_vars := list(BVariable.getStateVar(var) for var in derivative_vars);
     seedCandidates := VariablePointers.fromList(state_vars, partialCandidates.scalarized);
-    (jacobian, funcTree) := func(name, JacobianType.ODE, seedCandidates, partialCandidates, syst.equations, knowns, syst.strongComponents, funcTree);
+    (jacobian, funcTree) := func(name, jacType, seedCandidates, partialCandidates, syst.equations, knowns, syst.strongComponents, funcTree);
     syst.jacobian := jacobian;
     if Flags.isSet(Flags.JAC_DUMP) then
       print(System.System.toString(syst, 2));
