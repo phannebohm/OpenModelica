@@ -1,5 +1,5 @@
 
-# Modules:
+# Modules: (ignore these, just modules for OB)
 
 calculateStateSetsJacobians
 
@@ -14,14 +14,14 @@ symbolicJacobian
     (Detects the sparse pattern of the ODE system and calculates also the symbolic Jacobian if flag '--generateSymbolicJacobian' is enabled.)
 
 
-# Config Flags:
+# Config Flags: (remove)
 
 --generateSymbolicJacobian
 
     Generates symbolic Jacobian matrix, where der(x) is differentiated w.r.t. x. This matrix can be used by dassl or ida solver with simulation flag '-jacobian'.
 
 
-# Debug Flags:
+# Debug Flags: (remove)
 
 LSanalyticJacobian (default: off)
 
@@ -31,9 +31,6 @@ NLSanalyticJacobian (default: on)
 
     Enables analytical jacobian for non-linear strong components without user-defined function calls, for that see forceNLSanalyticJacobian
 
-constjac (default: off)
-
-    solves linear systems with constant Jacobian and variable b-Vector symbolically
 disableJacsforSCC (default: off)
 
     Disables calculation of jacobians to detect if a SCC is linear or non-linear. By disabling all SCC will handled like non-linear.
@@ -42,17 +39,22 @@ forceNLSanalyticJacobian (default: off)
 
     Forces calculation analytical jacobian also for non-linear strong components with user-defined functions.
 
-symJacConstantSplit (default: off)
+constjac (default: off) (module will be ASSC)
+
+    solves linear systems with constant Jacobian and variable b-Vector symbolically
+
+# Debug Flags: (keep or change)
+
+symJacConstantSplit (default: off) (this should be always on and an option for the user to change doesnt make sense. activate flag generally and see if it works)
 
     Generates all symbolic Jacobians with splitted constant parts.
 
 
-## (Debug Flags) Dumps:
+## (Debug Flags) Dumps: (remove for new flags)
 
 debugAlgebraicLoopsJacobian (default: off)
 
     Dumps debug output while creating symbolic jacobians for non-linear systems.
-
 
 dumpExcludedSymJacExps (default: off)
 
