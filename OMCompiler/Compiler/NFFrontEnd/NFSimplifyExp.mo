@@ -88,13 +88,6 @@ protected
 algorithm
   BuiltinSystem.fflush();
 
-  // EGG
-  BuiltinSystem.realtimeClear(clock_idx);
-  BuiltinSystem.realtimeTick(clock_idx);
-  res := EGraph.simplifyExp(exp);
-  time_egg := BuiltinSystem.realtimeTock(clock_idx);
-  print("egg:      " + printTime(time_egg) + "\n\n");
-
   // FrontEnd
   BuiltinSystem.realtimeClear(clock_idx);
   BuiltinSystem.realtimeTick(clock_idx);
@@ -108,6 +101,15 @@ algorithm
     print(indent + "[AFTER ] " + Expression.toString(res) + "\n");
   end if;
   print("frontend: " + printTime(time_frontend) + "\n\n");
+  BuiltinSystem.fflush();
+
+  // EGG
+  BuiltinSystem.realtimeClear(clock_idx);
+  BuiltinSystem.realtimeTick(clock_idx);
+  res := EGraph.simplifyExp(exp);
+  time_egg := BuiltinSystem.realtimeTock(clock_idx);
+  print("total:    " + printTime(time_egg) + "\n\n");
+
   BuiltinSystem.fflush();
 end simplifyDump;
 
