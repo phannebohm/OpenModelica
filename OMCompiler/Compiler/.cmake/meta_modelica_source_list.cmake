@@ -465,6 +465,7 @@ set(OMC_MM_BACKEND_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Util/Curl.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/Util/DiffAlgorithm.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/Util/DisjointSets.mo
+    ${CMAKE_CURRENT_SOURCE_DIR}/Util/EGraph.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/Util/ExpandableArray.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/Util/FFI.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/Util/FMI.mo

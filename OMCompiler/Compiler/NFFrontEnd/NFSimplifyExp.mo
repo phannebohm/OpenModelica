@@ -57,6 +57,10 @@ import Debug;
 import Array;
 import MetaModelica.Dangerous.listReverseInPlace;
 
+import BuiltinSystem = System;
+import ClockIndexes;
+import EGraph;
+
 public
 
 function simplifyDump
@@ -66,13 +70,45 @@ function simplifyDump
   output Expression res;
   input String name = "";
   input String indent = "";
+protected
+  constant Integer clock_idx = 27;
+  Real time_egg, time_frontend;
+
+  function printTime
+    input Real t;
+    output String str;
+  algorithm
+    str := if t < 1e-9 then realString(1e12*t) + "ps"
+      elseif t < 1e-6 then realString(1e9*t) + "ns"
+      elseif t < 1e-3 then realString(1e6*t) + "µs"
+      elseif t < 1 then realString(1e3*t) + "ms"
+      else realString(t) + "s";
+  end printTime;
+
 algorithm
+  BuiltinSystem.fflush();
+
+  // EGG
+  BuiltinSystem.realtimeClear(clock_idx);
+  BuiltinSystem.realtimeTick(clock_idx);
+  res := EGraph.simplifyExp(exp);
+  time_egg := BuiltinSystem.realtimeTock(clock_idx);
+  print("egg:      " + printTime(time_egg) + "\n\n");
+
+  // FrontEnd
+  BuiltinSystem.realtimeClear(clock_idx);
+  BuiltinSystem.realtimeTick(clock_idx);
   res := simplify(exp, backend);
-  if Flags.isSet(Flags.DUMP_SIMPLIFY) and not Expression.isEqual(exp, res) then
+  time_frontend := BuiltinSystem.realtimeTock(clock_idx);
+
+  //if Flags.isSet(Flags.DUMP_SIMPLIFY) and not Expression.isEqual(exp, res) then
+  if Flags.isSet(Flags.DUMP_SIMPLIFY) then
     print(indent + "### dumpSimplify | " + name + " ###\n");
     print(indent + "[BEFORE] " + Expression.toString(exp) + "\n");
-    print(indent + "[AFTER ] " + Expression.toString(res) + "\n\n");
+    print(indent + "[AFTER ] " + Expression.toString(res) + "\n");
   end if;
+  print("frontend: " + printTime(time_frontend) + "\n\n");
+  BuiltinSystem.fflush();
 end simplifyDump;
 
 function simplify

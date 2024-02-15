@@ -150,6 +150,7 @@ if true then /* Suppress output */
     "../Util/Debug.mo",
     "../Util/DoubleEnded.mo",
     "../Util/DynLoad.mo",
+    "../Util/EGraph.mo",
     "../Util/ErrorExt.mo",
     "../Util/Error.mo",
     "../Util/ErrorTypes.mo",

@@ -71,6 +71,7 @@ constant Integer isInStream = 27;
 constant Integer MMToJLListIndex = 28;
 constant Integer packageIndexCacheIndex = 29;
 constant Integer sharedLibraryCacheIndex = 30;
+constant Integer eGraph = 31;
 
 // indexes in System.tick
 // ----------------------
@@ -103,6 +104,7 @@ algorithm
   setGlobalRoot(instNFNodeCacheIndex, {});
   setGlobalRoot(instNFLookupCacheIndex, {});
   setGlobalRoot(sharedLibraryCacheIndex, {});
+  setGlobalRoot(eGraph, NONE());
 end initialize;
 
 annotation(__OpenModelica_Interface="util");

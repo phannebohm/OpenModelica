@@ -75,8 +75,6 @@ public
   // Util imports
   import BackendUtil = NBBackendUtil;
   import BaseHashTable;
-  import BuiltinSystem = System;
-  import ClockIndexes;
   import ExpandableArray;
   import Slice = NBSlice;
   import StringUtil;
@@ -1286,31 +1284,14 @@ public
       input output Equation eq;
       input String name = "";
       input String indent = "";
-    protected
-      constant Integer clock_idx = 27;
-      Real time_egg, time_frontend;
     algorithm
       if Flags.isSet(Flags.DUMP_SIMPLIFY) and not stringEqual(indent, "") then
         print("\n");
       end if;
       eq := match eq
         case SCALAR_EQUATION() algorithm
-          // EGG
-          BuiltinSystem.realtimeClear(clock_idx);
-          BuiltinSystem.realtimeTick(clock_idx);
-          eggSimplify(Expression.toPrefixString(eq.lhs), Expression.toPrefixString(eq.rhs));
-          time_egg := BuiltinSystem.realtimeTock(clock_idx);
-
-          // FrontEnd
-          BuiltinSystem.realtimeClear(clock_idx);
-          BuiltinSystem.realtimeTick(clock_idx);
           eq.lhs := SimplifyExp.simplifyDump(eq.lhs, true, name, indent);
           eq.rhs := SimplifyExp.simplifyDump(eq.rhs, true, name, indent);
-          time_frontend := BuiltinSystem.realtimeTock(clock_idx);
-
-          print("egg:      " + printTime(time_egg) + "\n");
-          print("frontend: " + printTime(time_frontend) + "\n\n");
-          BuiltinSystem.fflush();
         then eq;
         case ARRAY_EQUATION() algorithm
           eq.lhs := SimplifyExp.simplifyDump(eq.lhs, true, name, indent);
@@ -1333,23 +1314,6 @@ public
         then fail();
       end match;
     end simplify;
-
-    function eggSimplify
-      input String lhsStr;
-      input String rhsStr;
-    external "C" egg_simplify_equation(lhsStr, rhsStr) annotation(Library="omcruntime");
-    end eggSimplify;
-
-    function printTime
-      input Real t;
-      output String str;
-    algorithm
-      str := if t < 1e-9 then realString(1e12*t) + "ps"
-        elseif t < 1e-6 then realString(1e9*t) + "ns"
-        elseif t < 1e-3 then realString(1e6*t) + "µs"
-        elseif t < 1 then realString(1e3*t) + "ms"
-        else realString(t) + "s";
-    end printTime;
 
     function createName
       input Pointer<Equation> eqn_ptr;
