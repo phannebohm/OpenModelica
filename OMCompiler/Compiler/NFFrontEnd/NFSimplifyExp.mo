@@ -77,12 +77,17 @@ protected
   function printTime
     input Real t;
     output String str;
+  protected
+    function round
+      input Real x;
+      output String s = realString(floor(x*100)/100);
+    end round;
   algorithm
-    str := if t < 1e-9 then realString(1e12*t) + "ps"
-      elseif t < 1e-6 then realString(1e9*t) + "ns"
-      elseif t < 1e-3 then realString(1e6*t) + "µs"
-      elseif t < 1 then realString(1e3*t) + "ms"
-      else realString(t) + "s";
+    str := if t < 1e-9 then round(1e12*t) + "ps"
+      elseif t < 1e-6 then round(1e9*t) + "ns"
+      elseif t < 1e-3 then round(1e6*t) + "µs"
+      elseif t < 1 then round(1e3*t) + "ms"
+      else round(t) + "s";
   end printTime;
 
 algorithm
