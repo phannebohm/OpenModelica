@@ -50,15 +50,17 @@ public
     input output Expression exp;
   protected
     EGraph egraph = getEGraph();
+    String expStr;
   algorithm
-    simplifyExp_impl(egraph.rules, toPrefixString(exp));
+    expStr := toPrefixString(exp);
+    simplifyExp_impl(egraph.rules, egraph.runner, expStr);
   end simplifyExp;
 
 protected
 
   record E_GRAPH
     Rules rules           "";
-//    Runner runner         "";
+    Runner runner         "";
 //    Extractor extractor   "";
   end E_GRAPH;
 
@@ -70,7 +72,7 @@ protected
     egraph := match ograph
       case SOME(egraph) then egraph;
       else algorithm
-        egraph := E_GRAPH(rules = Rules());
+        egraph := E_GRAPH(rules = Rules(), runner = Runner());
         setGlobalRoot(Global.eGraph, SOME(egraph));
       then egraph;
     end match;
@@ -90,10 +92,20 @@ protected
     end destructor;
   end Rules;
 
-//  class Runner
-//    extends ExternalObject;
-//  end Runner;
-//
+  class Runner
+    extends ExternalObject;
+    function constructor
+      output Runner runner;
+    external "C"
+      runner = egg_make_runner() annotation(Library="omcruntime");
+    end constructor;
+    function destructor
+      input Runner runner;
+    external "C"
+      egg_free_runner(runner) annotation(Library="omcruntime");
+    end destructor;
+  end Runner;
+
 //  class Extractor
 //    extends ExternalObject;
 //  end Extractor;
@@ -308,9 +320,10 @@ protected
   // ---------------------------------------------------------------------------
 
   function simplifyExp_impl
-    input Rules r;
+    input Rules rules;
+    input Runner runner;
     input String e "expression in prefix notation";
-    external "C" egg_simplify_expr(r, e) annotation(Library="omcruntime");
+    external "C" egg_simplify_expr(rules, runner, e) annotation(Library="omcruntime");
   end simplifyExp_impl;
 
 annotation(__OpenModelica_Interface="util");
