@@ -114,6 +114,39 @@ public
     end for;
   end fromLists;
 
+  function invert
+    "Returns the inverse of the map. Assumes the map is invertible."
+    input UnorderedMap<K, V> map;
+    input VHash hash;
+    input ValueEq keyEq;
+    output UnorderedMap<V, K> inv;
+
+    partial function VHash
+      input V key;
+      output Integer hash;
+    end VHash;
+
+    partial function ValueEq
+      input V key1;
+      input V key2;
+      output Boolean equal;
+    end ValueEq;
+  algorithm
+    inv := UNORDERED_MAP(
+      Vector.newFill(0, {}),
+      Vector.copy(map.values),
+      Vector.copy(map.keys),
+      hash,
+      keyEq
+    );
+    try
+      rehash(inv, true);
+    else
+      Error.addInternalError(getInstanceName() + " got non-invertible map.", sourceInfo());
+      fail();
+    end try;
+  end invert;
+
   function copy
     "Returns a copy of the map."
     input UnorderedMap<K, V> map;
@@ -629,6 +662,7 @@ public
     "Changes the number of buckets to an appropriate number based on the number
      of elements in the map and rehashes all the keys."
     input UnorderedMap<K, V> map;
+    input Boolean sanityCheck = false "if true, reports duplicate keys and fails";
   protected
     Vector<K> keys = map.keys;
     Vector<list<Integer>> buckets = map.buckets;
@@ -645,6 +679,10 @@ public
     // Rehash all the keys and refill the buckets.
     for i in 1:Vector.size(map.keys) loop
       bucket_id := intMod(hashfn(Vector.get(keys, i)), bucket_count) + 1;
+      if sanityCheck and List.contains(Vector.getNoBounds(buckets, bucket_id), i, map.eqFn) then
+        Error.addInternalError(getInstanceName() + " failed. Duplicate key found.", sourceInfo());
+        fail();
+      end if;
       Vector.updateNoBounds(buckets, bucket_id, i :: Vector.getNoBounds(buckets, bucket_id));
     end for;
   end rehash;

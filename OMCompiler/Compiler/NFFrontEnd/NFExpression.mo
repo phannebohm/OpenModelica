@@ -367,7 +367,7 @@ public
         Expression e;
       case BOOLEAN(true) then true;
       case ARRAY() then Array.all(exp.elements, isAllTrue);
-      case CALL(call = Call.TYPED_ARRAY_CONSTRUCTOR(exp = e)) then Expression.isAllTrue(e);
+      case CALL(call = Call.TYPED_ARRAY_CONSTRUCTOR(exp = e)) then isAllTrue(e);
       else false;
     end match;
   end isAllTrue;
@@ -387,12 +387,17 @@ public
     output Boolean b;
   algorithm
     b := match exp
-      case Expression.CREF() then true;
-      case Expression.UNARY(exp = Expression.CREF()) then true;
-      case Expression.LUNARY(exp = Expression.CREF()) then true;
+      case CREF() then true;
+      case UNARY(exp = CREF()) then true;
+      case LUNARY(exp = CREF()) then true;
       else false;
     end match;
   end isTrivialCref;
+
+  function hash
+    input Expression exp;
+    output Integer hash = stringHashDjb2(toString(exp));
+  end hash;
 
   function isEqual
     "Returns true if the two expressions are equal, otherwise false."
@@ -556,9 +561,9 @@ public
           comp := Operator.compare(exp1.operator, op);
           if comp == 0 then
             comp := compareList(exp1.arguments, expl);
-          end if;
-          if comp == 0 then
-            comp := compareList(exp1.inv_arguments, inv_expl);
+            if comp == 0 then
+              comp := compareList(exp1.inv_arguments, inv_expl);
+            end if;
           end if;
         then
           comp;
@@ -5946,7 +5951,7 @@ public
         algorithm
           json := JSON.emptyObject();
           json := JSON.addPair("$kind", JSON.makeString("enum"), json);
-          json := JSON.addPair("name", JSON.makeString(Expression.toString(exp)), json);
+          json := JSON.addPair("name", JSON.makeString(toString(exp)), json);
           json := JSON.addPair("index", JSON.makeInteger(exp.index), json);
         then
           json;

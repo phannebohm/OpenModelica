@@ -617,7 +617,7 @@ function stringHashSdbm
 external "builtin";
 end stringHashSdbm;
 
-function substring "Fails for bogus start/stop"
+function substring "Allocates a new string. Fails for bogus start/stop."
   input String str;
   input Integer start "start index, first character is 1";
   input Integer stop "stop index, first character is 1";

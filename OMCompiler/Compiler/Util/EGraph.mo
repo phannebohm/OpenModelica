@@ -49,11 +49,23 @@ public
   function simplifyExp
     input output Expression exp;
   protected
-    EGraph egraph = getEGraph();
+    EGraph egraph;
     String expStr;
+    UnorderedMap<Expression, String> crefToId;
+    UnorderedMap<String, Expression> idToCref;
   algorithm
-    expStr := toPrefixString(exp);
-    simplifyExp_impl(egraph.rules, egraph.runner, expStr);
+    // shortcut for crefs
+    if Expression.isCref(exp) then return; end if;
+
+    crefToId := UnorderedMap.new<String>(Expression.hash, Expression.isEqual);
+
+    expStr := expToStr(exp, crefToId);
+    idToCref := UnorderedMap.invert(crefToId, stringHashDjb2, stringEq);
+    print("var map: " + UnorderedMap.toString(crefToId, Expression.toString, Util.id, ", ") + "\n");
+    print("inv map: " + UnorderedMap.toString(idToCref, Util.id, Expression.toString, ", ") + "\n");
+    egraph := getEGraph();
+    expStr := simplifyExp_impl(egraph.rules, egraph.runner, expStr);
+    exp := strToExp(expStr, idToCref);
   end simplifyExp;
 
 protected
@@ -63,6 +75,8 @@ protected
     Runner runner         "";
 //    Extractor extractor   "";
   end E_GRAPH;
+
+  constant Boolean debug = false;
 
   function getEGraph
     output EGraph egraph;
@@ -106,21 +120,19 @@ protected
     end destructor;
   end Runner;
 
-//  class Extractor
-//    extends ExternalObject;
-//  end Extractor;
+  //  class Extractor
+  //    extends ExternalObject;
+  //  end Extractor;
 
 
   // ---------------------------------------------------------------------------
   // MetaModelica Expression to Rust String
   // ---------------------------------------------------------------------------
 
-
-
-  function toPrefixString
+  function expToStr
     "Prints an Expression in prefix notation, e.g. `2*x+y` is (+ (* 2 x) y)"
     input Expression exp;
-    //input UnorderedMap<> crefMap;
+    input UnorderedMap<Expression, String> crefToId;
     output String str;
   protected
     Type t;
@@ -129,6 +141,9 @@ protected
     list<Expression> rest, rest_inv;
   algorithm
     str := match exp
+      case Expression.CREF()
+        then UnorderedMap.tryAdd(exp, "x" + intString(UnorderedMap.size(crefToId)), crefToId);
+
       case Expression.INTEGER() then intString(exp.value);
       case Expression.REAL()    then realString(exp.value);
       case Expression.STRING()  then "\"" + System.escapedString(exp.value, false) + "\"";
@@ -138,7 +153,6 @@ protected
         then AbsynUtil.pathString(t.typePath) + "." + exp.name;
 
       //case Expression.CLKCONST(clk) then ClockKind.toString(clk);
-      case Expression.CREF() then ComponentRef.toString(exp.cref);
       case Expression.TYPENAME() then Type.typenameString(Type.arrayElementType(exp.ty));
       case Expression.ARRAY() then "{" + stringDelimitList(list(Expression.toString(e) for e in exp.elements), ", ") + "}";
       case Expression.MATRIX() then "[" + stringDelimitList(list(stringDelimitList(list(Expression.toString(e) for e in el), ", ") for el in exp.elements), "; ") + "]";
@@ -153,7 +167,7 @@ protected
       //case Expression.TUPLE() then "(" + stringDelimitList(list(Expression.toString(e) for e in exp.elements), ", ") + ")";
       //case Expression.RECORD() then List.toString(exp.elements, Expression.toString, AbsynUtil.pathString(exp.path), "(", ", ", ")", true);
 
-      case Expression.CALL() then callPrefixString(exp.call);
+      case Expression.CALL() then callToStr(exp.call, crefToId);
 
       //case Expression.SIZE() then "size(" + Expression.toString(exp.exp) +
       //                  (
@@ -164,38 +178,38 @@ protected
       case Expression.END() then "end";
 
       case Expression.MULTARY() guard(listEmpty(exp.inv_arguments))
-        then multaryPrefixString(exp.arguments, exp.operator);
+        then multaryToStr(exp.arguments, exp.operator, crefToId);
 
       case Expression.MULTARY() guard(listEmpty(exp.arguments) and Operator.isDashClassification(Operator.getMathClassification(exp.operator)))
-        then "(- 0 " + multaryPrefixString(exp.inv_arguments, exp.operator) + ")";
+        then "(- 0 " + multaryToStr(exp.inv_arguments, exp.operator, crefToId) + ")";
 
       case Expression.MULTARY() guard(listEmpty(exp.arguments))
-        then "(/ 1 " + multaryPrefixString(exp.inv_arguments, exp.operator) + ")";
+        then "(/ 1 " + multaryToStr(exp.inv_arguments, exp.operator, crefToId) + ")";
 
       case Expression.MULTARY()
         then "(" + Operator.symbol(Operator.invert(exp.operator), "") + " " +
-          multaryPrefixString(exp.arguments, exp.operator) + " " +
-          multaryPrefixString(exp.inv_arguments, exp.operator) + ")";
+          multaryToStr(exp.arguments, exp.operator, crefToId) + " " +
+          multaryToStr(exp.inv_arguments, exp.operator, crefToId) + ")";
 
       case Expression.BINARY()
         then "(" + Operator.symbol(exp.operator, "") + " " +
-          toPrefixString(exp.exp1) + " " + toPrefixString(exp.exp2) + ")";
+          expToStr(exp.exp1, crefToId) + " " + expToStr(exp.exp2, crefToId) + ")";
 
       case Expression.UNARY()
         then "(" + Operator.symbol(exp.operator, "") + " 0 " +
-          toPrefixString(exp.exp) + ")";
+          expToStr(exp.exp, crefToId) + ")";
 
       case Expression.LBINARY()
         then "(" + Operator.symbol(exp.operator, "") + " " +
-          toPrefixString(exp.exp1) + " " + toPrefixString(exp.exp2) + ")";
+          expToStr(exp.exp1, crefToId) + " " + expToStr(exp.exp2, crefToId) + ")";
 
       case Expression.LUNARY()
         then "(" + Operator.symbol(exp.operator, "") + " " +
-          toPrefixString(exp.exp) + ")";
+          expToStr(exp.exp, crefToId) + ")";
 
       case Expression.RELATION()
         then "(" + Operator.symbol(exp.operator, "") + " " +
-          toPrefixString(exp.exp1) + " " + toPrefixString(exp.exp2) + ")";
+          expToStr(exp.exp1, crefToId) + " " + expToStr(exp.exp2, crefToId) + ")";
 
       //case Expression.IF() then "if " + Expression.toString(exp.condition) + " then " + Expression.toString(exp.trueBranch) + " else " + Expression.toString(exp.falseBranch);
 
@@ -219,11 +233,12 @@ protected
         print("PH: unable to prefix " + Expression.toString(exp) + "\n");
       then "ERROR";
     end match;
-  end toPrefixString;
+  end expToStr;
 
-  function multaryPrefixString
+  function multaryToStr
     input list<Expression> arguments;
     input Operator operator;
+    input UnorderedMap<Expression, String> crefToId;
     output String str;
   protected
     Expression first;
@@ -231,16 +246,17 @@ protected
   algorithm
     first :: rest := arguments;
     if listEmpty(rest) then
-      str := toPrefixString(first);
+      str := expToStr(first, crefToId);
     else
       str := "(" + Operator.symbol(operator, "") + " " +
-             toPrefixString(first) + " " +
-             multaryPrefixString(rest, operator) + ")";
+             expToStr(first, crefToId) + " " +
+             multaryToStr(rest, operator, crefToId) + ")";
     end if;
-  end multaryPrefixString;
+  end multaryToStr;
 
-  function callPrefixString
+  function callToStr
     input NFCall call;
+    input UnorderedMap<Expression, String> crefToId;
     output String str;
   protected
     String name, arg_str,c;
@@ -251,7 +267,7 @@ protected
       case Call.UNTYPED_CALL()
         algorithm
           name := ComponentRef.toString(call.ref);
-          arg_str := stringDelimitList(list(toPrefixString(arg) for arg in call.arguments), " ");
+          arg_str := stringDelimitList(list(expToStr(arg, crefToId) for arg in call.arguments), " ");
         then
           "(" + name + " " + arg_str + ")";
 
@@ -287,7 +303,7 @@ protected
       case Call.TYPED_CALL()
         algorithm
           name := AbsynUtil.pathString(Function.nameConsiderBuiltin(call.fn));
-          arg_str := stringDelimitList(list(toPrefixString(arg) for arg in call.arguments), " ");
+          arg_str := stringDelimitList(list(expToStr(arg, crefToId) for arg in call.arguments), " ");
         then
           "(" + name + " " + arg_str + ")";
 
@@ -313,7 +329,136 @@ protected
         print("PH: unable to prefix " + Call.toString(call) + "\n");
       then "ERROR";
     end match;
-  end callPrefixString;
+  end callToStr;
+
+  // ---------------------------------------------------------------------------
+
+  function strToExp
+    "Takes a prefix notation and builds an Expression from it."
+    input String str;
+    input UnorderedMap<String, Expression> idToCref;
+    input Integer start = 1                 "start of substring";
+    input Integer stop = stringLength(str)  "end of substring";
+    output Expression exp;
+  algorithm
+    if debug then print(getInstanceName() + " parsing " + substring(str, start, stop) + "\n"); end if;
+    if stringGet(str, start) == stringCharInt("(") then
+      if stringGet(str, stop) == stringCharInt(")") then
+        exp := strToExp_call(str, idToCref, start + 1, stop - 1);
+      else
+        print(getInstanceName() + " error: missing closing parenthesis\n");
+        fail();
+      end if;
+    else
+      exp := strToExp_leaf(str, idToCref, start, stop);
+    end if;
+  end strToExp;
+
+  function strToExp_call
+    input String str;
+    input UnorderedMap<String, Expression> idToCref;
+    input Integer inStart "start of substring";
+    input Integer inStop  "end of substring";
+    output Expression exp;
+  protected
+    String call;
+    list<Expression> exp_list = {};
+    Integer start = inStart;
+    Integer stop;
+    Integer nesting = 0;
+    Integer i;
+    constant Integer CHAR_SPACE = stringCharInt(" ");
+    constant Integer CHAR_OPEN_PAR = stringCharInt("(");
+    constant Integer CHAR_CLOSE_PAR = stringCharInt(")");
+  algorithm
+    if debug then print(getInstanceName() + " parsing " + substring(str, inStart, inStop) + "\n"); end if;
+
+    // find operator, search from left to first space
+    stop := start;
+    while stringGet(str, stop+1) <> CHAR_SPACE and stop < inStop loop
+      stop := stop + 1;
+    end while;
+
+    call := substring(str, start, stop);
+    if debug then print(" - call: " + substring(str, start, stop) + "\n"); end if;
+
+    // find all operands, search from right to left
+    start := stop; // keep the space in front of first operand
+    stop := inStop;
+
+    if debug then print(" - args: " + substring(str, start, stop) + "\n"); end if;
+
+    i := inStop;
+    while i >= start loop
+      () := match stringGet(str, i)
+        case CHAR_CLOSE_PAR algorithm
+          nesting := nesting + 1;
+        then ();
+        case CHAR_OPEN_PAR algorithm
+          nesting := nesting - 1;
+          if nesting < 0 then
+            print(getInstanceName() + " error: too many opening parentheses\n");
+            fail();
+          end if;
+        then ();
+        case CHAR_SPACE guard nesting == 0 algorithm
+          exp_list := strToExp(str, idToCref, i + 1, stop) :: exp_list;
+          stop := i - 1;
+        then ();
+        else ();
+      end match;
+      i := i - 1;
+    end while;
+
+    // build expression from call and args
+
+    exp := match (call, exp_list)
+      local
+        Expression arg1, arg2;
+      case ("+", {arg1, arg2}) then Expression.repairOperator(Expression.BINARY(arg1, Operator.makeAdd(Expression.typeOf(arg1)), arg2));
+      case ("-", {arg1, arg2}) then Expression.repairOperator(Expression.BINARY(arg1, Operator.makeSub(Expression.typeOf(arg1)), arg2));
+      case ("*", {arg1, arg2}) then Expression.repairOperator(Expression.BINARY(arg1, Operator.makeMul(Expression.typeOf(arg1)), arg2));
+      case ("/", {arg1, arg2}) then Expression.repairOperator(Expression.BINARY(arg1, Operator.makeDiv(Expression.typeOf(arg1)), arg2));
+      case ("^", {arg1, arg2}) then Expression.repairOperator(Expression.BINARY(arg1, Operator.makePow(Expression.typeOf(arg1)), arg2));
+      case ("sin", {arg1}) then Expression.CALL(Call.makeTypedCall(
+          fn          = NFBuiltinFuncs.SIN_REAL,
+          args        = {arg1},
+          variability = Expression.variability(arg1),
+          purity      = NFPrefixes.Purity.PURE
+        ));
+      else algorithm
+        print(getInstanceName() + " error: could not parse operator " + call + " with arguments " + List.toString(exp_list, Expression.toString) + "\n");
+      then fail();
+    end match;
+  end strToExp_call;
+
+  function strToExp_leaf
+    "Documentation"
+    input String str;
+    input UnorderedMap<String, Expression> idToCref;
+    input Integer start "start of substring";
+    input Integer stop  "end of substring";
+    output Expression exp;
+  protected
+    String s = substring(str, start, stop);
+  algorithm
+    if debug then print(getInstanceName() + " parsing " + s + "\n"); end if;
+    if UnorderedMap.contains(s, idToCref) then
+      exp := UnorderedMap.getOrFail(s, idToCref);
+    else
+      try
+        exp := Expression.INTEGER(stringInt(s));
+      else
+        try
+          exp := Expression.REAL(stringReal(s));
+        else
+          print(getInstanceName() + "error: could not parse " + s + "\n");
+          fail();
+        end try;
+      end try;
+    end if;
+  end strToExp_leaf;
+
 
   // ---------------------------------------------------------------------------
   // RUST FFI
@@ -323,7 +468,8 @@ protected
     input Rules rules;
     input Runner runner;
     input String e "expression in prefix notation";
-    external "C" egg_simplify_expr(rules, runner, e) annotation(Library="omcruntime");
+    output String res;
+    external "C" res = egg_simplify_expr(rules, runner, e) annotation(Library="omcruntime");
   end simplifyExp_impl;
 
 annotation(__OpenModelica_Interface="util");

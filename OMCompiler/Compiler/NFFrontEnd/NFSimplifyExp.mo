@@ -80,7 +80,11 @@ protected
   protected
     function round
       input Real x;
-      output String s = realString(floor(x*100)/100);
+      output String s = realString(x);
+    protected
+      Integer i = System.stringFind(s, ".");
+    algorithm
+      s := if i > 0 then substring(s, 1, min(stringLength(s), i + 3)) else s;
     end round;
   algorithm
     str := if t < 1e-9 then round(1e12*t) + "ps"
@@ -91,6 +95,19 @@ protected
   end printTime;
 
 algorithm
+  BuiltinSystem.fflush();
+
+  // EGG
+  BuiltinSystem.realtimeClear(clock_idx);
+  BuiltinSystem.realtimeTick(clock_idx);
+  res := EGraph.simplifyExp(exp);
+  time_egg := BuiltinSystem.realtimeTock(clock_idx);
+   if Flags.isSet(Flags.DUMP_SIMPLIFY) then
+    print(indent + "### egg | " + name + " ###\n");
+    print(indent + "[BEFORE] " + Expression.toString(exp) + "\n");
+    print(indent + "[AFTER ] " + Expression.toString(res) + "\n");
+  end if;
+  print("time: " + printTime(time_egg) + "\n\n");
   BuiltinSystem.fflush();
 
   // FrontEnd
@@ -105,16 +122,7 @@ algorithm
     print(indent + "[BEFORE] " + Expression.toString(exp) + "\n");
     print(indent + "[AFTER ] " + Expression.toString(res) + "\n");
   end if;
-  print("frontend: " + printTime(time_frontend) + "\n\n");
-  BuiltinSystem.fflush();
-
-  // EGG
-  BuiltinSystem.realtimeClear(clock_idx);
-  BuiltinSystem.realtimeTick(clock_idx);
-  res := EGraph.simplifyExp(exp);
-  time_egg := BuiltinSystem.realtimeTock(clock_idx);
-  print("total:    " + printTime(time_egg) + "\n\n");
-
+  print("time: " + printTime(time_frontend) + "\n\n");
   BuiltinSystem.fflush();
 end simplifyDump;
 
