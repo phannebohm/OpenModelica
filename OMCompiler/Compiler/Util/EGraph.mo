@@ -63,6 +63,8 @@ public
     idToCref := UnorderedMap.invert(crefToId, stringHashDjb2, stringEq);
     print("var map: " + UnorderedMap.toString(crefToId, Expression.toString, Util.id, ", ") + "\n");
     print("inv map: " + UnorderedMap.toString(idToCref, Util.id, Expression.toString, ", ") + "\n");
+    print(expStr + "\n");
+    System.fflush();
     egraph := getEGraph();
     expStr := simplifyExp_impl(egraph.rules, egraph.runner, expStr);
     exp := strToExp(expStr, idToCref);
