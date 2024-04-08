@@ -53,6 +53,7 @@ public
     String expStr;
     UnorderedMap<Expression, String> crefToId;
     UnorderedMap<String, Expression> idToCref;
+    Boolean debug = false;
   algorithm
     // shortcut for crefs
     if Expression.isCref(exp) then return; end if;
@@ -61,10 +62,12 @@ public
 
     expStr := expToStr(exp, crefToId);
     idToCref := UnorderedMap.invert(crefToId, stringHashDjb2, stringEq);
-    print("var map: " + UnorderedMap.toString(crefToId, Expression.toString, Util.id, ", ") + "\n");
-    print("inv map: " + UnorderedMap.toString(idToCref, Util.id, Expression.toString, ", ") + "\n");
-    print(expStr + "\n");
-    System.fflush();
+    if debug then
+      print("var map: " + UnorderedMap.toString(crefToId, Expression.toString, Util.id, ", ") + "\n");
+      print("inv map: " + UnorderedMap.toString(idToCref, Util.id, Expression.toString, ", ") + "\n");
+      print(expStr + "\n");
+      System.fflush();
+    end if;
     egraph := getEGraph();
     expStr := simplifyExp_impl(egraph.rules, egraph.runner, expStr);
     exp := strToExp(expStr, idToCref);

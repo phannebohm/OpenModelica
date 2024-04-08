@@ -73,6 +73,7 @@ function simplifyDump
 protected
   constant Integer clock_idx = 27;
   Real time_egg, time_frontend;
+  Boolean debug = false;
 
   function printTime
     input Real t;
@@ -107,7 +108,9 @@ algorithm
     print(indent + "[BEFORE] " + Expression.toString(exp) + "\n");
     print(indent + "[AFTER ] " + Expression.toString(res) + "\n");
   end if;
-  print("time: " + printTime(time_egg) + "\n\n");
+  if debug then
+    print("time: " + printTime(time_egg) + "\n\n");
+  end if;
   BuiltinSystem.fflush();
 
   // FrontEnd
@@ -122,7 +125,9 @@ algorithm
     print(indent + "[BEFORE] " + Expression.toString(exp) + "\n");
     print(indent + "[AFTER ] " + Expression.toString(res) + "\n");
   end if;
-  print("time: " + printTime(time_frontend) + "\n\n");
+  if debug then
+    print("time: " + printTime(time_frontend) + "\n\n");
+  end if;
   BuiltinSystem.fflush();
 end simplifyDump;
 
