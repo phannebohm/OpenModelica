@@ -1,11 +1,11 @@
 TEST = ../../../../rtest -v
 
-TESTFILES = \
-simplifications.mos
+TESTFILES =
 
 # test that currently fail. Move up when fixed.
 # Run make failingtest
-FAILINGTESTFILES =
+FAILINGTESTFILES = \
+simplifications.mos
 
 # Dependency files that are not .mo .mos or Makefile
 # Add them here or they will be cleaned.

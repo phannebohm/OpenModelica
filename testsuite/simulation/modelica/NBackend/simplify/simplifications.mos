@@ -1,6 +1,12 @@
 // name: multary_simplifications
 // keywords: NewBackend
 // status: correct
+// teardown_command: rm -rf simplifications_temp/
+
+echo(false);
+mkdir("simplifications_temp");
+cd("simplifications_temp");
+echo(true);
 
 loadString("
 model multary_simplification
@@ -32,138 +38,66 @@ buildModel(multary_simplification); getErrorString();
 // ""
 // true
 // ""
-// ### egg | NBEquation.Equation.generateBindingEquation ###
-// [BEFORE] time
-// [AFTER ] time
-// ### dumpSimplify | NBEquation.Equation.generateBindingEquation ###
-// [BEFORE] time
-// [AFTER ] time
-// ### egg | NBackendDAE.simplify ###
-// [BEFORE] v14
-// [AFTER ] v14
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] v14
-// [AFTER ] v14
 // ### egg | NBackendDAE.simplify ###
 // [BEFORE] (v4 + v3 + v2 + v1) - (v1 + v3)
-// [AFTER ] v4 + v1 + v3 + v2 - (v3 + v1)
+// [AFTER ] v4 + v2
 // ### dumpSimplify | NBackendDAE.simplify ###
 // [BEFORE] (v4 + v3 + v2 + v1) - (v1 + v3)
 // [AFTER ] (v4 + v3 + v2 + v1) - (v1 + v3)
 // ### egg | NBackendDAE.simplify ###
-// [BEFORE] v13
-// [AFTER ] v13
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] v13
-// [AFTER ] v13
-// ### egg | NBackendDAE.simplify ###
 // [BEFORE] $FUN_1 + $FUN_2
 // [AFTER ] $FUN_1 + $FUN_2
 // ### dumpSimplify | NBackendDAE.simplify ###
 // [BEFORE] $FUN_1 + $FUN_2
 // [AFTER ] $FUN_1 + $FUN_2
-// ### egg | NBackendDAE.simplify ###
-// [BEFORE] v12
-// [AFTER ] v12
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] v12
-// [AFTER ] v12
 // ### egg | NBackendDAE.simplify ###
 // [BEFORE] 9.0 * t + 8.0 * t + 7.0 * t + 6.0 * t + 5.0 * t + 4.0 * t + 3.0 * t + 2.0 * t + t + 10.0 * t
-// [AFTER ] t * 7 + t * 5 + t * 13 + t * 13 + t * 17
+// [AFTER ] 55*t
 // ### dumpSimplify | NBackendDAE.simplify ###
 // [BEFORE] 9.0 * t + 8.0 * t + 7.0 * t + 6.0 * t + 5.0 * t + 4.0 * t + 3.0 * t + 2.0 * t + t + 10.0 * t
 // [AFTER ] 9.0 * t + 8.0 * t + 7.0 * t + 6.0 * t + 5.0 * t + 4.0 * t + 3.0 * t + 2.0 * t + t + 10.0 * t
 // ### egg | NBackendDAE.simplify ###
-// [BEFORE] v11
-// [AFTER ] v11
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] v11
-// [AFTER ] v11
-// ### egg | NBackendDAE.simplify ###
 // [BEFORE] t * t * (7.0 + t) * t * t * (7.0 + t) * t ^ 4.0
-// [AFTER ] t * (t * ((7 + t) * (t * (t * ((7 + t) * t ^ 4)))))
+// [AFTER ] (7 + t) ^ 2 * t ^ 8
 // ### dumpSimplify | NBackendDAE.simplify ###
 // [BEFORE] t * t * (7.0 + t) * t * t * (7.0 + t) * t ^ 4.0
 // [AFTER ] t * t * (7.0 + t) * t * t * (7.0 + t) * t ^ 4.0
 // ### egg | NBackendDAE.simplify ###
-// [BEFORE] v10
-// [AFTER ] v10
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] v10
-// [AFTER ] v10
-// ### egg | NBackendDAE.simplify ###
 // [BEFORE] (t / (2.0 + t)) * (2.0 + t)
-// [AFTER ] t / (2 + t) * (2 + t)
+// [AFTER ] t
 // ### dumpSimplify | NBackendDAE.simplify ###
 // [BEFORE] (t / (2.0 + t)) * (2.0 + t)
 // [AFTER ] (t / (2.0 + t)) * (2.0 + t)
 // ### egg | NBackendDAE.simplify ###
-// [BEFORE] v9
-// [AFTER ] v9
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] v9
-// [AFTER ] v9
-// ### egg | NBackendDAE.simplify ###
 // [BEFORE] ((t + 5.0 + 2.0) - t) * t * (t - t) + ((t + 5.0 + 2.0) - t) * t * (t - t)
-// [AFTER ] (t + 7 - t) * (t * (t - t)) + (t + 7 - t) * (t * (t - t))
+// [AFTER ] 0
 // ### dumpSimplify | NBackendDAE.simplify ###
 // [BEFORE] ((t + 5.0 + 2.0) - t) * t * (t - t) + ((t + 5.0 + 2.0) - t) * t * (t - t)
 // [AFTER ] ((7.0 + t) - t) * t * (t - t) + ((7.0 + t) - t) * t * (t - t)
 // ### egg | NBackendDAE.simplify ###
-// [BEFORE] v8
-// [AFTER ] v8
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] v8
-// [AFTER ] v8
-// ### egg | NBackendDAE.simplify ###
 // [BEFORE] (t + t * 4.0 + 1.0) - 2.0
-// [AFTER ] t + t * 4 + 1 - 2
+// [AFTER ] 5*t - 1
 // ### dumpSimplify | NBackendDAE.simplify ###
 // [BEFORE] (t + t * 4.0 + 1.0) - 2.0
 // [AFTER ] (-1.0) + t + 4.0 * t
 // ### egg | NBackendDAE.simplify ###
-// [BEFORE] v7
-// [AFTER ] v7
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] v7
-// [AFTER ] v7
-// ### egg | NBackendDAE.simplify ###
 // [BEFORE] t ^ (1.0 + t * 4.0 + 3.0 * t) - t ^ (7.0 * t + 1.0)
-// [AFTER ] t ^ (1 + t * 4 + t * 3) - t ^ (t * 7 + 1)
+// [AFTER ]
 // ### dumpSimplify | NBackendDAE.simplify ###
 // [BEFORE] t ^ (1.0 + t * 4.0 + 3.0 * t) - t ^ (7.0 * t + 1.0)
 // [AFTER ] t ^ (1.0 + t * 4.0 + 3.0 * t) - t ^ (7.0 * t + 1.0)
 // ### egg | NBackendDAE.simplify ###
-// [BEFORE] v6
-// [AFTER ] v6
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] v6
-// [AFTER ] v6
-// ### egg | NBackendDAE.simplify ###
 // [BEFORE] t ^ (t + t + t) * t ^ (3.0 + t - 2.0) * t ^ 2.0 * t ^ (t - t)
-// [AFTER ] t ^ (t + t + t) * (t ^ (3 + t - 2) * (t ^ 2 * t ^ (t - t)))
+// [AFTER ]
 // ### dumpSimplify | NBackendDAE.simplify ###
 // [BEFORE] t ^ (t + t + t) * t ^ (3.0 + t - 2.0) * t ^ 2.0 * t ^ (t - t)
 // [AFTER ] t ^ (t + t + t) * t ^ (3.0 + t - 2.0) * t ^ 2.0 * t ^ (t - t)
 // ### egg | NBackendDAE.simplify ###
-// [BEFORE] v5
-// [AFTER ] v5
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] v5
-// [AFTER ] v5
-// ### egg | NBackendDAE.simplify ###
 // [BEFORE] 2.0 ^ (3.0 + t - 1.0) * 2.0 ^ (3.0 + t - 1.0) * 2.0 ^ (3.0 + t - 2.0)
-// [AFTER ] 2 ^ (3 + t - 1) * (2 ^ (3 + t - 1) * 2 ^ (3 + t - 2))
+// [AFTER ]
 // ### dumpSimplify | NBackendDAE.simplify ###
 // [BEFORE] 2.0 ^ (3.0 + t - 1.0) * 2.0 ^ (3.0 + t - 1.0) * 2.0 ^ (3.0 + t - 2.0)
 // [AFTER ] 2.0 ^ (3.0 + t - 1.0) * 2.0 ^ (3.0 + t - 1.0) * 2.0 ^ (3.0 + t - 2.0)
-// ### egg | NBackendDAE.simplify ###
-// [BEFORE] v4
-// [AFTER ] v4
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] v4
-// [AFTER ] v4
 // ### egg | NBackendDAE.simplify ###
 // [BEFORE] 2.0 * t + t * t + 1.0
 // [AFTER ] t * 2 + t * t + 1
@@ -171,35 +105,17 @@ buildModel(multary_simplification); getErrorString();
 // [BEFORE] 2.0 * t + t * t + 1.0
 // [AFTER ] 1.0 + 2.0 * t + t * t
 // ### egg | NBackendDAE.simplify ###
-// [BEFORE] v3
-// [AFTER ] v3
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] v3
-// [AFTER ] v3
-// ### egg | NBackendDAE.simplify ###
 // [BEFORE] (3.0 + 2.0) - t
 // [AFTER ] 5 - t
 // ### dumpSimplify | NBackendDAE.simplify ###
 // [BEFORE] (3.0 + 2.0) - t
 // [AFTER ] 5.0 - t
 // ### egg | NBackendDAE.simplify ###
-// [BEFORE] v2
-// [AFTER ] v2
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] v2
-// [AFTER ] v2
-// ### egg | NBackendDAE.simplify ###
 // [BEFORE] t + t + t
 // [AFTER ] t + t + t
 // ### dumpSimplify | NBackendDAE.simplify ###
 // [BEFORE] t + t + t
 // [AFTER ] t + t + t
-// ### egg | NBackendDAE.simplify ###
-// [BEFORE] v1
-// [AFTER ] v1
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] v1
-// [AFTER ] v1
 // ### egg | NBackendDAE.simplify ###
 // [BEFORE] (-t) + t
 // [AFTER ] 0 - t + t
@@ -207,59 +123,17 @@ buildModel(multary_simplification); getErrorString();
 // [BEFORE] (-t) + t
 // [AFTER ] t - t
 // ### egg | NBackendDAE.simplify ###
-// [BEFORE] t
-// [AFTER ] t
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] t
-// [AFTER ] t
-// ### egg | NBackendDAE.simplify ###
-// [BEFORE] time
-// [AFTER ] time
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] time
-// [AFTER ] time
-// ### egg | NBackendDAE.simplify ###
-// [BEFORE] $FUN_1
-// [AFTER ] $FUN_1
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] $FUN_1
-// [AFTER ] $FUN_1
-// ### egg | NBackendDAE.simplify ###
 // [BEFORE] sin(t - t)
 // [AFTER ] sin(t - t)
 // ### dumpSimplify | NBackendDAE.simplify ###
 // [BEFORE] sin(t - t)
 // [AFTER ] sin(t - t)
 // ### egg | NBackendDAE.simplify ###
-// [BEFORE] $FUN_2
-// [AFTER ] $FUN_2
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] $FUN_2
-// [AFTER ] $FUN_2
-// ### egg | NBackendDAE.simplify ###
 // [BEFORE] sin(t)
 // [AFTER ] sin(t)
 // ### dumpSimplify | NBackendDAE.simplify ###
 // [BEFORE] sin(t)
 // [AFTER ] sin(t)
-// ### egg | NBSolve.solveBody ###
-// [BEFORE] t
-// [AFTER ] t
-// ### dumpSimplify | NBSolve.solveBody ###
-// [BEFORE] t
-// [AFTER ] t
-// ### egg | NBSolve.solveBody ###
-// [BEFORE] time
-// [AFTER ] time
-// ### dumpSimplify | NBSolve.solveBody ###
-// [BEFORE] time
-// [AFTER ] time
-// ### egg | NBSolve.solveBody ###
-// [BEFORE] v3
-// [AFTER ] v3
-// ### dumpSimplify | NBSolve.solveBody ###
-// [BEFORE] v3
-// [AFTER ] v3
 // ### egg | NBSolve.solveBody ###
 // [BEFORE] 5.0 - t
 // [AFTER ] 5 - t
@@ -273,35 +147,17 @@ buildModel(multary_simplification); getErrorString();
 // [BEFORE] 5.0 - time
 // [AFTER ] 5.0 - time
 // ### egg | NBackendDAE.simplify ###
-// [BEFORE] v14
-// [AFTER ] v14
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] v14
-// [AFTER ] v14
-// ### egg | NBackendDAE.simplify ###
 // [BEFORE] (v4 + (5.0 - time) + v2 + v1) - (v1 + (5.0 - time))
 // [AFTER ] v4 + 5 - time + v2 + v1 - (v1 + 5 - time)
 // ### dumpSimplify | NBackendDAE.simplify ###
 // [BEFORE] (v4 + (5.0 - time) + v2 + v1) - (v1 + (5.0 - time))
 // [AFTER ] (v4 + (5.0 - time) + v2 + v1) - (v1 + (5.0 - time))
 // ### egg | NBackendDAE.simplify ###
-// [BEFORE] v13
-// [AFTER ] v13
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] v13
-// [AFTER ] v13
-// ### egg | NBackendDAE.simplify ###
 // [BEFORE] $FUN_1 + $FUN_2
 // [AFTER ] $FUN_1 + $FUN_2
 // ### dumpSimplify | NBackendDAE.simplify ###
 // [BEFORE] $FUN_1 + $FUN_2
 // [AFTER ] $FUN_1 + $FUN_2
-// ### egg | NBackendDAE.simplify ###
-// [BEFORE] v12
-// [AFTER ] v12
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] v12
-// [AFTER ] v12
 // ### egg | NBackendDAE.simplify ###
 // [BEFORE] 9.0 * time + 8.0 * time + 7.0 * time + 6.0 * time + 5.0 * time + 4.0 * time + 3.0 * time + 2.0 * time + time + 10.0 * time
 // [AFTER ] time * 7 + time * 5 + time * 13 + time * 13 + time * 17
@@ -309,23 +165,11 @@ buildModel(multary_simplification); getErrorString();
 // [BEFORE] 9.0 * time + 8.0 * time + 7.0 * time + 6.0 * time + 5.0 * time + 4.0 * time + 3.0 * time + 2.0 * time + time + 10.0 * time
 // [AFTER ] 9.0 * time + 8.0 * time + 7.0 * time + 6.0 * time + 5.0 * time + 4.0 * time + 3.0 * time + 2.0 * time + time + 10.0 * time
 // ### egg | NBackendDAE.simplify ###
-// [BEFORE] v11
-// [AFTER ] v11
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] v11
-// [AFTER ] v11
-// ### egg | NBackendDAE.simplify ###
 // [BEFORE] time * time * (7.0 + time) * time * time * (7.0 + time) * time ^ 4.0
 // [AFTER ] time * (time * ((7 + time) * (time * (time * ((7 + time) * time ^ 4)))))
 // ### dumpSimplify | NBackendDAE.simplify ###
 // [BEFORE] time * time * (7.0 + time) * time * time * (7.0 + time) * time ^ 4.0
 // [AFTER ] time * time * (7.0 + time) * time * time * (7.0 + time) * time ^ 4.0
-// ### egg | NBackendDAE.simplify ###
-// [BEFORE] v10
-// [AFTER ] v10
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] v10
-// [AFTER ] v10
 // ### egg | NBackendDAE.simplify ###
 // [BEFORE] (time / (2.0 + time)) * (2.0 + time)
 // [AFTER ] time / (2 + time) * (2 + time)
@@ -333,23 +177,11 @@ buildModel(multary_simplification); getErrorString();
 // [BEFORE] (time / (2.0 + time)) * (2.0 + time)
 // [AFTER ] (time / (2.0 + time)) * (2.0 + time)
 // ### egg | NBackendDAE.simplify ###
-// [BEFORE] v9
-// [AFTER ] v9
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] v9
-// [AFTER ] v9
-// ### egg | NBackendDAE.simplify ###
 // [BEFORE] ((7.0 + time) - time) * time * (time - time) + ((7.0 + time) - time) * time * (time - time)
 // [AFTER ] (7 + time - time) * (time * (time - time)) + (7 + time - time) * (time * (time - time))
 // ### dumpSimplify | NBackendDAE.simplify ###
 // [BEFORE] ((7.0 + time) - time) * time * (time - time) + ((7.0 + time) - time) * time * (time - time)
 // [AFTER ] ((7.0 + time) - time) * time * (time - time) + ((7.0 + time) - time) * time * (time - time)
-// ### egg | NBackendDAE.simplify ###
-// [BEFORE] v8
-// [AFTER ] v8
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] v8
-// [AFTER ] v8
 // ### egg | NBackendDAE.simplify ###
 // [BEFORE] (-1.0) + time + 4.0 * time
 // [AFTER ] (-1) + time + time * 4
@@ -357,23 +189,11 @@ buildModel(multary_simplification); getErrorString();
 // [BEFORE] (-1.0) + time + 4.0 * time
 // [AFTER ] (-1.0) + time + 4.0 * time
 // ### egg | NBackendDAE.simplify ###
-// [BEFORE] v7
-// [AFTER ] v7
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] v7
-// [AFTER ] v7
-// ### egg | NBackendDAE.simplify ###
 // [BEFORE] time ^ (1.0 + time * 4.0 + 3.0 * time) - time ^ (7.0 * time + 1.0)
 // [AFTER ] time ^ (1 + time * 4 + time * 3) - time ^ (time * 7 + 1)
 // ### dumpSimplify | NBackendDAE.simplify ###
 // [BEFORE] time ^ (1.0 + time * 4.0 + 3.0 * time) - time ^ (7.0 * time + 1.0)
 // [AFTER ] time ^ (1.0 + time * 4.0 + 3.0 * time) - time ^ (7.0 * time + 1.0)
-// ### egg | NBackendDAE.simplify ###
-// [BEFORE] v6
-// [AFTER ] v6
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] v6
-// [AFTER ] v6
 // ### egg | NBackendDAE.simplify ###
 // [BEFORE] time ^ (time + time + time) * time ^ (3.0 + time - 2.0) * time ^ 2.0 * time ^ (time - time)
 // [AFTER ] time ^ (time + time + time) * (time ^ (3 + time - 2) * (time ^ 2 * time ^ (time - time)))
@@ -381,23 +201,11 @@ buildModel(multary_simplification); getErrorString();
 // [BEFORE] time ^ (time + time + time) * time ^ (3.0 + time - 2.0) * time ^ 2.0 * time ^ (time - time)
 // [AFTER ] time ^ (time + time + time) * time ^ (3.0 + time - 2.0) * time ^ 2.0 * time ^ (time - time)
 // ### egg | NBackendDAE.simplify ###
-// [BEFORE] v5
-// [AFTER ] v5
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] v5
-// [AFTER ] v5
-// ### egg | NBackendDAE.simplify ###
 // [BEFORE] 2.0 ^ (3.0 + time - 1.0) * 2.0 ^ (3.0 + time - 1.0) * 2.0 ^ (3.0 + time - 2.0)
 // [AFTER ] 2 ^ (3 + time - 1) * (2 ^ (3 + time - 1) * 2 ^ (3 + time - 2))
 // ### dumpSimplify | NBackendDAE.simplify ###
 // [BEFORE] 2.0 ^ (3.0 + time - 1.0) * 2.0 ^ (3.0 + time - 1.0) * 2.0 ^ (3.0 + time - 2.0)
 // [AFTER ] 2.0 ^ (3.0 + time - 1.0) * 2.0 ^ (3.0 + time - 1.0) * 2.0 ^ (3.0 + time - 2.0)
-// ### egg | NBackendDAE.simplify ###
-// [BEFORE] v4
-// [AFTER ] v4
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] v4
-// [AFTER ] v4
 // ### egg | NBackendDAE.simplify ###
 // [BEFORE] 1.0 + 2.0 * time + time * time
 // [AFTER ] 1 + time * 2 + time * time
@@ -405,35 +213,17 @@ buildModel(multary_simplification); getErrorString();
 // [BEFORE] 1.0 + 2.0 * time + time * time
 // [AFTER ] 1.0 + 2.0 * time + time * time
 // ### egg | NBackendDAE.simplify ###
-// [BEFORE] v2
-// [AFTER ] v2
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] v2
-// [AFTER ] v2
-// ### egg | NBackendDAE.simplify ###
 // [BEFORE] time + time + time
 // [AFTER ] time + time + time
 // ### dumpSimplify | NBackendDAE.simplify ###
 // [BEFORE] time + time + time
 // [AFTER ] time + time + time
 // ### egg | NBackendDAE.simplify ###
-// [BEFORE] v1
-// [AFTER ] v1
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] v1
-// [AFTER ] v1
-// ### egg | NBackendDAE.simplify ###
 // [BEFORE] time - time
 // [AFTER ] time - time
 // ### dumpSimplify | NBackendDAE.simplify ###
 // [BEFORE] time - time
 // [AFTER ] time - time
-// ### egg | NBackendDAE.simplify ###
-// [BEFORE] $FUN_1
-// [AFTER ] $FUN_1
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] $FUN_1
-// [AFTER ] $FUN_1
 // ### egg | NBackendDAE.simplify ###
 // [BEFORE] sin(time - time)
 // [AFTER ] sin(time - time)
@@ -441,23 +231,11 @@ buildModel(multary_simplification); getErrorString();
 // [BEFORE] sin(time - time)
 // [AFTER ] sin(time - time)
 // ### egg | NBackendDAE.simplify ###
-// [BEFORE] $FUN_2
-// [AFTER ] $FUN_2
-// ### dumpSimplify | NBackendDAE.simplify ###
-// [BEFORE] $FUN_2
-// [AFTER ] $FUN_2
-// ### egg | NBackendDAE.simplify ###
 // [BEFORE] sin(time)
 // [AFTER ] sin(time)
 // ### dumpSimplify | NBackendDAE.simplify ###
 // [BEFORE] sin(time)
 // [AFTER ] sin(time)
-// ### egg | NBSolve.solveBody ###
-// [BEFORE] v1
-// [AFTER ] v1
-// ### dumpSimplify | NBSolve.solveBody ###
-// [BEFORE] v1
-// [AFTER ] v1
 // ### egg | NBSolve.solveBody ###
 // [BEFORE] time - time
 // [AFTER ] time - time
@@ -465,23 +243,11 @@ buildModel(multary_simplification); getErrorString();
 // [BEFORE] time - time
 // [AFTER ] time - time
 // ### egg | NBSolve.solveBody ###
-// [BEFORE] v2
-// [AFTER ] v2
-// ### dumpSimplify | NBSolve.solveBody ###
-// [BEFORE] v2
-// [AFTER ] v2
-// ### egg | NBSolve.solveBody ###
 // [BEFORE] time + time + time
 // [AFTER ] time + time + time
 // ### dumpSimplify | NBSolve.solveBody ###
 // [BEFORE] time + time + time
 // [AFTER ] time + time + time
-// ### egg | NBSolve.solveBody ###
-// [BEFORE] v4
-// [AFTER ] v4
-// ### dumpSimplify | NBSolve.solveBody ###
-// [BEFORE] v4
-// [AFTER ] v4
 // ### egg | NBSolve.solveBody ###
 // [BEFORE] 1.0 + 2.0 * time + time * time
 // [AFTER ] 1 + time * 2 + time * time
@@ -489,23 +255,11 @@ buildModel(multary_simplification); getErrorString();
 // [BEFORE] 1.0 + 2.0 * time + time * time
 // [AFTER ] 1.0 + 2.0 * time + time * time
 // ### egg | NBSolve.solveBody ###
-// [BEFORE] v5
-// [AFTER ] v5
-// ### dumpSimplify | NBSolve.solveBody ###
-// [BEFORE] v5
-// [AFTER ] v5
-// ### egg | NBSolve.solveBody ###
 // [BEFORE] 2.0 ^ (3.0 + time - 1.0) * 2.0 ^ (3.0 + time - 1.0) * 2.0 ^ (3.0 + time - 2.0)
 // [AFTER ] 2 ^ (3 + time - 1) * (2 ^ (3 + time - 1) * 2 ^ (3 + time - 2))
 // ### dumpSimplify | NBSolve.solveBody ###
 // [BEFORE] 2.0 ^ (3.0 + time - 1.0) * 2.0 ^ (3.0 + time - 1.0) * 2.0 ^ (3.0 + time - 2.0)
 // [AFTER ] 2.0 ^ (3.0 + time - 1.0) * 2.0 ^ (3.0 + time - 1.0) * 2.0 ^ (3.0 + time - 2.0)
-// ### egg | NBSolve.solveBody ###
-// [BEFORE] v6
-// [AFTER ] v6
-// ### dumpSimplify | NBSolve.solveBody ###
-// [BEFORE] v6
-// [AFTER ] v6
 // ### egg | NBSolve.solveBody ###
 // [BEFORE] time ^ (time + time + time) * time ^ (3.0 + time - 2.0) * time ^ 2.0 * time ^ (time - time)
 // [AFTER ] time ^ (time + time + time) * (time ^ (3 + time - 2) * (time ^ 2 * time ^ (time - time)))
@@ -513,23 +267,11 @@ buildModel(multary_simplification); getErrorString();
 // [BEFORE] time ^ (time + time + time) * time ^ (3.0 + time - 2.0) * time ^ 2.0 * time ^ (time - time)
 // [AFTER ] time ^ (time + time + time) * time ^ (3.0 + time - 2.0) * time ^ 2.0 * time ^ (time - time)
 // ### egg | NBSolve.solveBody ###
-// [BEFORE] v7
-// [AFTER ] v7
-// ### dumpSimplify | NBSolve.solveBody ###
-// [BEFORE] v7
-// [AFTER ] v7
-// ### egg | NBSolve.solveBody ###
 // [BEFORE] time ^ (1.0 + time * 4.0 + 3.0 * time) - time ^ (7.0 * time + 1.0)
 // [AFTER ] time ^ (1 + time * 4 + time * 3) - time ^ (time * 7 + 1)
 // ### dumpSimplify | NBSolve.solveBody ###
 // [BEFORE] time ^ (1.0 + time * 4.0 + 3.0 * time) - time ^ (7.0 * time + 1.0)
 // [AFTER ] time ^ (1.0 + time * 4.0 + 3.0 * time) - time ^ (7.0 * time + 1.0)
-// ### egg | NBSolve.solveBody ###
-// [BEFORE] v8
-// [AFTER ] v8
-// ### dumpSimplify | NBSolve.solveBody ###
-// [BEFORE] v8
-// [AFTER ] v8
 // ### egg | NBSolve.solveBody ###
 // [BEFORE] (-1.0) + time + 4.0 * time
 // [AFTER ] (-1) + time + time * 4
@@ -537,23 +279,11 @@ buildModel(multary_simplification); getErrorString();
 // [BEFORE] (-1.0) + time + 4.0 * time
 // [AFTER ] (-1.0) + time + 4.0 * time
 // ### egg | NBSolve.solveBody ###
-// [BEFORE] v9
-// [AFTER ] v9
-// ### dumpSimplify | NBSolve.solveBody ###
-// [BEFORE] v9
-// [AFTER ] v9
-// ### egg | NBSolve.solveBody ###
 // [BEFORE] ((7.0 + time) - time) * time * (time - time) + ((7.0 + time) - time) * time * (time - time)
 // [AFTER ] (7 + time - time) * (time * (time - time)) + (7 + time - time) * (time * (time - time))
 // ### dumpSimplify | NBSolve.solveBody ###
 // [BEFORE] ((7.0 + time) - time) * time * (time - time) + ((7.0 + time) - time) * time * (time - time)
 // [AFTER ] ((7.0 + time) - time) * time * (time - time) + ((7.0 + time) - time) * time * (time - time)
-// ### egg | NBSolve.solveBody ###
-// [BEFORE] v10
-// [AFTER ] v10
-// ### dumpSimplify | NBSolve.solveBody ###
-// [BEFORE] v10
-// [AFTER ] v10
 // ### egg | NBSolve.solveBody ###
 // [BEFORE] (time / (2.0 + time)) * (2.0 + time)
 // [AFTER ] time / (2 + time) * (2 + time)
@@ -561,23 +291,11 @@ buildModel(multary_simplification); getErrorString();
 // [BEFORE] (time / (2.0 + time)) * (2.0 + time)
 // [AFTER ] (time / (2.0 + time)) * (2.0 + time)
 // ### egg | NBSolve.solveBody ###
-// [BEFORE] v11
-// [AFTER ] v11
-// ### dumpSimplify | NBSolve.solveBody ###
-// [BEFORE] v11
-// [AFTER ] v11
-// ### egg | NBSolve.solveBody ###
 // [BEFORE] time * time * (7.0 + time) * time * time * (7.0 + time) * time ^ 4.0
 // [AFTER ] time * (time * ((7 + time) * (time * (time * ((7 + time) * time ^ 4)))))
 // ### dumpSimplify | NBSolve.solveBody ###
 // [BEFORE] time * time * (7.0 + time) * time * time * (7.0 + time) * time ^ 4.0
 // [AFTER ] time * time * (7.0 + time) * time * time * (7.0 + time) * time ^ 4.0
-// ### egg | NBSolve.solveBody ###
-// [BEFORE] v12
-// [AFTER ] v12
-// ### dumpSimplify | NBSolve.solveBody ###
-// [BEFORE] v12
-// [AFTER ] v12
 // ### egg | NBSolve.solveBody ###
 // [BEFORE] 9.0 * time + 8.0 * time + 7.0 * time + 6.0 * time + 5.0 * time + 4.0 * time + 3.0 * time + 2.0 * time + time + 10.0 * time
 // [AFTER ] time * 7 + time * 5 + time * 13 + time * 13 + time * 17
@@ -585,23 +303,11 @@ buildModel(multary_simplification); getErrorString();
 // [BEFORE] 9.0 * time + 8.0 * time + 7.0 * time + 6.0 * time + 5.0 * time + 4.0 * time + 3.0 * time + 2.0 * time + time + 10.0 * time
 // [AFTER ] 9.0 * time + 8.0 * time + 7.0 * time + 6.0 * time + 5.0 * time + 4.0 * time + 3.0 * time + 2.0 * time + time + 10.0 * time
 // ### egg | NBSolve.solveBody ###
-// [BEFORE] $FUN_2
-// [AFTER ] $FUN_2
-// ### dumpSimplify | NBSolve.solveBody ###
-// [BEFORE] $FUN_2
-// [AFTER ] $FUN_2
-// ### egg | NBSolve.solveBody ###
 // [BEFORE] sin(time)
 // [AFTER ] sin(time)
 // ### dumpSimplify | NBSolve.solveBody ###
 // [BEFORE] sin(time)
 // [AFTER ] sin(time)
-// ### egg | NBSolve.solveBody ###
-// [BEFORE] $FUN_1
-// [AFTER ] $FUN_1
-// ### dumpSimplify | NBSolve.solveBody ###
-// [BEFORE] $FUN_1
-// [AFTER ] $FUN_1
 // ### egg | NBSolve.solveBody ###
 // [BEFORE] sin(time - time)
 // [AFTER ] sin(time - time)
@@ -609,23 +315,11 @@ buildModel(multary_simplification); getErrorString();
 // [BEFORE] sin(time - time)
 // [AFTER ] sin(time - time)
 // ### egg | NBSolve.solveBody ###
-// [BEFORE] v13
-// [AFTER ] v13
-// ### dumpSimplify | NBSolve.solveBody ###
-// [BEFORE] v13
-// [AFTER ] v13
-// ### egg | NBSolve.solveBody ###
 // [BEFORE] $FUN_1 + $FUN_2
 // [AFTER ] $FUN_1 + $FUN_2
 // ### dumpSimplify | NBSolve.solveBody ###
 // [BEFORE] $FUN_1 + $FUN_2
 // [AFTER ] $FUN_1 + $FUN_2
-// ### egg | NBSolve.solveBody ###
-// [BEFORE] v14
-// [AFTER ] v14
-// ### dumpSimplify | NBSolve.solveBody ###
-// [BEFORE] v14
-// [AFTER ] v14
 // ### egg | NBSolve.solveBody ###
 // [BEFORE] (v4 + (5.0 - time) + v2 + v1) - (v1 + (5.0 - time))
 // [AFTER ] v4 + 5 - time + v2 + v1 - (v1 + 5 - time)
