@@ -49,7 +49,6 @@ public
   function simplifyExp
     input output Expression exp;
   protected
-    EGraph egraph;
     String expStr;
     UnorderedMap<Expression, String> crefToId;
     UnorderedMap<String, Expression> idToCref;
@@ -68,17 +67,15 @@ public
       print(expStr + "\n");
       System.fflush();
     end if;
-    egraph := getEGraph();
-    expStr := simplifyExp_impl(egraph.rules, egraph.runner, expStr);
+    expStr := simplifyExp_impl(getEGraph(), expStr);
     exp := strToExp(expStr, idToCref);
   end simplifyExp;
 
 protected
 
   record E_GRAPH
-    Rules rules           "";
-    Runner runner         "";
-//    Extractor extractor   "";
+    EGraph_internal egraph  "cummulated egraph over all observed expressions";
+    Rules rules             "rewrite rules for modelica expressions";
   end E_GRAPH;
 
   constant Boolean debug = false;
@@ -91,44 +88,48 @@ protected
     egraph := match ograph
       case SOME(egraph) then egraph;
       else algorithm
-        egraph := E_GRAPH(rules = Rules(), runner = Runner());
+        egraph := E_GRAPH(
+          egraph = EGraph_internal(),
+          rules = Rules());
         setGlobalRoot(Global.eGraph, SOME(egraph));
       then egraph;
     end match;
   end getEGraph;
 
+  class EGraph_internal
+    extends ExternalObject;
+    function constructor
+      output EGraph_internal egraph;
+      external "C" egraph = egg_make_egraph() annotation(Library="omcruntime");
+    end constructor;
+    function destructor
+      input EGraph_internal egraph;
+      external "C" egg_free_egraph(egraph) annotation(Library="omcruntime");
+    end destructor;
+  end EGraph_internal;
+
   class Rules
     extends ExternalObject;
     function constructor
       output Rules rules;
-    external "C"
-      rules = egg_make_rules() annotation(Library="omcruntime");
+      external "C" rules = egg_make_rules() annotation(Library="omcruntime");
     end constructor;
     function destructor
       input Rules rules;
-    external "C"
-      egg_free_rules(rules) annotation(Library="omcruntime");
+      external "C" egg_free_rules(rules) annotation(Library="omcruntime");
     end destructor;
   end Rules;
 
-  class Runner
-    extends ExternalObject;
-    function constructor
-      output Runner runner;
-    external "C"
-      runner = egg_make_runner() annotation(Library="omcruntime");
-    end constructor;
-    function destructor
-      input Runner runner;
-    external "C"
-      egg_free_runner(runner) annotation(Library="omcruntime");
-    end destructor;
-  end Runner;
+  // ---------------------------------------------------------------------------
+  // RUST FFI
+  // ---------------------------------------------------------------------------
 
-  //  class Extractor
-  //    extends ExternalObject;
-  //  end Extractor;
-
+  function simplifyExp_impl
+    input EGraph egraph;
+    input String e "expression in prefix notation";
+    output String res;
+    external "C" res = egg_simplify_expr(egraph.egraph, egraph.rules, e) annotation(Library="omcruntime");
+  end simplifyExp_impl;
 
   // ---------------------------------------------------------------------------
   // MetaModelica Expression to Rust String
@@ -452,6 +453,7 @@ protected
       exp := UnorderedMap.getOrFail(s, idToCref);
     else
       try
+        fail();
         exp := Expression.INTEGER(stringInt(s));
       else
         try
@@ -463,19 +465,6 @@ protected
       end try;
     end if;
   end strToExp_leaf;
-
-
-  // ---------------------------------------------------------------------------
-  // RUST FFI
-  // ---------------------------------------------------------------------------
-
-  function simplifyExp_impl
-    input Rules rules;
-    input Runner runner;
-    input String e "expression in prefix notation";
-    output String res;
-    external "C" res = egg_simplify_expr(rules, runner, e) annotation(Library="omcruntime");
-  end simplifyExp_impl;
 
 annotation(__OpenModelica_Interface="util");
 end EGraph;
