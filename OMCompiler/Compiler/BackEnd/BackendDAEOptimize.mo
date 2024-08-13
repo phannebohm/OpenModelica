@@ -179,7 +179,7 @@ algorithm
     case DAE.CALL(path = Absyn.IDENT("$OMC$PositiveMax"), expLst = {e as DAE.UNARY(DAE.UMINUS(tp), DAE.CREF(componentRef = cr)), expr}) algorithm
       (eMin, eMax) := simplifyInStreamGetMinMaxAttributes(cr, outVars);
       ret := if Util.applyOptionOrDefault(eMin, Expression.isPositiveOrZero, false) then Expression.createZeroExpression(tp)
-        elseif Util.applyOptionOrDefault(eMax, function Expression.isGreaterOrEqual(exp1 = expr), false) then e
+        elseif Util.applyOptionOrDefault(eMax, function Expression.isGreaterOrEqual(exp1 = Expression.negate(expr)), false) then e
         else Expression.makePureBuiltinCall("max", {e, expr}, tp);
     then ret;
 
@@ -2310,7 +2310,9 @@ algorithm
     case (DAE.CREF(componentRef = cr),(globalKnownVars,_))
       equation
         (v,_) = BackendVariable.getVarSingle(cr,globalKnownVars);
-        true = BackendVariable.isFinalVar(v);
+        true = BackendVariable.hasVarEvaluateAnnotationTrue(v)
+          or (Flags.getConfigBool(Flags.EVALUATE_FINAL_PARAMS) and BackendVariable.isFinalVar(v))
+          or (Flags.getConfigBool(Flags.EVALUATE_PROTECTED_PARAMS) and BackendVariable.isProtectedVar(v));
         e = BackendVariable.varBindExpStartValue(v);
       then (e,(globalKnownVars,true));
     else (inExp,tpl1);
@@ -5662,7 +5664,7 @@ protected
 algorithm
   (BackendDAE.DAE(eqs, shared), _) := BackendDAEUtil.mapEqSystemAndFold(inDAE, addTimeAsState1, 0);
   orderedVars := BackendVariable.emptyVars();
-  var := BackendDAE.VAR(DAE.crefTimeState, BackendDAE.STATE(1, NONE(), true), DAE.BIDIR(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), true, false);
+  var := BackendDAE.VAR(DAE.crefTimeState, BackendDAE.STATE(1, NONE(), true), DAE.BIDIR(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), true, false, false);
   var := BackendVariable.setVarFixed(var, true);
   var := BackendVariable.setVarStartValue(var, DAE.CREF(DAE.crefTime, DAE.T_REAL_DEFAULT));
   orderedVars := BackendVariable.addVar(var, orderedVars);
@@ -6168,7 +6170,7 @@ algorithm
 
   if homotopyLoopBeginning > 0 then
     // Add homotopy lambda to system
-    lambda := BackendDAE.VAR(ComponentReference.makeCrefIdent(BackendDAE.homotopyLambda, DAE.T_REAL_DEFAULT, {}), BackendDAE.VARIABLE(), DAE.BIDIR(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), true, false);
+    lambda := BackendDAE.VAR(ComponentReference.makeCrefIdent(BackendDAE.homotopyLambda, DAE.T_REAL_DEFAULT, {}), BackendDAE.VARIABLE(), DAE.BIDIR(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), true, false, false);
     system.orderedVars := BackendVariable.addVar(lambda, system.orderedVars);
     lambdaIdx := BackendVariable.varsSize(system.orderedVars);
 
@@ -6354,7 +6356,7 @@ algorithm
 
   if hasAnyHomotopy then
     // Add homotopy lambda to system
-    lambda := BackendDAE.VAR(ComponentReference.makeCrefIdent(BackendDAE.homotopyLambda, DAE.T_REAL_DEFAULT, {}), BackendDAE.VARIABLE(), DAE.BIDIR(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), true, false);
+    lambda := BackendDAE.VAR(ComponentReference.makeCrefIdent(BackendDAE.homotopyLambda, DAE.T_REAL_DEFAULT, {}), BackendDAE.VARIABLE(), DAE.BIDIR(), DAE.NON_PARALLEL(), DAE.T_REAL_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), true, false, false);
     system.orderedVars := BackendVariable.addVar(lambda, system.orderedVars);
   end if;
   comps := listReverse(newComps);

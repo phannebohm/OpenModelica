@@ -46,7 +46,6 @@
 #include <QDoubleSpinBox>
 #include <QCheckBox>
 #include <QVariant>
-#include <QAbstractMessageHandler>
 #include <QDebug>
 #include <QPlainTextEdit>
 #include <QTextEdit>
@@ -59,6 +58,10 @@
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QGenericMatrix>
+
+#ifndef OM_OMEDIT_ENABLE_LIBXML2
+#include <QAbstractMessageHandler>
+#endif
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -261,6 +264,11 @@ inline QDataStream& operator>>(QDataStream& in, RecentFile& recentFile)
   return in;
 }
 
+inline bool operator==(const RecentFile& lhs, const RecentFile& rhs)
+{
+  return lhs.fileName == rhs.fileName;
+}
+
 //! @struct FindTextOM
 /*! \brief It contains the recently searched text from find/replace dialog .
  * We must register this struct as a meta type since we need to use it as a QVariant.
@@ -287,6 +295,11 @@ inline QDataStream& operator>>(QDataStream& in, FindTextOM& findText)
 {
   in >> findText.text;
   return in;
+}
+
+inline bool operator==(const FindTextOM& lhs, const FindTextOM& rhs)
+{
+  return lhs.text == rhs.text;
 }
 
 //! @struct DebuggerConfiguration
@@ -329,15 +342,38 @@ inline QDataStream& operator>>(QDataStream& in, DebuggerConfiguration& configura
   return in;
 }
 
+inline bool operator==(const DebuggerConfiguration& lhs, const DebuggerConfiguration& rhs)
+{
+  return lhs.name == rhs.name;
+}
+
 /*!
  * \class MessageHandler
  * \brief Defines the appropriate error message of the parsed XML validated againast the XML Schema.\n
  * The class implementation and logic is inspired from Qt Creator sources.
  */
+#ifdef OM_OMEDIT_ENABLE_LIBXML2
+class MessageHandler
+{
+public:
+  MessageHandler() {}
+  QString statusMessage() const { return mDescription;}
+  int line() const { return mLine;}
+  int column() const { return mColumn;}
+  void setFailed(bool failed) {mFailed = failed;}
+  bool isFailed() {return mFailed;}
+private:
+  QString mDescription;
+  int mLine = 0;
+  int mColumn = 0;
+  bool mFailed = false;
+};
+#else
 class MessageHandler : public QAbstractMessageHandler
 {
 public:
-  MessageHandler() : QAbstractMessageHandler(0) {mFailed = false;}
+  MessageHandler()
+  : QAbstractMessageHandler(0) {mFailed = false;}
   QString statusMessage() const { return mDescription;}
   int line() const { return mSourceLocation.line();}
   int column() const { return mSourceLocation.column();}
@@ -356,6 +392,7 @@ private:
   QSourceLocation mSourceLocation;
   bool mFailed;
 };
+#endif
 
 typedef struct {
   QString mDelay;
@@ -473,6 +510,7 @@ namespace Utilities {
   QString escapeForHtmlNonSecure(const QString &str);
   QString& tempDirectory();
   QSettings* getApplicationSettings();
+  QString generateHash(const QString &input);
   void parseCompositeModelText(MessageHandler *pMessageHandler, QString contents);
   qreal convertUnit(qreal value, qreal offset, qreal scaleFactor);
   bool isValueLiteralConstant(QString value);
@@ -511,7 +549,6 @@ namespace Utilities {
   } // namespace FileIconProvider
 
   bool containsWord(QString text, int index, QString keyword, bool checkParenthesis = false);
-  qreal convertMMToPixel(qreal value);
   float maxi(float arr[],int n);
   float mini(float arr[], int n);
   QList<QPointF> liangBarskyClipper(float xmin, float ymin, float xmax, float ymax, float x1, float y1, float x2, float y2);

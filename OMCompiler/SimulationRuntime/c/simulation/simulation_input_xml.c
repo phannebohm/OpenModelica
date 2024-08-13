@@ -617,7 +617,7 @@ void read_input_xml(MODEL_DATA* modelData,
  * the check is like this:
  * - we filter if isProtected (protected variables)
  * - we filter if annotation(HideResult=true)
- * - we emit (remove filtering) if emitProtected && isProtected
+ * - we emit (remove filtering) if !encrypted && emitProtected && isProtected
  * - we emit (remove filtering) if ignoreHideResult && annotation(HideResult=true)
  */
 #define setFilterOuput(v, s, n) \
@@ -626,8 +626,10 @@ void read_input_xml(MODEL_DATA* modelData,
   int ihr = omc_flag[FLAG_IGNORE_HIDERESULT]; \
   const char *ipstr = findHashStringString((v), "isProtected"); \
   const char *hrstr = findHashStringString((v), "hideResult"); \
+  const char *iestr = findHashStringString((v), "isEncrypted"); \
   int ipcmptrue = (0 == strcmp(ipstr, "true")); \
   int hrcmptrue = (0 == strcmp(hrstr, "true")); \
+  int iecmptrue = (0 == strcmp(iestr, "true")); \
   if (ipcmptrue) \
   { \
     infoStreamPrint(LOG_DEBUG, 0, "filtering protected variable %s", (n)); \
@@ -638,7 +640,7 @@ void read_input_xml(MODEL_DATA* modelData,
     infoStreamPrint(LOG_DEBUG, 0, "filtering variable %s due to HideResult annotation", (n)); \
     (s).filterOutput = 1; \
   } \
-  if (ep && ipcmptrue) \
+  if (!iecmptrue && ep && ipcmptrue) \
   { \
     infoStreamPrint(LOG_DEBUG, 0, "emitting protected variable %s due to flag %s", (n), omc_flagValue[FLAG_EMIT_PROTECTED]); \
     (s).filterOutput = 0; \

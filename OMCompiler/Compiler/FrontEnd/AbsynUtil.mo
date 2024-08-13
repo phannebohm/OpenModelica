@@ -1539,25 +1539,19 @@ public function pathStripSamePrefix
   "strips the same prefix paths and returns the stripped path. e.g pathStripSamePrefix(P.M.A, P.M.B) => A"
   input Absyn.Path inPath1;
   input Absyn.Path inPath2;
-  output Absyn.Path outPath;
+  output Absyn.Path outPath = inPath1;
+protected
+  Absyn.Path path2 = inPath2;
 algorithm
-  outPath := matchcontinue(inPath1, inPath2)
-    local
-      Absyn.Ident ident1, ident2;
-      Absyn.Path path1, path2;
+  while pathFirstIdent(outPath) == pathFirstIdent(path2) loop
+    outPath := pathRest(outPath);
 
-    case (_, _)
-      equation
-        ident1 = pathFirstIdent(inPath1);
-        ident2 = pathFirstIdent(inPath2);
-        true = stringEq(ident1, ident2);
-        path1 = pathRest(inPath1);
-        path2 = pathRest(inPath2);
-      then
-        pathStripSamePrefix(path1, path2);
+    if pathIsIdent(path2) then
+      return;
+    end if;
 
-    else inPath1;
-  end matchcontinue;
+    path2 := pathRest(path2);
+  end while;
 end pathStripSamePrefix;
 
 public function pathPrefix
@@ -2294,6 +2288,20 @@ algorithm
         Absyn.FULLYQUALIFIED(p);
   end match;
 end crefToPathIgnoreSubs;
+
+public function crefToTypeSpec
+  "Converts a ComponentRef to a TypeSpec, treating subscripts on the last
+   identifier as dimensions and failing if any other identifier is subscripted."
+  input Absyn.ComponentRef cref;
+  output Absyn.TypeSpec ty;
+protected
+  list<Absyn.Subscript> subs;
+  Absyn.Path path;
+algorithm
+  subs := crefGetLastSubs(cref);
+  path := crefToPath(crefStripLastSubs(cref));
+  ty := Absyn.TypeSpec.TPATH(path, if listEmpty(subs) then NONE() else SOME(subs));
+end crefToTypeSpec;
 
 public function pathToCref "This function converts a Absyn.Path to a Absyn.ComponentRef."
   input Absyn.Path inPath;
@@ -4029,6 +4037,29 @@ algorithm
   end match;
 end mergeCommentAnnotation;
 
+public function mergeModifiers
+  "Merges two modifiers, with the outer modifiers overwriting the inner one."
+  input Absyn.Modification outerMod;
+  input Absyn.Modification innerMod;
+  output Absyn.Modification outMod;
+algorithm
+  outMod := Absyn.Modification.CLASSMOD(
+    mergeAnnotations2(innerMod.elementArgLst, outerMod.elementArgLst),
+    mergeEqMods(outerMod.eqMod, innerMod.eqMod)
+  );
+end mergeModifiers;
+
+public function mergeEqMods
+  input Absyn.EqMod outerEqMod;
+  input Absyn.EqMod innerEqMod;
+  output Absyn.EqMod outEqMod;
+algorithm
+  outEqMod := match outerEqMod
+    case Absyn.EqMod.EQMOD() then outerEqMod;
+    else innerEqMod;
+  end match;
+end mergeEqMods;
+
 function isModificationOfPath
 "returns true or false if the given path is in the list of modifications"
   input Absyn.ElementArg mod;
@@ -4227,6 +4258,69 @@ algorithm
         (cr1 :: rest);
   end matchcontinue;
 end removeCrefFromCrefs;
+
+public function lookupClassAnnotation
+  "Looks up the modifier for a specific annotation in the given class."
+  input Absyn.Class cls;
+  input String name;
+  output Option<Absyn.Modification> outMod;
+algorithm
+  outMod := lookupClassDefAnnotation(cls.body, name);
+end lookupClassAnnotation;
+
+public function lookupClassDefAnnotation
+  "Looks up the modifier for a specific annotation in the given class definition."
+  input Absyn.ClassDef cdef;
+  input String name;
+  output Option<Absyn.Modification> outMod = NONE();
+protected
+  Absyn.Annotation ann;
+algorithm
+  outMod := match cdef
+    case Absyn.PARTS() then List.findSome(cdef.ann, function lookupAnnotation(name = name));
+    case Absyn.CLASS_EXTENDS() then List.findSome(cdef.ann, function lookupAnnotation(name = name));
+    case Absyn.DERIVED() then lookupCommentOptAnnotation(cdef.comment, name);
+    case Absyn.ENUMERATION() then lookupCommentOptAnnotation(cdef.comment, name);
+    case Absyn.OVERLOAD() then lookupCommentOptAnnotation(cdef.comment, name);
+    case Absyn.PDER() then lookupCommentOptAnnotation(cdef.comment, name);
+    else NONE();
+  end match;
+end lookupClassDefAnnotation;
+
+function lookupCommentOptAnnotation
+  "Looks up the modifier for a specific annotation in the given optional comment."
+  input Option<Absyn.Comment> cmt;
+  input String name;
+  output Option<Absyn.Modification> outMod;
+protected
+  Absyn.Annotation ann;
+algorithm
+  outMod := match cmt
+    case SOME(Absyn.COMMENT(annotation_ = SOME(ann))) then lookupAnnotation(ann, name);
+    else NONE();
+  end match;
+end lookupCommentOptAnnotation;
+
+function lookupAnnotation
+  "Looks up the modifier for a specific annotation."
+  input Absyn.Annotation ann;
+  input String name;
+  output Option<Absyn.Modification> outMod = NONE();
+algorithm
+  for m in ann.elementArgs loop
+    outMod := match m
+      case Absyn.MODIFICATION()
+        guard pathFirstIdent(m.path) == name
+        then m.modification;
+
+      else outMod;
+    end match;
+
+    if isSome(outMod) then
+      break;
+    end if;
+  end for;
+end lookupAnnotation;
 
 public function getNamedAnnotationInClass<T>
   "Retrieve e.g. the documentation annotation as a string from the class passed as argument."
@@ -6451,6 +6545,100 @@ algorithm
     else false;
   end match;
 end isAlgorithmSection;
+
+function setElementType
+  "Sets the type of a component or short class definition. If the element
+   contains multiple components the type is only changed if
+   allowMultipleComponents = true, otherwise the function will fail."
+  input output Absyn.Element element;
+  input Absyn.TypeSpec typeSpec;
+  input Boolean allowMultipleComponents = false;
+algorithm
+  () := match element
+    case Absyn.Element.ELEMENT()
+      algorithm
+        element.specification := setElementSpecType(element.specification, typeSpec, allowMultipleComponents);
+      then
+        ();
+
+    else ();
+  end match;
+end setElementType;
+
+function setElementSpecType
+  input output Absyn.ElementSpec spec;
+  input Absyn.TypeSpec typeSpec;
+  input Boolean allowMultipleComponents = false;
+protected
+  Absyn.Class cls;
+algorithm
+  () := match spec
+    case Absyn.ElementSpec.CLASSDEF()
+      algorithm
+        spec.class_ := setClassType(spec.class_, typeSpec);
+      then
+        ();
+
+    case Absyn.ElementSpec.COMPONENTS()
+      guard allowMultipleComponents or listLength(spec.components) == 1
+      algorithm
+        spec.typeSpec := typeSpec;
+      then
+        ();
+  end match;
+end setElementSpecType;
+
+function setClassType
+  input output Absyn.Class cls;
+  input Absyn.TypeSpec typeSpec;
+algorithm
+  cls.body := setClassDefType(cls.body, typeSpec);
+end setClassType;
+
+function setClassDefType
+  input output Absyn.ClassDef cdef;
+  input Absyn.TypeSpec typeSpec;
+algorithm
+  () := match cdef
+    case Absyn.ClassDef.DERIVED()
+      algorithm
+        cdef.typeSpec := typeSpec;
+      then
+        ();
+  end match;
+end setClassDefType;
+
+function isLiteralExp
+  input Absyn.Exp exp;
+  output Boolean literal;
+algorithm
+  literal := match exp
+    case Absyn.Exp.INTEGER() then true;
+    case Absyn.Exp.REAL() then true;
+    case Absyn.Exp.STRING() then true;
+    case Absyn.Exp.BOOL() then true;
+    case Absyn.Exp.ARRAY() then List.all(exp.arrayExp, isLiteralExp);
+
+    case Absyn.Exp.MATRIX()
+      algorithm
+        literal := true;
+        for row in exp.matrix loop
+          literal := literal and List.all(row, isLiteralExp);
+          if not literal then
+            break;
+          end if;
+        end for;
+      then
+        literal;
+
+    case Absyn.Exp.RANGE()
+      then isLiteralExp(exp.start) and
+           Util.applyOptionOrDefault(exp.step, isLiteralExp, true) and
+           isLiteralExp(exp.stop);
+
+    else false;
+  end match;
+end isLiteralExp;
 
 annotation(__OpenModelica_Interface="frontend");
 end AbsynUtil;

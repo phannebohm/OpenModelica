@@ -11,6 +11,9 @@ GetModelInstanceAnnotation6.mos \
 GetModelInstanceAnnotation7.mos \
 GetModelInstanceAnnotation8.mos \
 GetModelInstanceAnnotation9.mos \
+GetModelInstanceAnnotation10.mos \
+GetModelInstanceAnnotation11.mos \
+GetModelInstanceAnnotation12.mos \
 GetModelInstanceAttributes1.mos \
 GetModelInstanceAttributes2.mos \
 GetModelInstanceBinding1.mos \
@@ -22,6 +25,7 @@ GetModelInstanceBinding6.mos \
 GetModelInstanceBinding7.mos \
 GetModelInstanceBinding8.mos \
 GetModelInstanceBinding9.mos \
+GetModelInstanceBinding10.mos \
 GetModelInstanceBreak1.mos \
 GetModelInstanceChoices1.mos \
 GetModelInstanceChoices2.mos \
@@ -38,6 +42,7 @@ GetModelInstanceDerived2.mos \
 GetModelInstanceDerived3.mos \
 GetModelInstanceDim1.mos \
 GetModelInstanceDim2.mos \
+GetModelInstanceDim3.mos \
 GetModelInstanceDuplicate1.mos \
 GetModelInstanceEnum1.mos \
 GetModelInstanceEnum2.mos \
@@ -56,6 +61,7 @@ GetModelInstanceInnerOuter1.mos \
 GetModelInstanceInnerOuter2.mos \
 GetModelInstanceInnerOuter3.mos \
 GetModelInstanceInnerOuter4.mos \
+GetModelInstanceInnerOuter5.mos \
 GetModelInstanceMissingClass1.mos \
 GetModelInstanceMissingClass2.mos \
 GetModelInstanceMissingClass3.mos \
@@ -63,6 +69,8 @@ GetModelInstanceMod1.mos \
 GetModelInstanceMod2.mos \
 GetModelInstanceMod3.mos \
 GetModelInstanceMod4.mos \
+GetModelInstanceMod5.mos \
+GetModelInstanceProtected1.mos \
 GetModelInstanceReplaceable1.mos \
 GetModelInstanceReplaceable2.mos \
 GetModelInstanceReplaceable3.mos \

@@ -150,7 +150,7 @@ TextAnnotation::TextAnnotation(QString annotation, LineAnnotation *pLineAnnotati
    */
   if (pLineAnnotation->getPoints().size() > 0) {
     if (pLineAnnotation->getImmediate()) {
-      setPos(pLineAnnotation->getPoints().at(mPoints.size() - 1));
+      setPos(pLineAnnotation->getPoints().at(pLineAnnotation->getPoints().size() - 1));
     } else {
       setPos(pLineAnnotation->getPoints().at(0));
     }
@@ -175,7 +175,7 @@ TextAnnotation::TextAnnotation(ModelInstance::Text *pText, LineAnnotation *pLine
    */
   if (pLineAnnotation->getPoints().size() > 0) {
     if (pLineAnnotation->getImmediate()) {
-      setPos(pLineAnnotation->getPoints().at(mPoints.size() - 1));
+      setPos(pLineAnnotation->getPoints().at(pLineAnnotation->getPoints().size() - 1));
     } else {
       setPos(pLineAnnotation->getPoints().at(0));
     }
@@ -377,7 +377,6 @@ void TextAnnotation::drawAnnotation(QPainter *painter)
   const qreal m21 = painterTransform.m21();
   qreal xScale = qSqrt(m11*m11 + m12*m12);
   qreal yScale = qSqrt(m22*m22 + m21*m21);
-  qreal curScale = qMin(xScale, yScale);
   // set new transformation for the text based on rotation or scale.
   qreal invx = (m11 >= 0) ? 1.0 : -1.0;
   qreal invy = (m22 >= 0) ? 1.0 : -1.0;
@@ -401,7 +400,7 @@ void TextAnnotation::drawAnnotation(QPainter *painter)
   QRectF boundingRectangle = boundingRect();
   qreal xtl = (invx >= 0) ? boundingRectangle.left() : -boundingRectangle.right();
   qreal ytl = (invy >= 0) ? boundingRectangle.top() : -boundingRectangle.bottom();
-  QRectF mappedBoundingRect = QRectF(xtl * curScale, ytl * curScale, boundingRectangle.width() * curScale, boundingRectangle.height() * curScale);
+  QRectF mappedBoundingRect = QRectF(xtl * xScale, ytl * yScale, boundingRectangle.width() * xScale, boundingRectangle.height() * yScale);
   // normalize the text for drawing
   QString textString = StringHandler::removeFirstLastQuotes(mTextString);
   textString = StringHandler::unparse(QString("\"").append(mTextString).append("\""));
@@ -570,54 +569,54 @@ void TextAnnotation::updateTextStringHelper(QRegExp regExp)
       variable.remove("%");
       variable = StringHandler::removeFirstLastCurlBrackets(variable);
       if (!variable.isEmpty()) {
-        QString textValue;
         /* Ticket:4204
          * If we have extend element then call Element::getParameterDisplayString from root element.
          */
-        textValue = mpElement->getRootParentElement()->getParameterDisplayString(variable);
-        if (!textValue.isEmpty()) {
-          QString unit = mpElement->getRootParentElement()->getParameterModifierValue(variable, "unit");
-          QString displayUnit = mpElement->getRootParentElement()->getParameterModifierValue(variable, "displayUnit");
+        QPair<QString, bool> parameterValue = mpElement->getRootParentElement()->getParameterDisplayString(variable);
+        if (parameterValue.second || !parameterValue.first.isEmpty()) {
+          QString textValue = parameterValue.first;
+          QPair<QString, bool> unit = mpElement->getRootParentElement()->getParameterModifierValue(variable, "unit");
+          QPair<QString, bool> displayUnit = mpElement->getRootParentElement()->getParameterModifierValue(variable, "displayUnit");
           if (MainWindow::instance()->isNewApi()) {
             ModelInstance::Component* pModelComponent = Element::getModelComponentByName(mpElement->getRootParentElement()->getModel(), variable);
             if (pModelComponent) {
-              if (displayUnit.isEmpty()) {
+              if (!displayUnit.second) {
                 displayUnit = pModelComponent->getModifierValueFromType(QStringList() << "displayUnit");
               }
-              if (unit.isEmpty()) {
+              if (!unit.second) {
                 unit = pModelComponent->getModifierValueFromType(QStringList() << "unit");
               }
             }
           } else {
             Element *pElement = mpElement->getRootParentElement()->getElementByName(variable);
             if (pElement) {
-              if (displayUnit.isEmpty()) {
-                displayUnit = pElement->getDerivedClassModifierValue("displayUnit");
+              if (displayUnit.first.isEmpty()) {
+                displayUnit.first = pElement->getDerivedClassModifierValue("displayUnit");
               }
-              if (unit.isEmpty()) {
-                unit = pElement->getDerivedClassModifierValue("unit");
+              if (unit.first.isEmpty()) {
+                unit.first = pElement->getDerivedClassModifierValue("unit");
               }
             }
           }
           // if display unit is still empty then use unit
-          if (displayUnit.isEmpty()) {
+          if (displayUnit.first.isEmpty()) {
             displayUnit = unit;
           }
           QString textValueWithDisplayUnit;
           // Do not show displayUnit if value is not a literal constant or if displayUnit is empty or if unit and displayUnit are 1!
-          if (!Utilities::isValueLiteralConstant(textValue) || displayUnit.isEmpty() || (displayUnit.compare("1") == 0 && unit.compare("1") == 0)) {
+          if (!Utilities::isValueLiteralConstant(textValue) || displayUnit.first.isEmpty() || (displayUnit.first.compare("1") == 0 && unit.first.compare("1") == 0)) {
             textValueWithDisplayUnit = textValue;
-          } else if (unit.compare(displayUnit) == 0) {  // Do not do any conversion if unit and displayUnit are same.
-            textValueWithDisplayUnit = QString("%1 %2").arg(textValue, Utilities::convertUnitToSymbol(displayUnit));
+          } else if (unit.first.compare(displayUnit.first) == 0) {  // Do not do any conversion if unit and displayUnit are same.
+            textValueWithDisplayUnit = QString("%1 %2").arg(textValue, Utilities::convertUnitToSymbol(displayUnit.first));
           } else {
             OMCProxy *pOMCProxy = MainWindow::instance()->getOMCProxy();
-            OMCInterface::convertUnits_res convertUnit = pOMCProxy->convertUnits(unit, displayUnit);
+            OMCInterface::convertUnits_res convertUnit = pOMCProxy->convertUnits(unit.first, displayUnit.first);
             if (convertUnit.unitsCompatible) {
               qreal convertedValue = Utilities::convertUnit(textValue.toDouble(), convertUnit.offset, convertUnit.scaleFactor);
               textValue = StringHandler::number(convertedValue);
-              textValueWithDisplayUnit = QString("%1 %2").arg(textValue, Utilities::convertUnitToSymbol(displayUnit));
+              textValueWithDisplayUnit = QString("%1 %2").arg(textValue, Utilities::convertUnitToSymbol(displayUnit.first));
             } else {
-              textValueWithDisplayUnit = QString("%1 %2").arg(textValue, Utilities::convertUnitToSymbol(unit));
+              textValueWithDisplayUnit = QString("%1 %2").arg(textValue, Utilities::convertUnitToSymbol(unit.first));
             }
           }
           mTextString.replace(pos, regExp.matchedLength(), textValueWithDisplayUnit);

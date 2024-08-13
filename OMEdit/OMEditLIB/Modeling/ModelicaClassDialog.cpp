@@ -47,6 +47,7 @@
 #include <QMessageBox>
 #include <QCompleter>
 #include <QHeaderView>
+#include <QRegularExpressionValidator>
 
 LibraryBrowseDialog::LibraryBrowseDialog(QString title, QLineEdit *pLineEdit, LibraryWidget *pLibraryWidget)
   : QDialog(0)
@@ -126,6 +127,26 @@ void LibraryBrowseDialog::findAndSelectLibraryTreeItem(const QRegExp &regExp)
   }
 }
 
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
+void LibraryBrowseDialog::findAndSelectLibraryTreeItem(const QRegularExpression &regExp)
+{
+  QModelIndex proxyIndex = mpLibraryTreeProxyModel->index(0, 0);
+  if (proxyIndex.isValid()) {
+    QModelIndex modelIndex = mpLibraryTreeProxyModel->mapToSource(proxyIndex);
+    LibraryTreeItem *pLibraryTreeItem = mpLibraryWidget->getLibraryTreeModel()->findLibraryTreeItem(regExp, static_cast<LibraryTreeItem*>(modelIndex.internalPointer()));
+    if (pLibraryTreeItem) {
+      modelIndex = mpLibraryWidget->getLibraryTreeModel()->libraryTreeItemIndex(pLibraryTreeItem);
+      proxyIndex = mpLibraryTreeProxyModel->mapFromSource(modelIndex);
+      mpLibraryTreeView->selectionModel()->select(proxyIndex, QItemSelectionModel::Select);
+      while (proxyIndex.parent().isValid()) {
+        proxyIndex = proxyIndex.parent();
+        mpLibraryTreeView->expand(proxyIndex);
+      }
+    }
+  }
+}
+#endif
+
 /*!
  * \brief LibraryBrowseDialog::searchClasses
  * Searches the classes.
@@ -134,10 +155,16 @@ void LibraryBrowseDialog::searchClasses()
 {
   mpLibraryTreeView->selectionModel()->clearSelection();
   QString searchText = mpTreeSearchFilters->getFilterTextBox()->text();
-  QRegExp::PatternSyntax syntax = QRegExp::PatternSyntax(mpTreeSearchFilters->getSyntaxComboBox()->itemData(mpTreeSearchFilters->getSyntaxComboBox()->currentIndex()).toInt());
   Qt::CaseSensitivity caseSensitivity = mpTreeSearchFilters->getCaseSensitiveCheckBox()->isChecked() ? Qt::CaseSensitive: Qt::CaseInsensitive;
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
+  // TODO: handle PatternSyntax: https://doc.qt.io/qt-6/qregularexpression.html
+  QRegularExpression regExp(QRegularExpression::fromWildcard(searchText, caseSensitivity, QRegularExpression::UnanchoredWildcardConversion));
+  mpLibraryTreeProxyModel->setFilterRegularExpression(QRegularExpression::fromWildcard(searchText, caseSensitivity, QRegularExpression::UnanchoredWildcardConversion));
+#else
+  QRegExp::PatternSyntax syntax = QRegExp::PatternSyntax(mpTreeSearchFilters->getSyntaxComboBox()->itemData(mpTreeSearchFilters->getSyntaxComboBox()->currentIndex()).toInt());
   QRegExp regExp(searchText, caseSensitivity, syntax);
   mpLibraryTreeProxyModel->setFilterRegExp(regExp);
+ #endif
   // if we have really searched something
   if (!searchText.isEmpty()) {
     findAndSelectLibraryTreeItem(regExp);
@@ -195,7 +222,7 @@ ModelicaClassDialog::ModelicaClassDialog(QWidget *pParent)
   /* Don't add optimization restriction for now.
   mpSpecializationComboBox->addItem(StringHandler::getModelicaClassType(StringHandler::OPTIMIZATION));
   */
-  connect(mpSpecializationComboBox, SIGNAL(currentIndexChanged(QString)), SLOT(showHideSaveContentsInOneFileCheckBox(QString)));
+  connect(mpSpecializationComboBox, SIGNAL(currentIndexChanged(int)), SLOT(showHideSaveContentsInOneFileCheckBox(int)));
   // create the extends the label and text box
   mpExtendsClassLabel = new Label(tr("Extends (optional):"));
   mpExtendsClassTextBox = new QLineEdit;
@@ -253,10 +280,11 @@ ModelicaClassDialog::ModelicaClassDialog(QWidget *pParent)
 /*!
  * \brief ModelicaClassDialog::showHideSaveContentsInOneFileCheckBox
  * Show/Hide save contents in one file checkbox.
- * \param text
+ * \param index
  */
-void ModelicaClassDialog::showHideSaveContentsInOneFileCheckBox(QString text)
+void ModelicaClassDialog::showHideSaveContentsInOneFileCheckBox(int index)
 {
+  const QString text = mpSpecializationComboBox->itemText(index);
   if (text.toLower().compare("package") == 0) {
     mpSaveContentsInOneFileCheckBox->setVisible(true);
   } else {
@@ -287,7 +315,7 @@ void ModelicaClassDialog::createModelicaClass()
 {
   if (mpNameTextBox->text().isEmpty()) {
     QMessageBox::critical(this, QString(Helper::applicationName).append(" - ").append(Helper::error), GUIMessages::getMessage(
-                            GUIMessages::ENTER_NAME).arg(mpSpecializationComboBox->currentText()), Helper::ok);
+                            GUIMessages::ENTER_NAME).arg(mpSpecializationComboBox->currentText()), QMessageBox::Ok);
     return;
   }
   /* if extends class doesn't exist. */
@@ -297,7 +325,7 @@ void ModelicaClassDialog::createModelicaClass()
     pExtendsLibraryTreeItem = pLibraryTreeModel->findLibraryTreeItem(mpExtendsClassTextBox->text());
     if (!pExtendsLibraryTreeItem) {
       QMessageBox::critical(this, QString(Helper::applicationName).append(" - ").append(Helper::error),
-                            GUIMessages::getMessage(GUIMessages::EXTENDS_CLASS_NOT_FOUND).arg(mpExtendsClassTextBox->text()), Helper::ok);
+                            GUIMessages::getMessage(GUIMessages::EXTENDS_CLASS_NOT_FOUND).arg(mpExtendsClassTextBox->text()), QMessageBox::Ok);
       return;
     }
   }
@@ -307,7 +335,7 @@ void ModelicaClassDialog::createModelicaClass()
     pParentLibraryTreeItem = pLibraryTreeModel->findLibraryTreeItem(mpParentClassTextBox->text());
     if (!pParentLibraryTreeItem) {
       QMessageBox::critical(this, QString(Helper::applicationName).append(" - ").append(Helper::error),
-                            GUIMessages::getMessage(GUIMessages::INSERT_IN_CLASS_NOT_FOUND).arg(mpParentClassTextBox->text()), Helper::ok);
+                            GUIMessages::getMessage(GUIMessages::INSERT_IN_CLASS_NOT_FOUND).arg(mpParentClassTextBox->text()), QMessageBox::Ok);
       return;
     }
   }
@@ -315,7 +343,7 @@ void ModelicaClassDialog::createModelicaClass()
   if (pParentLibraryTreeItem && pParentLibraryTreeItem->isSystemLibrary()) {
     QMessageBox::critical(this, QString(Helper::applicationName).append(" - ").append(Helper::error),
                           GUIMessages::getMessage(GUIMessages::INSERT_IN_SYSTEM_LIBRARY_NOT_ALLOWED)
-                          .arg(mpParentClassTextBox->text()), Helper::ok);
+                          .arg(mpParentClassTextBox->text()), QMessageBox::Ok);
     return;
   }
   QString model, parentPackage;
@@ -330,7 +358,7 @@ void ModelicaClassDialog::createModelicaClass()
   if (MainWindow::instance()->getOMCProxy()->existClass(model) || pLibraryTreeModel->findLibraryTreeItemOneLevel(model)) {
     QMessageBox::critical(this, QString(Helper::applicationName).append(" - ").append(Helper::error), GUIMessages::getMessage(
                             GUIMessages::MODEL_ALREADY_EXISTS).arg(mpSpecializationComboBox->currentText()).arg(model)
-                          .arg(parentPackage), Helper::ok);
+                          .arg(parentPackage), QMessageBox::Ok);
     return;
   }
   // create the model.
@@ -341,14 +369,14 @@ void ModelicaClassDialog::createModelicaClass()
     if (!MainWindow::instance()->getOMCProxy()->createClass(modelicaClass, mpNameTextBox->text().trimmed(), pExtendsLibraryTreeItem)) {
       QMessageBox::critical(this, QString(Helper::applicationName).append(" - ").append(Helper::error), GUIMessages::getMessage(
                               GUIMessages::ERROR_OCCURRED).arg(MainWindow::instance()->getOMCProxy()->getErrorString()).append("\n\n").
-                            append(GUIMessages::getMessage(GUIMessages::NO_OPENMODELICA_KEYWORDS)), Helper::ok);
+                            append(GUIMessages::getMessage(GUIMessages::NO_OPENMODELICA_KEYWORDS)), QMessageBox::Ok);
       return;
     }
   } else {
     if (!MainWindow::instance()->getOMCProxy()->createSubClass(modelicaClass, mpNameTextBox->text().trimmed(), pParentLibraryTreeItem, pExtendsLibraryTreeItem)) {
       QMessageBox::critical(this, QString(Helper::applicationName).append(" - ").append(Helper::error), GUIMessages::getMessage(
                               GUIMessages::ERROR_OCCURRED).arg(MainWindow::instance()->getOMCProxy()->getErrorString()).append("\n\n").
-                            append(GUIMessages::getMessage(GUIMessages::NO_OPENMODELICA_KEYWORDS)), Helper::ok);
+                            append(GUIMessages::getMessage(GUIMessages::NO_OPENMODELICA_KEYWORDS)), QMessageBox::Ok);
       return;
     }
   }
@@ -379,8 +407,6 @@ void ModelicaClassDialog::createModelicaClass()
   // show the ModelWidget
   pLibraryTreeModel->showModelWidget(pLibraryTreeItem, true);
   if (pLibraryTreeItem->getModelWidget()) {
-    pLibraryTreeItem->getModelWidget()->getIconGraphicsView()->addClassAnnotation(false);
-    pLibraryTreeItem->getModelWidget()->getDiagramGraphicsView()->addClassAnnotation(false);
     pLibraryTreeItem->getModelWidget()->updateModelText();
   }
   accept();
@@ -480,7 +506,11 @@ void OpenModelicaFile::convertModelicaFile(QString fileName, QTextCodec *pCodec)
   file.close();
   file.open(QIODevice::WriteOnly | QIODevice::Truncate);
   QTextStream out(&file);
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
+  out.setEncoding(QStringConverter::Utf8);
+#else
   out.setCodec(Helper::utf8.toUtf8().constData());
+#endif
   out.setGenerateByteOrderMark(false);
   out << fileData;
   file.close();
@@ -649,14 +679,14 @@ void SaveAsClassDialog::saveAsModelicaClass()
   QString type = StringHandler::getModelicaClassType(mpModelWidget->getLibraryTreeItem()->getRestriction());
   if (mpNameTextBox->text().isEmpty()) {
     QMessageBox::critical(this, QString(Helper::applicationName).append(" - ").append(Helper::error), GUIMessages::getMessage(
-                            GUIMessages::ENTER_NAME).arg(type), Helper::ok);
+                            GUIMessages::ENTER_NAME).arg(type), QMessageBox::Ok);
     return;
   }
   /* if insert in class doesn't exist. */
   if (!mpParentClassComboBox->currentText().isEmpty()) {
     if (!MainWindow::instance()->getOMCProxy()->existClass(mpParentClassComboBox->currentText())) {
       QMessageBox::critical(this, QString(Helper::applicationName).append(" - ").append(Helper::error), GUIMessages::getMessage(
-                              GUIMessages::INSERT_IN_CLASS_NOT_FOUND).arg(mpParentClassComboBox->currentText()), Helper::ok);
+                              GUIMessages::INSERT_IN_CLASS_NOT_FOUND).arg(mpParentClassComboBox->currentText()), QMessageBox::Ok);
       return;
     }
   }
@@ -666,7 +696,7 @@ void SaveAsClassDialog::saveAsModelicaClass()
   if (pParentLibraryTreeItem) {
     if (pParentLibraryTreeItem->isSystemLibrary()) {
       QMessageBox::critical(this, QString(Helper::applicationName).append(" - ").append(Helper::error), GUIMessages::getMessage(
-                              GUIMessages::INSERT_IN_SYSTEM_LIBRARY_NOT_ALLOWED).arg(mpParentClassComboBox->currentText()), Helper::ok);
+                              GUIMessages::INSERT_IN_SYSTEM_LIBRARY_NOT_ALLOWED).arg(mpParentClassComboBox->currentText()), QMessageBox::Ok);
       return;
     }
   }
@@ -685,7 +715,7 @@ void SaveAsClassDialog::saveAsModelicaClass()
   // Check whether model exists or not.
   if (MainWindow::instance()->getOMCProxy()->existClass(model) || MainWindow::instance()->getLibraryWidget()->getLibraryTreeModel()->findLibraryTreeItemOneLevel(model)) {
     QMessageBox::critical(this, QString(Helper::applicationName).append(" - ").append(Helper::error), GUIMessages::getMessage(
-                            GUIMessages::MODEL_ALREADY_EXISTS).arg(type).arg(model).arg(parentPackage), Helper::ok);
+                            GUIMessages::MODEL_ALREADY_EXISTS).arg(type).arg(model).arg(parentPackage), QMessageBox::Ok);
     return;
   }
   // duplicate the model.
@@ -707,7 +737,7 @@ void SaveAsClassDialog::saveAsModelicaClass()
   {
     QMessageBox::critical(this, QString(Helper::applicationName).append(" - ").append(Helper::error), GUIMessages::getMessage(
                             GUIMessages::ERROR_OCCURRED).arg(MainWindow::instance()->getOMCProxy()->getResult()).append("\n\n").
-                          append(GUIMessages::getMessage(GUIMessages::NO_OPENMODELICA_KEYWORDS)), Helper::ok);
+                          append(GUIMessages::getMessage(GUIMessages::NO_OPENMODELICA_KEYWORDS)), QMessageBox::Ok);
     return;
   }
   //open the new tab in central widget and add the model to library tree.
@@ -751,7 +781,7 @@ DuplicateClassDialog::DuplicateClassDialog(LibraryTreeItem *pLibraryTreeItem, QW
   mpNameTextBox = new QLineEdit(mpLibraryTreeItem->getName());
   mpNameTextBox->selectAll();
   mpPathLabel = new Label(Helper::path);
-  mpPathTextBox = new QLineEdit(mpLibraryTreeItem->isTopLevel() ? "" : mpLibraryTreeItem->parent()->getNameStructure());
+  mpPathTextBox = new QLineEdit(mpLibraryTreeItem->isTopLevel() || mpLibraryTreeItem->isSystemLibrary() ? "" : mpLibraryTreeItem->parent()->getNameStructure());
   mpPathBrowseButton = new QPushButton(Helper::browse);
   mpPathBrowseButton->setAutoDefault(false);
   connect(mpPathBrowseButton, SIGNAL(clicked()), SLOT(browsePath()));
@@ -786,8 +816,7 @@ DuplicateClassDialog::DuplicateClassDialog(LibraryTreeItem *pLibraryTreeItem, QW
  * \param pParentLibraryTreeItem - The parent LibraryTreeItem where the class will be duplicated.
  * \return
  */
-DuplicateClassDialog::FileType DuplicateClassDialog::selectFileType(LibraryTreeItem *pLibraryTreeItem,
-                                                                    LibraryTreeItem *pParentLibraryTreeItem)
+DuplicateClassDialog::FileType DuplicateClassDialog::selectFileType(LibraryTreeItem *pLibraryTreeItem, LibraryTreeItem *pParentLibraryTreeItem)
 {
   // if the destination package is saved in one file then we always save in one file
   if (pLibraryTreeItem->getRestriction() == StringHandler::Package
@@ -806,7 +835,7 @@ DuplicateClassDialog::FileType DuplicateClassDialog::selectFileType(LibraryTreeI
     Label *pPixmapLabel = new Label;
     pPixmapLabel->setPixmap(tmpIcon.pixmap(iconSize, iconSize));
     // text
-    Label *pTextLabel = new Label(tr("Select file type for %1").arg(pLibraryTreeItem->getNameStructure()));
+    Label *pTextLabel = new Label(tr("Select file type for <b>%1</b>").arg(pLibraryTreeItem->getNameStructure()));
     // buttons
     QSignalMapper signalMapper;
     // Keep structure button
@@ -891,8 +920,7 @@ void DuplicateClassDialog::setSaveContentsTypeAsFolderStructure(LibraryTreeItem 
  * \param pSourceLibraryTreeItem
  * \param fileType
  */
-void DuplicateClassDialog::duplicateClassHelper(LibraryTreeItem *pDestinationLibraryTreeItem, LibraryTreeItem *pSourceLibraryTreeItem,
-                                                FileType fileType)
+void DuplicateClassDialog::duplicateClassHelper(LibraryTreeItem *pDestinationLibraryTreeItem, LibraryTreeItem *pSourceLibraryTreeItem, FileType fileType)
 {
   QString classText;
   if (pDestinationLibraryTreeItem->parent()->getSaveContentsType() == LibraryTreeItem::SaveInOneFile
@@ -1088,7 +1116,7 @@ void DuplicateClassDialog::duplicateClass()
 {
   if (mpNameTextBox->text().isEmpty()) {
     QMessageBox::critical(MainWindow::instance(), QString("%1 - %2").arg(Helper::applicationName, Helper::error),
-                          GUIMessages::getMessage(GUIMessages::ENTER_NAME).arg("class"), Helper::ok);
+                          GUIMessages::getMessage(GUIMessages::ENTER_NAME).arg(tr("class")), QMessageBox::Ok);
     return;
   }
   /* if path class doesn't exist. */
@@ -1098,7 +1126,7 @@ void DuplicateClassDialog::duplicateClass()
     pParentLibraryTreeItem = pLibraryTreeModel->findLibraryTreeItem(mpPathTextBox->text());
     if (!pParentLibraryTreeItem) {
       QMessageBox::critical(MainWindow::instance(), QString("%1 - %2").arg(Helper::applicationName, Helper::error),
-                            GUIMessages::getMessage(GUIMessages::INSERT_IN_CLASS_NOT_FOUND).arg(mpPathTextBox->text()), Helper::ok);
+                            GUIMessages::getMessage(GUIMessages::INSERT_IN_CLASS_NOT_FOUND).arg(mpPathTextBox->text()), QMessageBox::Ok);
       return;
     }
   }
@@ -1109,7 +1137,7 @@ void DuplicateClassDialog::duplicateClass()
   if (result.isEmpty()) {
     QMessageBox::critical(MainWindow::instance(), QString("%1 - %2").arg(Helper::applicationName, Helper::error),
                           GUIMessages::getMessage(GUIMessages::UNABLE_TO_CREATE_CLASS).arg(mpNameTextBox->text(), GUIMessages::getMessage(GUIMessages::NO_OPENMODELICA_KEYWORDS)),
-                          Helper::ok);
+                          QMessageBox::Ok);
     return;
   }
   // check if new class already exists
@@ -1117,7 +1145,7 @@ void DuplicateClassDialog::duplicateClass()
   if (MainWindow::instance()->getOMCProxy()->existClass(newClassPath) || pLibraryTreeModel->findLibraryTreeItemOneLevel(newClassPath)) {
     QMessageBox::critical(MainWindow::instance(), QString("%1 - %2").arg(Helper::applicationName, Helper::error),
                           GUIMessages::getMessage(GUIMessages::MODEL_ALREADY_EXISTS).arg("class").arg(mpNameTextBox->text())
-                          .arg((mpPathTextBox->text().isEmpty() ? "Top Level" : mpPathTextBox->text())), Helper::ok);
+                          .arg((mpPathTextBox->text().isEmpty() ? "Top Level" : mpPathTextBox->text())), QMessageBox::Ok);
     return;
   }
   // check if path is not a system library
@@ -1125,17 +1153,16 @@ void DuplicateClassDialog::duplicateClass()
     LibraryTreeItem *pLibraryTreeItem = pLibraryTreeModel->findLibraryTreeItem(mpPathTextBox->text());
     if (pLibraryTreeItem && pLibraryTreeItem->isSystemLibrary()) {
       QMessageBox::critical(MainWindow::instance(), QString("%1 - %2").arg(Helper::applicationName, Helper::error),
-                            tr("Cannot duplicate inside system library."), Helper::ok);
+                            tr("Cannot duplicate inside system library."), QMessageBox::Ok);
       return;
     } else if (pLibraryTreeItem->getRestriction() != StringHandler::Package) {
       QMessageBox::critical(MainWindow::instance(), QString("%1 - %2").arg(Helper::applicationName, Helper::error),
-                            tr("Can only duplicate inside a package. <b>%1</b> is not a package.").arg(pLibraryTreeItem->getNameStructure()), Helper::ok);
+                            tr("Can only duplicate inside a package. <b>%1</b> is not a package.").arg(pLibraryTreeItem->getNameStructure()), QMessageBox::Ok);
       return;
     }
   }
   // if everything is fine then duplicate the class.
-  if (!StringHandler::containsSpace(mpNameTextBox->text()) &&
-      MainWindow::instance()->getOMCProxy()->copyClass(mpLibraryTreeItem->getNameStructure(), mpNameTextBox->text(), mpPathTextBox->text())) {
+  if (MainWindow::instance()->getOMCProxy()->copyClass(mpLibraryTreeItem->getNameStructure(), mpNameTextBox->text(), mpPathTextBox->text())) {
     // create the new LibraryTreeItem
     LibraryTreeItem *pLibraryTreeItem;
     pLibraryTreeItem = pLibraryTreeModel->createLibraryTreeItem(mpNameTextBox->text().trimmed(), pParentLibraryTreeItem, false, false, true);
@@ -1153,7 +1180,7 @@ void DuplicateClassDialog::duplicateClass()
      * Case 10: The source is a package saved in folder structure and destination is within. The duplicated package saved in one file.
      * Case 11: // // // // // // // // // // // // // // // // // // // // // // // // //. The duplicated package saved as folder structure.
      */
-    FileType fileType = selectFileType(mpLibraryTreeItem, pParentLibraryTreeItem);
+    FileType fileType = selectFileType(pLibraryTreeItem, pParentLibraryTreeItem);
     if (fileType == Directory || fileType == Directories
         || (fileType == KeepStructure && mpLibraryTreeItem->getSaveContentsType() == LibraryTreeItem::SaveFolderStructure)) {
       pLibraryTreeItem->setSaveContentsType(LibraryTreeItem::SaveFolderStructure);
@@ -1162,10 +1189,13 @@ void DuplicateClassDialog::duplicateClass()
     syncDuplicatedModelWithOMC(pLibraryTreeItem);
     pLibraryTreeModel->checkIfAnyNonExistingClassLoaded();
     pLibraryTreeModel->showModelWidget(pLibraryTreeItem);
+    // add uses annotation
+    const QString containingClassName = mpPathTextBox->text().isEmpty() ? mpNameTextBox->text() : mpPathTextBox->text();
+    GraphicsView::addUsesAnnotation(mpLibraryTreeItem->getNameStructure(), containingClassName, true);
     accept();
   } else {
     QMessageBox::critical(MainWindow::instance(), QString("%1 - %2").arg(Helper::applicationName, Helper::error),
-                          GUIMessages::getMessage(GUIMessages::UNABLE_TO_CREATE_CLASS).arg(mpNameTextBox->text(), GUIMessages::getMessage(GUIMessages::NO_OPENMODELICA_KEYWORDS)), Helper::ok);
+                          GUIMessages::getMessage(GUIMessages::UNABLE_TO_CREATE_CLASS).arg(mpNameTextBox->text(), GUIMessages::getMessage(GUIMessages::NO_OPENMODELICA_KEYWORDS)), QMessageBox::Ok);
   }
 }
 
@@ -1234,7 +1264,7 @@ void RenameClassDialog::renameClass()
     {
       QMessageBox::critical(this, QString(Helper::applicationName).append(" - ").append(Helper::error),
                             GUIMessages::getMessage(GUIMessages::ERROR_OCCURRED).arg(MainWindow::instance()->getOMCProxy()->getResult())
-                            .append("\n\n").append(GUIMessages::getMessage(GUIMessages::NO_OPENMODELICA_KEYWORDS)), Helper::ok);
+                            .append("\n\n").append(GUIMessages::getMessage(GUIMessages::NO_OPENMODELICA_KEYWORDS)), QMessageBox::Ok);
       return;
     }
   }
@@ -1242,7 +1272,7 @@ void RenameClassDialog::renameClass()
   {
     QMessageBox::critical(this, QString(Helper::applicationName).append(" - ").append(Helper::error),
                           GUIMessages::getMessage(GUIMessages::ITEM_ALREADY_EXISTS).append("\n\n")
-                          .append(GUIMessages::getMessage(GUIMessages::NO_OPENMODELICA_KEYWORDS)), Helper::ok);
+                          .append(GUIMessages::getMessage(GUIMessages::NO_OPENMODELICA_KEYWORDS)), QMessageBox::Ok);
     return;
   }
 }
@@ -1632,9 +1662,9 @@ GraphicsViewProperties::GraphicsViewProperties(GraphicsView *pGraphicsView)
   mpHorizontalTextBox->setValidator(pDoubleValidator);
   mpVerticalTextBox->setValidator(pDoubleValidator);
   mpScaleFactorTextBox->setValidator(pDoubleValidator);
-  QRegExp preserveAspectRatioRegExp("true|false");
-  preserveAspectRatioRegExp.setCaseSensitivity(Qt::CaseSensitive);
-  QRegExpValidator *pPreserveAspectRatioValidator = new QRegExpValidator(preserveAspectRatioRegExp);
+  QRegularExpression preserveAspectRatioRegExp("true|false");
+  preserveAspectRatioRegExp.setPatternOptions(QRegularExpression::CaseInsensitiveOption);
+  QRegularExpressionValidator *pPreserveAspectRatioValidator = new QRegularExpressionValidator(preserveAspectRatioRegExp);
   mpPreserveAspectRatioComboBox->lineEdit()->setValidator(pPreserveAspectRatioValidator);
   // set the grid group box layout
   QGridLayout *pComponentLayout = new QGridLayout;
@@ -1850,14 +1880,14 @@ void GraphicsViewProperties::saveGraphicsViewProperties()
     QTableWidgetItem *pUsesTableWidgetItem = mpUsesTableWidget->item(i, 0); /* library value */
     if (pUsesTableWidgetItem->text().isEmpty()) {
       QMessageBox::critical(pMainWindow, QString(Helper::applicationName).append(" - ").append(Helper::error),
-                            GUIMessages::getMessage(GUIMessages::ENTER_VALUE).arg(Helper::library), Helper::ok);
+                            GUIMessages::getMessage(GUIMessages::ENTER_VALUE).arg(Helper::library), QMessageBox::Ok);
       mpUsesTableWidget->editItem(pUsesTableWidgetItem);
       return;
     }
     pUsesTableWidgetItem = mpUsesTableWidget->item(i, 1); /* version value */
     if (pUsesTableWidgetItem->text().isEmpty()) {
       QMessageBox::critical(pMainWindow, QString(Helper::applicationName).append(" - ").append(Helper::error),
-                            GUIMessages::getMessage(GUIMessages::ENTER_VALUE).arg(Helper::version), Helper::ok);
+                            GUIMessages::getMessage(GUIMessages::ENTER_VALUE).arg(Helper::version), QMessageBox::Ok);
       mpUsesTableWidget->editItem(pUsesTableWidgetItem);
       return;
     }
@@ -2177,19 +2207,19 @@ void CreateNewItemDialog::createNewFileOrFolder()
   // check name
   if (mpNameTextBox->text().isEmpty()) {
     QMessageBox::critical(this, QString("%1 - %2").arg(Helper::applicationName).arg(Helper::error), GUIMessages::getMessage(
-                            GUIMessages::ENTER_NAME).arg(mIsCreateFile ? Helper::file : Helper::folder), Helper::ok);
+                            GUIMessages::ENTER_NAME).arg(mIsCreateFile ? Helper::file : Helper::folder), QMessageBox::Ok);
     return;
   }
   // check path
   if (mpPathTextBox->text().isEmpty()) {
-    QMessageBox::critical(this, QString("%1 - %2").arg(Helper::applicationName).arg(Helper::error), tr("Please enter path."), Helper::ok);
+    QMessageBox::critical(this, QString("%1 - %2").arg(Helper::applicationName).arg(Helper::error), tr("Please enter path."), QMessageBox::Ok);
     return;
   }
   // check if path exists
   QFileInfo pathInfo(mpPathTextBox->text());
   if (!pathInfo.exists()) {
     QMessageBox::critical(this, QString("%1 - %2").arg(Helper::applicationName).arg(Helper::error),
-                          tr("Path <b>%1</b> does not exist.").arg(mpPathTextBox->text()), Helper::ok);
+                          tr("Path <b>%1</b> does not exist.").arg(mpPathTextBox->text()), QMessageBox::Ok);
     return;
   }
   // check if file/folder already exists
@@ -2198,7 +2228,7 @@ void CreateNewItemDialog::createNewFileOrFolder()
   if (fileInfo.exists()) {
     QMessageBox::critical(this, QString("%1 - %2").arg(Helper::applicationName).arg(Helper::error),
                           GUIMessages::getMessage(GUIMessages::MODEL_ALREADY_EXISTS).arg(mIsCreateFile ? Helper::file : Helper::folder)
-                          .arg(mpNameTextBox->text()).arg(mpPathTextBox->text()), Helper::ok);
+                          .arg(mpNameTextBox->text()).arg(mpPathTextBox->text()), QMessageBox::Ok);
     return;
   }
   // find the LibraryTreeItem based on path
@@ -2312,7 +2342,7 @@ void RenameItemDialog::renameItem()
   // check name
   if (mpNameTextBox->text().isEmpty()) {
     QMessageBox::critical(this, QString("%1 - %2").arg(Helper::applicationName).arg(Helper::error), GUIMessages::getMessage(
-                            GUIMessages::ENTER_NAME).arg(Helper::item), Helper::ok);
+                            GUIMessages::ENTER_NAME).arg(Helper::item), QMessageBox::Ok);
     return;
   }
   // if the name is same as old then simply return.
@@ -2328,7 +2358,7 @@ void RenameItemDialog::renameItem()
 
       QMessageBox::critical(this, QString("%1 - %2").arg(Helper::applicationName).arg(Helper::error),
                             GUIMessages::getMessage(GUIMessages::MODEL_ALREADY_EXISTS).arg(Helper::item)
-                            .arg(mpNameTextBox->text()).arg(fileInfo.absoluteDir().absolutePath()), Helper::ok);
+                            .arg(mpNameTextBox->text()).arg(fileInfo.absoluteDir().absolutePath()), QMessageBox::Ok);
       return;
     }
     if (QFile::rename(oldFileInfo.absoluteFilePath(), fileInfo.absoluteFilePath())) {
@@ -2432,26 +2462,19 @@ void ComponentNameDialog::updateComponentName()
 {
   // check if name is empty
   if (mpNameTextBox->text().isEmpty()) {
-    QMessageBox::critical(this, QString("%1 - %2").arg(Helper::applicationName).arg(Helper::error), GUIMessages::getMessage(
-                            GUIMessages::ENTER_NAME).arg(Helper::item), Helper::ok);
-    return;
-  }
-  // check for spaces
-  if (StringHandler::containsSpace(mpNameTextBox->text())) {
-    QMessageBox::critical(MainWindow::instance(), QString("%1 - %2").arg(Helper::applicationName).arg(Helper::error),
-                          tr("A component name should not have spaces. Please choose another name."), Helper::ok);
+    QMessageBox::critical(this, QString("%1 - %2").arg(Helper::applicationName, Helper::error), GUIMessages::getMessage(GUIMessages::ENTER_NAME).arg(Helper::item), QMessageBox::Ok);
     return;
   }
   // check for comma
-  if (mpNameTextBox->text().contains(',')) {
-    QMessageBox::critical(MainWindow::instance(), QString("%1 - %2").arg(Helper::applicationName).arg(Helper::error),
-                          GUIMessages::getMessage(GUIMessages::INVALID_INSTANCE_NAME).arg(mpNameTextBox->text()), Helper::ok);
+  if (StringHandler::nameContainsComma(mpNameTextBox->text())) {
+    QMessageBox::critical(MainWindow::instance(), QString("%1 - %2").arg(Helper::applicationName, Helper::error),
+                          GUIMessages::getMessage(GUIMessages::INVALID_INSTANCE_NAME).arg(mpNameTextBox->text()), QMessageBox::Ok);
     return;
   }
   // check for existing component name
   if (!mpGraphicsView->checkElementName(mNameStructure, mpNameTextBox->text())) {
-    QMessageBox::information(MainWindow::instance(), QString("%1 - %2").arg(Helper::applicationName).arg(Helper::information),
-                             GUIMessages::getMessage(GUIMessages::SAME_COMPONENT_NAME).arg(mpNameTextBox->text()), Helper::ok);
+    QMessageBox::information(MainWindow::instance(), QString("%1 - %2").arg(Helper::applicationName, Helper::information),
+                             GUIMessages::getMessage(GUIMessages::SAME_COMPONENT_NAME).arg(mpNameTextBox->text()), QMessageBox::Ok);
     return;
   }
   if (mpDontShowThisMessageAgainCheckBox->isChecked()) {
@@ -2461,12 +2484,11 @@ void ComponentNameDialog::updateComponentName()
   }
   // check for invalid names
   MainWindow::instance()->getOMCProxy()->setLoggingEnabled(false);
-  QList<QString> result = MainWindow::instance()->getOMCProxy()->parseString(QString("model M N %1; end M;").arg(mpNameTextBox->text()),
-                                                                             "M", false);
+  QList<QString> result = MainWindow::instance()->getOMCProxy()->parseString(QString("model M N %1; end M;").arg(mpNameTextBox->text()), "M", false);
   MainWindow::instance()->getOMCProxy()->setLoggingEnabled(true);
   if (result.isEmpty()) {
-    QMessageBox::critical(MainWindow::instance(), QString("%1 - %2").arg(Helper::applicationName).arg(Helper::error),
-                          GUIMessages::getMessage(GUIMessages::INVALID_INSTANCE_NAME).arg(mpNameTextBox->text()), Helper::ok);
+    QMessageBox::critical(MainWindow::instance(), QString("%1 - %2").arg(Helper::applicationName, Helper::error),
+                          GUIMessages::getMessage(GUIMessages::INVALID_INSTANCE_NAME).arg(mpNameTextBox->text()), QMessageBox::Ok);
     return;
   }
   accept();

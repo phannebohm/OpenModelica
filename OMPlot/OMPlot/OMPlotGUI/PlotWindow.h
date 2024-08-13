@@ -52,6 +52,7 @@
 #include <QDoubleSpinBox>
 #include <QDialog>
 #include <QStackedWidget>
+#include <QTextStream>
 #include <QDialogButtonBox>
 
 #include <qwt_plot.h>
@@ -67,7 +68,11 @@
 #include <qwt_plot_panner.h>
 #include <qwt_scale_engine.h>
 #if QWT_VERSION >= 0x060000
+#if QWT_VERSION < 0x060200
 #include <qwt_compat.h>
+#else
+#define QwtArray QVector
+#endif
 #endif
 #include <stdexcept>
 #include "util/read_matlab4.h"
@@ -123,8 +128,6 @@ private:
   QwtSeriesData<QPointF>* mpInteractiveData;
   QString mInteractiveModelName;
   bool mPrefixUnits;
-  bool mCanUseXPrefixUnits;
-  bool mCanUseYPrefixUnits;
   QMdiSubWindow *mpSubWindow;
 public:
   PlotWindow(QStringList arguments = QStringList(), QWidget *parent = 0, bool isInteractiveSimulation = false);
@@ -135,7 +138,13 @@ public:
   void initializePlot(QStringList arguments);
   void setVariablesList(QStringList variables);
   void setPlotType(PlotType type);
-  PlotType getPlotType();
+  bool isPlot() const {return mPlotType == PlotWindow::PLOT;}
+  bool isPlotAll() const {return mPlotType == PlotWindow::PLOTALL;}
+  bool isPlotParametric() const {return mPlotType == PlotWindow::PLOTPARAMETRIC;}
+  bool isPlotInteractive() const {return mPlotType == PlotWindow::PLOTINTERACTIVE;}
+  bool isPlotArray() const {return mPlotType == PlotWindow::PLOTARRAY;}
+  bool isPlotArrayParametric() const {return mPlotType == PlotWindow::PLOTARRAYPARAMETRIC;}
+  PlotType getPlotType() const {return mPlotType;}
   void initializeFile(QString file);
   void getStartStopTime(double &start, double &stop);
   void setupToolbar();
@@ -197,10 +206,6 @@ public:
   QString getFooter();
   bool getPrefixUnits() const;
   void setPrefixUnits(bool prefixUnits);
-  bool canUseXPrefixUnits() const;
-  void setCanUseXPrefixUnits(bool canUseXPrefixUnits);
-  bool canUseYPrefixUnits() const;
-  void setCanUseYPrefixUnits(bool canUseYPrefixUnits);
   void checkForErrors(QStringList variables, QStringList variablesPlotted);
   Plot* getPlot();
   void receiveMessage(QStringList arguments);
@@ -213,6 +218,8 @@ private:
   void setInteractiveControls(bool enabled);
 signals:
   void closingDown();
+private slots:
+  void fitInView();
 public slots:
   void updateCurves();
   void updateYAxis(QPair<double, double> minMaxValues);
@@ -221,7 +228,6 @@ public slots:
   void exportDocument();
   void printPlot();
   void setGrid(int index);
-  void fitInView();
   void setLogX(bool on);
   void setLogY(bool on);
   void setAutoScale(bool on);
@@ -345,6 +351,7 @@ private:
   QLabel *mpYMaximumLabel;
   QLineEdit *mpYMaximumTextBox;
   QCheckBox *mpPrefixUnitsCheckbox;
+  bool mPrefixUnitsChanged = false;
   /* buttons */
   QPushButton *mpOkButton;
   QPushButton *mpApplyButton;
@@ -353,7 +360,7 @@ private:
 public:
   SetupDialog(PlotWindow *pPlotWindow);
   void selectVariable(QString variable);
-  bool setupPlotCurve(VariablePageWidget *pVariablePageWidget);
+  void setupPlotCurve(VariablePageWidget *pVariablePageWidget);
 public slots:
   void variableSelected(QListWidgetItem *current, QListWidgetItem *previous);
   void autoScaleChecked(bool checked);

@@ -48,8 +48,12 @@ private:
   bool mCustomColor;
   QString mXUnit;
   QString mXDisplayUnit;
+  QString mXUnitPrefix;
+  int mXExponent = 0;
   QString mYUnit;
   QString mYDisplayUnit;
+  QString mYUnitPrefix;
+  int mYExponent = 0;
   qreal mWidth;
   int mStyle;
   bool mToggleSign;
@@ -66,16 +70,18 @@ public:
   QwtArray<double> mYAxisVector;
 
   void setTitleLocal();
-  Qt::PenStyle getPenStyle(int style);
-  QwtPlotCurve::CurveStyle getCurveStyle(int style);
+  Qt::PenStyle getPenStyle(int style) const;
+  QwtPlotCurve::CurveStyle getCurveStyle(int style) const;
   void setXUnit(QString xUnit) {mXUnit = xUnit;}
-  QString getXUnit() {return mXUnit;}
+  QString getXUnit() const {return mXUnit;}
   void setXDisplayUnit(QString xDisplayUnit) {mXDisplayUnit = xDisplayUnit;}
-  QString getXDisplayUnit() {return mXDisplayUnit;}
+  QString getXDisplayUnit() const {return mXDisplayUnit;}
+  QString getXUnitPrefix() const {return mXUnitPrefix;}
   void setYUnit(QString yUnit) {mYUnit = yUnit;}
-  QString getYUnit() {return mYUnit;}
+  QString getYUnit() const {return mYUnit;}
   void setYDisplayUnit(QString yDisplayUnit) {mYDisplayUnit = yDisplayUnit;}
-  QString getYDisplayUnit() {return mYDisplayUnit;}
+  QString getYDisplayUnit() const {return mYDisplayUnit;}
+  QString getYUnitPrefix() const {return mYUnitPrefix;}
   void setCurveWidth(qreal width);
   qreal getCurveWidth() {return mWidth;}
   void setCurveStyle(int style);
@@ -84,18 +90,15 @@ public:
   void setToggleSign(bool toggleSign) {mToggleSign = toggleSign;}
   QString getCustomTitle() const {return mCustomTitle;}
   void setCustomTitle(const QString &customTitle) {mCustomTitle = customTitle;}
-  void setXAxisVector(QVector<double> vector);
   void addXAxisValue(double value);
   void updateXAxisValue(int index, double value);
-  const double* getXAxisVector() const;
   QPair<QVector<double>*, QVector<double>*> getAxisVectors();
   void clearXAxisVector() {mXAxisVector.clear();}
-  void setYAxisVector(QVector<double> vector);
   void addYAxisValue(double value);
   void updateYAxisValue(int index, double value);
-  const double* getYAxisVector() const;
   void clearYAxisVector() {mYAxisVector.clear();}
-  int getSize();
+  int getXAxisSize() const;
+  int getYAxisSize() const;
   void setFileName(QString fileName);
   QString getFileName() const;
   QString getAbsoluteFilePath() const;
@@ -108,7 +111,7 @@ public:
   void setCustomColor(bool value);
   bool hasCustomColor();
   void toggleVisibility(bool visibility);
-  void setData(const double* xData, const double* yData, int size);
+  void plotData(bool toggleSign = false);
   QwtPlotDirectPainter* getPlotDirectPainter() {return mpPlotDirectPainter;}
   QwtPlotMarker* getPointMarker() const {return mpPointMarker;}
 #if QWT_VERSION < 0x060000

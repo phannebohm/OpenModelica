@@ -40,6 +40,8 @@
 #endif
 #include "qwt_text_label.h"
 
+#include <QtMath>
+
 namespace OMPlot{
 
 Plot::Plot(PlotWindow *pParent)
@@ -60,9 +62,9 @@ Plot::Plot(PlotWindow *pParent)
   setAxisScaleEngine(QwtPlot::yLeft, pYLinearScaleEngine);
   setAxisAutoScale(QwtPlot::yLeft);
   // create the scale draw
-  mpXScaleDraw = new ScaleDraw(QwtPlot::xBottom, this);
+  mpXScaleDraw = new ScaleDraw(true, this);
   setAxisScaleDraw(QwtPlot::xBottom, mpXScaleDraw);
-  mpYScaleDraw = new ScaleDraw(QwtPlot::yLeft, this);
+  mpYScaleDraw = new ScaleDraw(false, this);
   setAxisScaleDraw(QwtPlot::yLeft, mpYScaleDraw);
   // create an instance of zoomer
   mpPlotZoomer = new PlotZoomer(QwtPlot::xBottom, QwtPlot::yLeft, canvas());
@@ -276,28 +278,76 @@ bool Plot::prefixableUnit(const QString &unit)
   return prefixableUnits.contains(unit);
 }
 
+/*!
+ * \brief Plot::getUnitPrefixAndExponent
+ * \param lowerBound
+ * \param upperBound
+ * \param unitPrefix
+ * \param exponent
+ */
+void Plot::getUnitPrefixAndExponent(double lowerBound, double upperBound, QString &unitPrefix, int &exponent)
+{
+  /* Since log(1900) returns 3.278 so we need to round down for positive values to make it 3
+   * And log(0.0011) return -2.95 so we also need to round down for negative value to make it -3
+   * log(0) is undefined so avoid it
+   */
+
+  if (!(qFuzzyCompare(lowerBound, 0.0) && qFuzzyCompare(upperBound, 0.0))) {
+    if (fabs(lowerBound) > fabs(upperBound)) {
+      exponent = qFloor(std::log10(fabs(lowerBound)));
+    } else {
+      exponent = qFloor(std::log10(fabs(upperBound)));
+    }
+
+    // We don't do anything for exponent values between -1 and 2.
+    if ((exponent < -1) || (exponent > 2)) {
+      if (exponent > 2) {
+        if (exponent >= 3 && exponent < 6) {
+          unitPrefix = "k";
+          exponent = 3;
+        } else if (exponent >= 6 && exponent < 9) {
+          unitPrefix = "M";
+          exponent = 6;
+        } else if (exponent >= 9 && exponent < 12) {
+          unitPrefix = "G";
+          exponent = 9;
+        } else if (exponent >= 12 && exponent < 15) {
+          unitPrefix = "T";
+          exponent = 12;
+        } else {
+          unitPrefix = "P";
+          exponent = 15;
+        }
+      } else if (exponent < -1) {
+        if (exponent <= -2 && exponent > -6) {
+          unitPrefix = "m";
+          exponent = -3;
+        } else if (exponent <= -6 && exponent > -9) {
+          unitPrefix = QChar(0x03BC);
+          exponent = -6;
+        } else if (exponent <= -9 && exponent > -12) {
+          unitPrefix = "n";
+          exponent = -9;
+        } else if (exponent <= -12 && exponent > -15) {
+          unitPrefix = "p";
+          exponent = -12;
+        } else {
+          unitPrefix = "f";
+          exponent = -15;
+        }
+      }
+    } else {
+      unitPrefix = "";
+      exponent = 0;
+    }
+  }
+}
+
 // just overloaded this function to get colors for curves.
 void Plot::replot()
 {
-  bool canUseXPrefixUnits = true;
-  bool canUseYPrefixUnits = true;
-
-  // we need to loop through curves to find the prefix for units
-  for (int i = 0 ; i < mPlotCurvesList.length() ; i++) {
-    if ((mpParentPlotWindow->getPlotType() == PlotWindow::PLOTPARAMETRIC || mpParentPlotWindow->getPlotType() == PlotWindow::PLOTARRAYPARAMETRIC)
-        && canUseXPrefixUnits && !Plot::prefixableUnit(mPlotCurvesList[i]->getXDisplayUnit())) {
-      canUseXPrefixUnits = false;
-    }
-    if (canUseYPrefixUnits && !Plot::prefixableUnit(mPlotCurvesList[i]->getYDisplayUnit())) {
-      canUseYPrefixUnits = false;
-    }
-  }
-
-  mpParentPlotWindow->setCanUseXPrefixUnits(canUseXPrefixUnits);
   mpXScaleDraw->invalidateCache();
-  mpParentPlotWindow->setCanUseYPrefixUnits(canUseYPrefixUnits);
   mpYScaleDraw->invalidateCache();
-
   QwtPlot::replot();
 
   // Now we need to again loop through curves to set the color and title.
@@ -312,16 +362,13 @@ void Plot::replot()
   }
 
   if (mpParentPlotWindow->getXCustomLabel().isEmpty()) {
-    QString timeUnit = mpParentPlotWindow->getTimeUnit();
-    if (mpParentPlotWindow->getPlotType() == PlotWindow::PLOT
-        || mpParentPlotWindow->getPlotType() == PlotWindow::PLOTALL
-        || mpParentPlotWindow->getPlotType() == PlotWindow::PLOTINTERACTIVE) {
-      if (mpXScaleDraw->getUnitPrefix().isEmpty()) {
-        setAxisTitle(QwtPlot::xBottom, QString("%1 (%2)").arg(mpParentPlotWindow->getXLabel(), timeUnit));
-      } else {
-        setAxisTitle(QwtPlot::xBottom, QString("%1 (%2%3)").arg(mpParentPlotWindow->getXLabel(), mpXScaleDraw->getUnitPrefix(), timeUnit));
-      }
-    } else if (mpParentPlotWindow->getPlotType() == PlotWindow::PLOTARRAY) {
+    // ScaleDraw::getUnitPrefix is only set when time is on x-axis
+    const QString timeUnit = mpXScaleDraw->getUnitPrefix() + mpParentPlotWindow->getTimeUnit();
+    if (mpParentPlotWindow->isPlot()
+        || mpParentPlotWindow->isPlotAll()
+        || mpParentPlotWindow->isPlotInteractive()) {
+      setAxisTitle(QwtPlot::xBottom, QString("%1 (%2)").arg(mpParentPlotWindow->getXLabel(), timeUnit));
+    } else if (mpParentPlotWindow->isPlotArray()) {
       setAxisTitle(QwtPlot::xBottom, mpParentPlotWindow->getXLabel());
     } else {
       setAxisTitle(QwtPlot::xBottom, "");

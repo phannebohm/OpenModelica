@@ -56,10 +56,11 @@
 #include <QStatusBar>
 #include <QListWidget>
 #include <QMdiArea>
+#ifndef OM_DISABLE_DOCUMENTATION
 #ifndef OM_OMEDIT_ENABLE_QTWEBENGINE
 #include <QtWebKit>
-#endif
-#include <QtXmlPatterns>
+#endif // #ifndef OM_OMEDIT_ENABLE_QTWEBENGINE
+#endif // #ifndef OM_DISABLE_DOCUMENTATION
 #include <QSplitter>
 #include <QUndoStack>
 #include <QUndoView>
@@ -129,7 +130,6 @@ private:
   Element *mpClickedState;
   bool mIsMovingComponentsAndShapes;
   bool mRenderingLibraryPixmap;
-  bool mSharpLibraryPixmap;
   QList<Element*> mElementsList;
   // A list of components that are not deleted but are removed from scene.
   QList<Element*> mOutOfSceneElementsList;
@@ -153,7 +153,9 @@ private:
   RectangleAnnotation *mpRectangleShapeAnnotation;
   EllipseAnnotation *mpEllipseShapeAnnotation;
   TextAnnotation *mpTextShapeAnnotation;
+  TextAnnotation *mpErrorTextShapeAnnotation;
   BitmapAnnotation *mpBitmapShapeAnnotation;
+  QAction *mpParametersAction;
   QAction *mpPropertiesAction;
   QAction *mpRenameAction;
   QAction *mpSimulationParamsAction;
@@ -196,7 +198,6 @@ public:
   void drawInitialStates(ModelInstance::Model *pModelInstance, bool inherited, const ModelInfo &modelInfo);
   void handleCollidingConnections();
 
-
   void setExtentRectangle(const QRectF rectangle, bool moveToCenter);
   void setIsCustomScale(bool enable) {mIsCustomScale = enable;}
   bool isCustomScale() {return mIsCustomScale;}
@@ -228,8 +229,6 @@ public:
   bool isMovingComponentsAndShapes() {return mIsMovingComponentsAndShapes;}
   void setRenderingLibraryPixmap(bool renderingLibraryPixmap) {mRenderingLibraryPixmap = renderingLibraryPixmap;}
   bool isRenderingLibraryPixmap() {return mRenderingLibraryPixmap;}
-  void setSharpLibraryPixmap(bool sharpLibraryPixmap) {mSharpLibraryPixmap = sharpLibraryPixmap;}
-  bool useSharpLibraryPixmap() {return mSharpLibraryPixmap;}
   QList<ShapeAnnotation*> getShapesList() {return mShapesList;}
   QList<ShapeAnnotation*> getInheritedShapesList() {return mInheritedShapesList;}
   QAction* getManhattanizeAction() {return mpManhattanizeAction;}
@@ -246,7 +245,8 @@ public:
   QAction* getRotateAntiClockwiseAction() {return mpRotateAntiClockwiseAction;}
   QAction* getFlipHorizontalAction() {return mpFlipHorizontalAction;}
   QAction* getFlipVerticalAction() {return mpFlipVerticalAction;}
-  bool performElementCreationChecks(LibraryTreeItem *pLibraryTreeItem, QString *name, QString *defaultPrefix);
+  bool performElementCreationChecks(const QString &nameStructure, bool partial, QString *name, QString *defaultPrefix);
+  static ModelInstance::Component* createModelInstanceComponent(ModelInstance::Model *pModelInstance, const QString &name, const QString &className);
   static ModelInstance::Component* createModelInstanceComponent(ModelInstance::Model *pModelInstance, const QString &name, const QString &className, bool isConnector);
   bool addComponent(QString className, QPointF position);
   void addComponentToView(QString name, LibraryTreeItem *pLibraryTreeItem, QString annotation, QPointF position,
@@ -256,6 +256,7 @@ public:
   void addElementToOutOfSceneList(Element *pElement) {mOutOfSceneElementsList.append(pElement);}
   void addInheritedElementToList(Element *pElement) {mInheritedElementsList.append(pElement);}
   void addElementToClass(Element *pElement);
+  static void addUsesAnnotation(const QString &insertedClassName, const QString &containingClassName, bool updateParentText);
   void addElementItem(Element *pElement);
   void removeElementItem(Element *pElement);
   void deleteElement(Element *pElement);
@@ -286,6 +287,7 @@ public:
   void removeConnectionsFromView();
   void deleteInheritedConnectionFromList(LineAnnotation *pConnectionLineAnnotation) {mInheritedConnectionsList.removeOne(pConnectionLineAnnotation);}
   int numberOfElementConnections(Element *pElement, LineAnnotation *pExcludeConnectionLineAnnotation = 0);
+  QString getConnectorName(Element *pConnector);
   QList<LineAnnotation*> getTransitionsList() {return mTransitionsList;}
   void addTransitionToView(LineAnnotation *pTransitionLineAnnotation, bool inherited);
   void addTransitionToClass(LineAnnotation *pTransitionLineAnnotation);
@@ -358,6 +360,8 @@ public:
   void fitInViewInternal();
   void emitResetDynamicSelect();
   void showReplaceSubModelDialog(QString name);
+  void addErrorTextShape();
+  void removeErrorTextShape();
 private:
   void createActions();
   bool isClassDroppedOnItself(LibraryTreeItem *pLibraryTreeItem);
@@ -370,7 +374,6 @@ private:
   Element* stateElementAtPosition(QPoint position);
   static bool updateElementConnectorSizingParameter(GraphicsView *pGraphicsView, QString className, Element *pElement);
   Element* getConnectorElement(ModelInstance::Connector *pConnector);
-  QString getConnectorName(Element *pConnector);
   bool handleDoubleClickOnComponent(QMouseEvent *event);
   void uncheckAllShapeDrawingActions();
   void setOriginAdjustAndInitialize(ShapeAnnotation* shapeAnnotation);
@@ -397,6 +400,7 @@ private:
   void omsOneShapeContextMenu(ShapeAnnotation *pShapeAnnotation, QMenu *pMenu);
   void omsOneComponentContextMenu(Element *pComponent, QMenu *pMenu);
   void omsMultipleItemsContextMenu(QMenu *pMenu);
+  void getCoOrdinateSystemAndGraphics(QStringList &coOrdinateSystemList, QStringList &graphicsList);
 signals:
   void manhattanize();
   void deleteSignal();
@@ -424,7 +428,7 @@ signals:
   void updateDynamicSelect(double time);
   void resetDynamicSelect();
 public slots:
-  void addConnection(Element *pComponent);
+  void addConnection(Element *pComponent, bool createConnector = false);
   void removeCurrentConnection();
   void deleteConnection(LineAnnotation *pConnectionLineAnnotation);
   void addTransition(Element *pComponent);
@@ -439,7 +443,8 @@ public slots:
   void copyItems();
   void pasteItems();
   void clearSelection(QGraphicsItem *pSelectGraphicsItem = 0);
-  void addClassAnnotation(bool alwaysAdd = true);
+  void addClassAnnotation();
+  void showParameters();
   void showGraphicsViewProperties();
   void showRenameDialog();
   void showSimulationParamsDialog();
@@ -562,6 +567,7 @@ public:
   GraphicsView* getIconGraphicsView() {return mpIconGraphicsView;}
   UndoStack* getUndoStack() {return mpUndoStack;}
   BaseEditor* getEditor() {return mpEditor;}
+  bool isDiagramViewLoaded() const {return mDiagramViewLoaded;}
   void setModelClassPathLabel(QString path) {mpModelClassPathLabel->setText(path);}
   void setModelFilePathLabel(QString path) {mpModelFilePathLabel->setText(path);}
   QVBoxLayout* getMainLayout() {return mpMainLayout;}
@@ -581,6 +587,8 @@ public:
   void clearDependsOnModels() {mDependsOnModelsList.clear();}
   void setHandleCollidingConnectionsNeeded(bool needed) {mHandleCollidingConnectionsNeeded = needed;}
   bool isHandleCollidingConnectionsNeeded() {return mHandleCollidingConnectionsNeeded;}
+  void setRequiresUpdate(bool requiresUpdate) {mRequiresUpdate = requiresUpdate;}
+  bool requiresUpdate() {return mRequiresUpdate;}
 
   void fetchExtendsModifiers(QString extendsClass);
   void reDrawModelWidgetInheritedClasses();
@@ -675,6 +683,7 @@ private:
   QStringList mDependsOnModelsList;
   bool mHasMissingType = false;
   bool mHandleCollidingConnectionsNeeded = false;
+  bool mRequiresUpdate = false;
 
   void createUndoStack();
   void handleCanUndoRedoChanged();

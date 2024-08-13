@@ -41,6 +41,7 @@
 #include "OMS/OMSProxy.h"
 
 #include <QTreeView>
+#include <QRegExp>
 #include <QSortFilterProxyModel>
 
 class CompleterItem;
@@ -91,7 +92,7 @@ public:
   void setName(QString name) {mName = name;}
   const QString& getName() const {return mName;}
   void setNameStructure(QString nameStructure) {mNameStructure = nameStructure;}
-  const QString& getNameStructure() {return mNameStructure;}
+  const QString& getNameStructure() const {return mNameStructure;}
   QString getWhereToMoveFMU();
   void updateClassInformation();
   void setFileName(QString fileName) {mFileName = fileName;}
@@ -169,7 +170,7 @@ public:
   void moveChild(int from, int to);
   void addInheritedClass(LibraryTreeItem *pLibraryTreeItem);
   void removeInheritedClasses();
-  QList<LibraryTreeItem*> getInheritedClasses() const {return mInheritedClasses;}
+  const QList<LibraryTreeItem*> &getInheritedClasses();
   QList<LibraryTreeItem*> getInheritedClassesDeepList();
   LibraryTreeItem *getDirectComponentsClass(const QString &name);
   LibraryTreeItem *getComponentsClass(const QString &name);
@@ -194,11 +195,12 @@ public:
 
   OMCInterface::getClassInformation_res mClassInformation;
   SimulationOptions mSimulationOptions;
-  const QList<ElementInfo *> &getComponentsList();
+  const QList<ElementInfo*> &getComponentsList();
 private:
   bool mIsRootItem;
   LibraryTreeItem *mpParentLibraryTreeItem = 0;
   QList<LibraryTreeItem*> mChildren;
+  bool mInheritedClassesLoaded = false;
   QList<LibraryTreeItem*> mInheritedClasses;
   QList<ElementInfo*> mComponents;
   bool mComponentsLoaded = false;
@@ -286,6 +288,9 @@ public:
   LibraryTreeItem* findLibraryTreeItem(const QString &name, LibraryTreeItem *pLibraryTreeItem = 0,
                                        Qt::CaseSensitivity caseSensitivity = Qt::CaseSensitive) const;
   LibraryTreeItem* findLibraryTreeItem(const QRegExp &regExp, LibraryTreeItem *pLibraryTreeItem = 0) const;
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
+  LibraryTreeItem* findLibraryTreeItem(const QRegularExpression &regExp, LibraryTreeItem *pLibraryTreeItem = 0) const;
+#endif
   LibraryTreeItem* findLibraryTreeItemOneLevel(const QString &name, LibraryTreeItem *pLibraryTreeItem = 0,
                                                Qt::CaseSensitivity caseSensitivity = Qt::CaseSensitive) const;
   LibraryTreeItem* findNonExistingLibraryTreeItem(const QString &name, Qt::CaseSensitivity caseSensitivity = Qt::CaseSensitive) const;

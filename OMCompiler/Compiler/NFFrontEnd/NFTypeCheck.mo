@@ -1151,7 +1151,7 @@ algorithm
     // Real[n, n] ^ Integer
     valid := valid and Type.isSquareMatrix(resultType);
     valid := valid and Type.isInteger(type2);
-    valid := valid and not Expression.isNegative(exp2);
+    valid := valid and not Expression.isNegative(exp2); // invalid if we know it's negative, valid if we don't know.
     op := Operator.OPERATOR(resultType, Op.POW_MATRIX);
     e2 := exp2;
   else
@@ -2868,7 +2868,7 @@ algorithm
             fail();
           end if;
         elseif isCastMatch(ty_match) then
-          binding := Binding.TYPED_BINDING(exp, ty, binding.variability, binding.eachType,
+          binding := Binding.TYPED_BINDING(exp, ty, binding.variability, binding.purity, binding.eachType,
             binding.evalState, binding.isFlattened, binding.source, binding.info);
         end if;
       then
@@ -2942,6 +2942,30 @@ algorithm
                 dims;
 
             else Dimension.UNKNOWN() :: dims;
+          end match;
+        end for;
+
+        dims := listReverseInPlace(dims);
+        componentType := Type.liftArrayLeftList(componentType, dims);
+      then
+        ();
+
+    case Expression.CREF()
+      algorithm
+        bindingType := ComponentRef.getSubscriptedType(ComponentRef.expandSplitSubscripts(bindingExp.cref));
+
+        dims := {};
+        for s in ComponentRef.subscriptsAllFlat(bindingExp.cref) loop
+          dims := match s
+            case Subscript.SPLIT_INDEX()
+              algorithm
+                if isParent(s.node, component) then
+                  dims := Type.nthDimension(InstNode.getType(s.node), s.dimIndex) :: dims;
+                end if;
+              then
+                dims;
+
+            else dims;
           end match;
         end for;
 

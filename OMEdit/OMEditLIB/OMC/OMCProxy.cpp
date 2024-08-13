@@ -341,7 +341,7 @@ void OMCProxy::sendCommand(const QString expression, bool saveToHistory)
 
   /* Check if any custom command updates the program.
    * saveToHistory is true for custom commands.
-   * Fixes issuse #8052
+   * Fixes issue #8052
    */
   if (saveToHistory) {
     try {
@@ -560,7 +560,7 @@ void OMCProxy::exitApplication()
   removeObjectRefFile();
   QMessageBox::critical(MainWindow::instance(), QString(Helper::applicationName).append(" - ").append(Helper::error),
                         QString(tr("Connection with the OpenModelica Compiler has been lost."))
-                        .append("\n\n").append(Helper::applicationName).append(" will close."), Helper::ok);
+                        .append("\n\n").append(Helper::applicationName).append(" will close."), QMessageBox::Ok);
   exit(EXIT_FAILURE);
 }
 
@@ -1124,7 +1124,16 @@ bool OMCProxy::setElementModifierValueOld(QString className, QString modifierNam
  */
 bool OMCProxy::setElementModifierValue(QString className, QString modifierName, QString modifierValue)
 {
-  const QString expression = "setElementModifierValue(" % className % ", " % modifierName % ", $Code((" % modifierValue % ")))";
+  /* Issue #11790 and #11891.
+   * Remove extra parentheses if there are any.
+   */
+  modifierValue = StringHandler::removeFirstLastParentheses(modifierValue.trimmed());
+  QString expression;
+  if (modifierValue.startsWith("=") || modifierValue.startsWith("(")) {
+    expression = "setElementModifierValue(" % className % ", " % modifierName % ", $Code(" % modifierValue % "))";
+  } else {
+    expression = "setElementModifierValue(" % className % ", " % modifierName % ", $Code((" % modifierValue % ")))";
+  }
   sendCommand(expression);
   if (StringHandler::unparseBool(getResult())) {
     return true;
@@ -1230,7 +1239,16 @@ bool OMCProxy::setExtendsModifierValueOld(QString className, QString extendsClas
  */
 bool OMCProxy::setExtendsModifierValue(QString className, QString extendsClassName, QString modifierName, QString modifierValue)
 {
-  const QString expression = "setExtendsModifierValue(" % className % ", " % extendsClassName % ", " % modifierName % ", $Code((" % modifierValue % ")))";
+  /* Issue #11790 and #11891.
+   * Remove extra parentheses if there are any.
+   */
+  modifierValue = StringHandler::removeFirstLastParentheses(modifierValue.trimmed());
+  QString expression;
+  if (modifierValue.startsWith("=") || modifierValue.startsWith("(")) {
+    expression = "setExtendsModifierValue(" % className % ", " % extendsClassName % ", " % modifierName % ", $Code(" % modifierValue % "))";
+  } else {
+    expression = "setExtendsModifierValue(" % className % ", " % extendsClassName % ", " % modifierName % ", $Code((" % modifierValue % ")))";
+  }
   sendCommand(expression);
   if (StringHandler::unparseBool(getResult())) {
     return true;
@@ -1517,12 +1535,13 @@ QString OMCProxy::getDocumentationAnnotation(LibraryTreeItem *pLibraryTreeItem)
   QList<QString> docsList = mpOMCInterface->getDocumentationAnnotation(pLibraryTreeItem->getNameStructure());
   QString infoHeader = "";
   infoHeader = getDocumentationAnnotationInfoHeader(pLibraryTreeItem->parent(), infoHeader);
-  // get the class comment and show it as the first line on the documentation page.
-  QString doc = getClassComment(pLibraryTreeItem->getNameStructure());
-  if (!doc.isEmpty()) {
-    doc = "<h4>" % doc % "</h4>";
+  QString doc = "<h2>" % pLibraryTreeItem->getNameStructure() % "</h2>";
+  // get the class comment if available e.g., model a "test sample" end a;
+  QString comment = getClassComment(pLibraryTreeItem->getNameStructure());
+  if (!comment.isEmpty()) {
+    doc = doc % "<h4>" % comment % "</h4>";
   }
-  doc = "<h2>" % pLibraryTreeItem->getNameStructure() % "</h2>";
+
   for (int ele = 0 ; ele < docsList.size() ; ele++) {
     QString docElement = docsList[ele];
     if (docElement.isEmpty()) {
@@ -1559,7 +1578,7 @@ QString OMCProxy::getDocumentationAnnotation(LibraryTreeItem *pLibraryTreeItem)
       docElement = QString("<div class=\"textDoc\">" % Qt::convertFromPlainText(docElement) % "</div>");
     }
     docElement = docElement.trimmed();
-    docElement.remove(QRegExp("<html>|</html>|<HTML>|</HTML>|<head>|</head>|<HEAD>|</HEAD>|<body>|</body>|<BODY>|</BODY>"));
+    docElement.remove(QRegularExpression("<html>|</html>|<HTML>|</HTML>|<head>|</head>|<HEAD>|</HEAD>|<body>|</body>|<BODY>|</BODY>"));
     doc = doc % docElement;
   }
 
@@ -1702,7 +1721,7 @@ bool OMCProxy::loadFile(QString fileName, QString encoding, bool uses, bool noti
  */
 bool OMCProxy::loadString(QString value, QString fileName, QString encoding, bool merge, bool checkError)
 {
-  bool result = mpOMCInterface->loadString(value, fileName, encoding, merge);
+  bool result = mpOMCInterface->loadString(value, fileName, encoding, merge, true, true, false);
   if (checkError) {
     printMessagesStringInternal();
   }
@@ -2055,13 +2074,13 @@ QString OMCProxy::getDefaultComponentPrefixes(QString className)
 /*!
   Adds a component to the model.
   \param name - the component name
-  \param className - the component fully qualified name.
-  \param componentName - the name of the component to add.
+  \param componentName - the component fully qualified name.
+  \param className - the name of the class where to add component.
   \return true on success.
   */
-bool OMCProxy::addComponent(QString name, QString className, QString componentName, QString placementAnnotation)
+bool OMCProxy::addComponent(QString name, QString componentName, QString className, QString placementAnnotation)
 {
-  sendCommand("addComponent(" + name + ", " + className + "," + componentName + "," + placementAnnotation + ")");
+  sendCommand("addComponent(" + name + "," + componentName + "," + className + "," + placementAnnotation + ")");
   if (StringHandler::unparseBool(getResult())) {
     return true;
   } else {
@@ -2263,19 +2282,17 @@ bool OMCProxy::setComponentDimensions(QString className, QString componentName, 
  * \param from - the connection start component name.
  * \param to - the connection end component name.
  * \param className - the name of the class.
- * \return true on success.
+ * \param annotation - the connection annotation.
  */
-bool OMCProxy::addConnection(QString from, QString to, QString className, QString annotation)
+void OMCProxy::addConnection(QString from, QString to, QString className, QString annotation)
 {
   if (annotation.compare("annotate=Line()") == 0) {
     sendCommand("addConnection(" + from + "," + to + "," + className + ")");
   } else {
     sendCommand("addConnection(" + from + "," + to + "," + className + "," + annotation + ")");
   }
-  if (getResult().toLower().compare("ok") == 0) {
-    return true;
-  } else {
-    return false;
+  if (getResult().toLower().compare("ok") != 0) {
+    printMessagesStringInternal();
   }
 }
 
@@ -3206,7 +3223,7 @@ bool OMCProxy::exportToFigaro(QString className, QString directory, QString data
  */
 bool OMCProxy::copyClass(QString className, QString newClassName, QString withIn)
 {
-  bool result = mpOMCInterface->copyClass(className, newClassName, withIn.isEmpty() ? "TopLevel" : withIn);
+  bool result = mpOMCInterface->copyClass(className, newClassName, withIn.isEmpty() ? "__OpenModelica_TopLevel" : withIn);
   if (!result) printMessagesStringInternal();
   return result;
 }
@@ -3554,7 +3571,7 @@ QJsonObject OMCProxy::getModelInstance(const QString &className, const QString &
   if (MainWindow::instance()->isNewApiProfiling()) {
     const QString api = icon ? "getModelInstanceAnnotation" : "getModelInstance";
     double elapsed = (double)timer.elapsed() / 1000.0;
-    MainWindow::instance()->writeNewApiProfiling(QString("Time for %1 %2 secs").arg(api, QString::number(elapsed, 'f', 6)));
+    MainWindow::instance()->writeNewApiProfiling(QString("Time for %1(%2) %3 secs").arg(api, className, QString::number(elapsed, 'f', 6)));
   }
 
   printMessagesStringInternal();

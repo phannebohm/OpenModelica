@@ -126,6 +126,7 @@ end translateModel;
     #include "simulation/solver/nonlinearSystem.h"
     #include "simulation/solver/mixedSystem.h"
     #include "simulation/solver/spatialDistribution.h"
+    #include "simulation/solver/synchronous.h"
 
     #if defined(__cplusplus)
     extern "C" {
@@ -190,7 +191,8 @@ end translateModel;
     extern void <%symbolName(modelNamePrefixStr,"function_initSynchronous")%>(DATA * data, threadData_t *threadData);
     extern void <%symbolName(modelNamePrefixStr,"function_updateSynchronous")%>(DATA * data, threadData_t *threadData, long base_idx);
     extern int <%symbolName(modelNamePrefixStr,"function_equationsSynchronous")%>(DATA * data, threadData_t *threadData, long base_idx, long sub_idx);
-    extern void <%symbolName(modelNamePrefixStr,"read_input_fmu")%>(MODEL_DATA* modelData, SIMULATION_INFO* simulationData);
+    extern void <%symbolName(modelNamePrefixStr,"read_simulation_info")%>(SIMULATION_INFO* simulationData);
+    extern void <%symbolName(modelNamePrefixStr,"read_input_fmu")%>(MODEL_DATA* modelData);
     extern void <%symbolName(modelNamePrefixStr,"function_savePreSynchronous")%>(DATA *data, threadData_t *threadData);
     extern int <%symbolName(modelNamePrefixStr,"inputNames")%>(DATA* data, char ** names);
     extern int <%symbolName(modelNamePrefixStr,"dataReconciliationInputNames")%>(DATA* data, char ** names);
@@ -1078,7 +1080,7 @@ template simulationFile_dae(SimCode simCode)
      extern "C" {
      #endif
 
-     <%evaluateDAEResiduals(daeEquations, modelNamePrefixStr)%>
+     <%evaluateDAEResiduals(daeEquations, fileNamePrefix, fullPathPrefix, modelNamePrefixStr)%>
 
      <%initDAEmode%>
 
@@ -1333,6 +1335,7 @@ template simulationFile(SimCode simCode, String guid, String isModelExchangeFMU)
        <%symbolName(modelNamePrefixStr,"inputNames")%>,
        <%symbolName(modelNamePrefixStr,"dataReconciliationInputNames")%>,
        <%symbolName(modelNamePrefixStr,"dataReconciliationUnmeasuredVariables")%>,
+       <% if isModelExchangeFMU then symbolName(modelNamePrefixStr,"read_simulation_info") else "NULL" %>,
        <% if isModelExchangeFMU then symbolName(modelNamePrefixStr,"read_input_fmu") else "NULL" %>,
        <% if isSome(modelStructure) then match modelStructure case SOME(FMIMODELSTRUCTURE(continuousPartialDerivatives=SOME(__))) then symbolName(modelNamePrefixStr,"initialAnalyticJacobianFMIDER") else "NULL" else "NULL" %>,
        <% if isSome(modelStructure) then match modelStructure case SOME(FMIMODELSTRUCTURE(continuousPartialDerivatives=SOME(__))) then symbolName(modelNamePrefixStr,"functionJacFMIDER_column") else "NULL" else "NULL" %>,
@@ -1428,9 +1431,6 @@ template simulationFile(SimCode simCode, String guid, String isModelExchangeFMU)
       <%if Flags.isSet(HPCOM) then "terminateHpcOmThreads();" %>
       <%if Flags.getConfigBool(Flags.PARMODAUTO) then "dump_times(pm_model);" %>
       fflush(NULL);
-    #if !defined(OMC_DLL_MAIN_DEFINE) /* do not exit, return in DLL mode */
-      EXIT(res);
-    #endif
       return res;
     }
 
@@ -2074,7 +2074,7 @@ template functionInitSample(list<BackendDAE.TimeEvent> timeEvents, String modelN
           /* sample <%index%> */
           data->modelData->samplesInfo[i].index = <%index%>;
           data->modelData->samplesInfo[i].start = <%e1%>;
-          data->modelData->samplesInfo[i].interval = <%e2%> /* (max int for single time events) */;
+          data->modelData->samplesInfo[i].interval = <%e2%> /* (max real for single time events) */;
           i++;
           >>
         else '')
@@ -3157,7 +3157,8 @@ match system
       /* iteration variables */
       for (i=0; i<<%listLength(nls.crefs)%>; i++) {
         if (isinf(xloc[i]) || isnan(xloc[i])) {
-          errorStreamPrint(LOG_NLS, 0, "residualFunc<%nls.index%>: Iteration variable xloc[%i] is nan.", i);
+          errorStreamPrint(LOG_NLS, 0, "residualFunc<%nls.index%>: Iteration variable `%s` is inf or nan.",
+            modelInfoGetEquation(&data->modelData->modelDataXml, <%nls.index%>).vars[i]);
           for (j=0; j<<%listLength(nls.crefs)%>; j++) {
             res[j] = NAN;
           }
@@ -3205,52 +3206,49 @@ template generateStaticSparseData(String indexName, String systemType, SparsityP
 ::=
   match sparsepattern
   case {} then
-     let emptySparse = generateStaticEmptySparseData(indexName, systemType)
-     <<
-     <%emptySparse%>
-     >>
+    generateStaticEmptySparseData(indexName, systemType)
   case _ then
-      let sp_size_index = lengthListElements(unzipSecond(sparsepattern))
-      let sizeleadindex = listLength(sparsepattern)
-      let colPtr = genSPCRSPtr(listLength(sparsepattern), sparsepattern, "colPtrIndex")
-      let rowIndex = genSPCRSRows(lengthListElements(unzipSecond(sparsepattern)), sparsepattern, "rowIndex")
-      let colorString = genSPColors(colorList, "inSysData->sparsePattern->colorCols")
-      <<
+    let sp_size_index = lengthListElements(unzipSecond(sparsepattern))
+    let sizeleadindex = listLength(sparsepattern)
+    let colPtr = genSPCRSPtr(listLength(sparsepattern), sparsepattern, "colPtrIndex")
+    let rowIndex = genSPCRSRows(lengthListElements(unzipSecond(sparsepattern)), sparsepattern, "rowIndex")
+    let colorString = genSPColors(colorList, "inSysData->sparsePattern->colorCols")
+    <<
 
-      OMC_DISABLE_OPT
-      void initializeSparsePattern<%indexName%>(<%systemType%>* inSysData)
-      {
-        int i=0;
-        <%colPtr%>
-        <%rowIndex%>
-        /* sparsity pattern available */
-        inSysData->isPatternAvailable = TRUE;
-        inSysData->sparsePattern = allocSparsePattern(<%sizeleadindex%>, <%sp_size_index%>, <%maxColor%>);
+    OMC_DISABLE_OPT
+    void initializeSparsePattern<%indexName%>(<%systemType%>* inSysData)
+    {
+      int i=0;
+      <%colPtr%>
+      <%rowIndex%>
+      /* sparsity pattern available */
+      inSysData->isPatternAvailable = TRUE;
+      inSysData->sparsePattern = allocSparsePattern(<%sizeleadindex%>, <%sp_size_index%>, <%maxColor%>);
 
-        /* write lead index of compressed sparse column */
-        memcpy(inSysData->sparsePattern->leadindex, colPtrIndex, (<%sizeleadindex%>+1)*sizeof(unsigned int));
+      /* write lead index of compressed sparse column */
+      memcpy(inSysData->sparsePattern->leadindex, colPtrIndex, (<%sizeleadindex%>+1)*sizeof(unsigned int));
 
-        for(i=2;i<<%sizeleadindex%>+1;++i)
-          inSysData->sparsePattern->leadindex[i] += inSysData->sparsePattern->leadindex[i-1];
+      for(i=2;i<<%sizeleadindex%>+1;++i)
+        inSysData->sparsePattern->leadindex[i] += inSysData->sparsePattern->leadindex[i-1];
 
-        /* call sparse index */
-        memcpy(inSysData->sparsePattern->index, rowIndex, <%sp_size_index%>*sizeof(unsigned int));
+      /* call sparse index */
+      memcpy(inSysData->sparsePattern->index, rowIndex, <%sp_size_index%>*sizeof(unsigned int));
 
-        /* write color array */
-        <%colorString%>
+      /* write color array */
+      <%colorString%>
+    }
+
+    void freeSparsePattern<%indexName%>(<%systemType%>* inSysData)
+    {
+      if (inSysData->isPatternAvailable) {
+        freeSparsePattern(inSysData->sparsePattern);
+        free(inSysData->sparsePattern);
+        inSysData->sparsePattern = NULL;
+        inSysData->isPatternAvailable = FALSE;
       }
-
-      void freeSparsePattern<%indexName%>(<%systemType%>* inSysData)
-      {
-        if (inSysData->isPatternAvailable) {
-          freeSparsePattern(inSysData->sparsePattern);
-          free(inSysData->sparsePattern);
-          inSysData->sparsePattern = NULL;
-          inSysData->isPatternAvailable = FALSE;
-        }
-      }
-      >>
-   end match
+    }
+    >>
+  end match
 end generateStaticSparseData;
 
 template generateStaticEmptyNonlinearData(String indexName, String systemType)
@@ -3271,50 +3269,45 @@ template generateStaticNonlinearData(String indexName, String systemType, Nonlin
 ::=
   match nonlinearpattern
   case {} then
-      <<
-      void initializeNonlinearPattern<%indexName%>(<%systemType%>* inSysData)
-      {
-        /* no nonlinear pattern available */
-      }
-      >>
+    generateStaticEmptyNonlinearData(indexName, systemType)
   case _ then
-      let number_vars = listLength(nonlinearpatternT)
-      let number_eqns = listLength(nonlinearpattern)
-      let number_nonlinear = lengthListElements(unzipSecond(nonlinearpattern))
-      let index_var = genSPCRSPtr(listLength(nonlinearpatternT), nonlinearpatternT, "index_var")
-      let index_eqn = genSPCRSPtr(listLength(nonlinearpatternT), nonlinearpatternT, "index_eqn")
-      let columns = genSPCRSRows(lengthListElements(unzipSecond(nonlinearpatternT)), nonlinearpatternT, "columns")
-      let rows = genSPCRSRows(lengthListElements(unzipSecond(nonlinearpattern)), nonlinearpattern, "rows")
-      <<
-      OMC_DISABLE_OPT
-      void initializeNonlinearPattern<%indexName%>(<%systemType%>* inSysData)
-      {
-        int i=0;
-        inSysData->nonlinearPattern = (NONLINEAR_PATTERN*) malloc(sizeof(NONLINEAR_PATTERN));
-        inSysData->nonlinearPattern->numberOfVars = <%number_vars%>;
-        inSysData->nonlinearPattern->numberOfEqns = <%number_eqns%>;
-        inSysData->nonlinearPattern->numberOfNonlinear = <%number_nonlinear%>;
-        inSysData->nonlinearPattern->indexVar = (unsigned int*) malloc((<%number_vars%>+1)*sizeof(unsigned int));
-        inSysData->nonlinearPattern->indexEqn = (unsigned int*) malloc((<%number_eqns%>+1)*sizeof(unsigned int));
-        inSysData->nonlinearPattern->columns = (unsigned int*) malloc(<%number_nonlinear%>*sizeof(unsigned int));
-        inSysData->nonlinearPattern->rows = (unsigned int*) malloc(<%number_nonlinear%>*sizeof(unsigned int));
-        /* initialize and accumulate index vectors */
-        <%index_var%>
-        <%index_eqn%>
-        memcpy(inSysData->nonlinearPattern->indexVar, index_var, (<%number_vars%>+1)*sizeof(unsigned int));
-        memcpy(inSysData->nonlinearPattern->indexEqn, index_eqn, (<%number_eqns%>+1)*sizeof(unsigned int));
-        for(i=2;i<<%number_vars%>+1;++i)
-          inSysData->nonlinearPattern->indexVar[i] += inSysData->nonlinearPattern->indexVar[i-1];
-        for(i=2;i<<%number_eqns%>+1;++i)
-          inSysData->nonlinearPattern->indexEqn[i] += inSysData->nonlinearPattern->indexEqn[i-1];
-        /* initialize columns and rows */
-        <%columns%>
-        <%rows%>
-        memcpy(inSysData->nonlinearPattern->columns, columns, <%number_nonlinear%>*sizeof(unsigned int));
-        memcpy(inSysData->nonlinearPattern->rows, rows, <%number_nonlinear%>*sizeof(unsigned int));
-      }
-      >>
-   end match
+    let number_vars = listLength(nonlinearpatternT)
+    let number_eqns = listLength(nonlinearpattern)
+    let number_nonlinear = lengthListElements(unzipSecond(nonlinearpattern))
+    let index_var = genSPCRSPtr(listLength(nonlinearpatternT), nonlinearpatternT, "index_var")
+    let index_eqn = genSPCRSPtr(listLength(nonlinearpatternT), nonlinearpatternT, "index_eqn")
+    let columns = genSPCRSRows(lengthListElements(unzipSecond(nonlinearpatternT)), nonlinearpatternT, "columns")
+    let rows = genSPCRSRows(lengthListElements(unzipSecond(nonlinearpattern)), nonlinearpattern, "rows")
+    <<
+    OMC_DISABLE_OPT
+    void initializeNonlinearPattern<%indexName%>(<%systemType%>* inSysData)
+    {
+      int i=0;
+      inSysData->nonlinearPattern = (NONLINEAR_PATTERN*) malloc(sizeof(NONLINEAR_PATTERN));
+      inSysData->nonlinearPattern->numberOfVars = <%number_vars%>;
+      inSysData->nonlinearPattern->numberOfEqns = <%number_eqns%>;
+      inSysData->nonlinearPattern->numberOfNonlinear = <%number_nonlinear%>;
+      inSysData->nonlinearPattern->indexVar = (unsigned int*) malloc((<%number_vars%>+1)*sizeof(unsigned int));
+      inSysData->nonlinearPattern->indexEqn = (unsigned int*) malloc((<%number_eqns%>+1)*sizeof(unsigned int));
+      inSysData->nonlinearPattern->columns = (unsigned int*) malloc(<%number_nonlinear%>*sizeof(unsigned int));
+      inSysData->nonlinearPattern->rows = (unsigned int*) malloc(<%number_nonlinear%>*sizeof(unsigned int));
+      /* initialize and accumulate index vectors */
+      <%index_var%>
+      <%index_eqn%>
+      memcpy(inSysData->nonlinearPattern->indexVar, index_var, (<%number_vars%>+1)*sizeof(unsigned int));
+      memcpy(inSysData->nonlinearPattern->indexEqn, index_eqn, (<%number_eqns%>+1)*sizeof(unsigned int));
+      for(i=2;i<<%number_vars%>+1;++i)
+        inSysData->nonlinearPattern->indexVar[i] += inSysData->nonlinearPattern->indexVar[i-1];
+      for(i=2;i<<%number_eqns%>+1;++i)
+        inSysData->nonlinearPattern->indexEqn[i] += inSysData->nonlinearPattern->indexEqn[i-1];
+      /* initialize columns and rows */
+      <%columns%>
+      <%rows%>
+      memcpy(inSysData->nonlinearPattern->columns, columns, <%number_nonlinear%>*sizeof(unsigned int));
+      memcpy(inSysData->nonlinearPattern->rows, rows, <%number_nonlinear%>*sizeof(unsigned int));
+    }
+    >>
+  end match
 end generateStaticNonlinearData;
 
 template generateStaticInitialData(list<ComponentRef> crefs, String indexName)
@@ -4467,14 +4460,61 @@ template functionXXX_systems(list<list<SimEqSystem>> eqs, String name, Text &loo
     >>
 end functionXXX_systems;
 
-template createEquationsAndCalls(list<list<SimEqSystem>> systems, String name, Context context, String modelNamePrefixStr, Text eqCalls, Text eqFuncs)
+
+template functionDAEModeEquationsMultiFiles(list<SimEqSystem> inEqs, Integer numEqs, Integer equationsPerFile, Context context, String fileNamePrefix, String fullPathPrefix, String modelNamePrefix, String funcName, String partName, Text &eqFuncs, Boolean static, Boolean noOpt, Boolean init)
+::=
+  let &file = buffer ""
+  let &forwardEqs = buffer ""
+  let multiFile = if intGt(numEqs, equationsPerFile) then "x"
+  let fncalls = (List.balancedPartition(inEqs, equationsPerFile) |> eqs hasindex i0 =>
+                  // To file
+                  let &file += ((if multiFile then
+                    (let fileName = addFunctionIndex('<%fileNamePrefix%>_<%partName%>_part', ".c")
+                    redirectToFile(fullPathPrefix + fileName) +
+                  <<
+                  <%simulationFileHeader(fileNamePrefix)%>
+                  #if defined(__cplusplus)
+                  extern "C" {
+                  #endif<%\n%>
+                  >>)) +
+                  (eqs |> eq => (equation_impl_options(-1, -1, eq, context, modelNamePrefix, static, noOpt, init); separator="\n")
+                  ) +
+                  <<
+                  >>
+                  +
+                  (if multiFile then
+                  (<<
+
+                  #if defined(__cplusplus)
+                  }
+                  #endif
+                  >> +
+                  closeFile())))
+
+                  let &forwardEqs +=
+                      if multiFile then
+                       ("\n/* --- forward equations --- */\n" +
+                        (eqs |> eq => equationForward_(eq, context, modelNamePrefix); separator="\n") +
+                        "\n\n")
+
+                  // fncalls
+                  '<%(eqs |> eq => equationNames_(eq, context, modelNamePrefix); separator="\n")%>'
+
+                  )
+
+
+  let &eqFuncs += forwardEqs + file
+  fncalls
+end functionDAEModeEquationsMultiFiles;
+
+template createEquationsAndCalls(list<list<SimEqSystem>> systems, String name, Context context, String fileNamePrefix, String fullPathPrefix, String modelNamePrefix, Text eqCalls, Text eqFuncs)
 ::=
   let _ = (systems |> equations => (
-          equations |> eq => (
-            let &eqFuncs += equation_impl(-1, -1, eq, context, modelNamePrefixStr, false)
-            let &eqCalls += equationNames_(eq, context, modelNamePrefixStr)
-            <<>>
-          )
+          let fncalls = functionDAEModeEquationsMultiFiles(equations, listLength(equations),
+                Flags.getConfigInt(Flags.EQUATIONS_PER_FILE), context, fileNamePrefix, fullPathPrefix, modelNamePrefix,
+                "evaluateDAEResiduals", "16dae", &eqFuncs, /* Static? */ false, true /* No optimization */, /* initial? */ false)
+          let &eqCalls += fncalls
+          <<>>
         )
       )
   <<>>
@@ -4625,13 +4665,14 @@ template functionAlgebraic(list<list<SimEqSystem>> algebraicEquations, String mo
   >>
 end functionAlgebraic;
 
-template evaluateDAEResiduals(list<list<SimEqSystem>> resEquations, String modelNamePrefix)
+template evaluateDAEResiduals(list<list<SimEqSystem>> resEquations, String fileNamePrefix, String fullPathPrefix, String modelNamePrefix)
   "Generates function in simulation file."
 ::=
+  let () = System.tmpTickReset(0)
   let &eqFuncs = buffer ""
   let &eqCalls = buffer ""
 
-  let systems = createEquationsAndCalls(resEquations, "DAERes", contextDAEmode, modelNamePrefix, &eqCalls, &eqFuncs)
+  let systems = createEquationsAndCalls(resEquations, "DAERes", contextDAEmode, fileNamePrefix, fullPathPrefix, modelNamePrefix, &eqCalls, &eqFuncs)
   <<
   /*residual equations*/
   <%eqFuncs%>
@@ -4900,7 +4941,7 @@ template zeroCrossingTpl(Integer index1, Exp relation, Option<list<SimIterator>>
   let &preExp = buffer ""
   let &sub = buffer ""
   let forHead = match iter
-    case SOME(iter_) then (iter_ |> it as SIM_ITERATOR(__) =>
+    case SOME(iter_) then (iter_ |> it =>
       forIterator(it, contextZeroCross, &preExp, &varDecls, &auxFunction, &sub)
       ;separator="\n";empty)
     else ""
@@ -4911,7 +4952,7 @@ template zeroCrossingTpl(Integer index1, Exp relation, Option<list<SimIterator>>
     else ""
   let tmp_ = match iter case SOME(iter_) then "+tmp" else ""
   let forTail = match iter
-    case SOME(iter_) then (iter_ |> it as SIM_ITERATOR(__) => "}";separator="\n";empty)
+    case SOME(iter_) then (iter_ |> it => "}";separator="\n";empty)
     else ""
   match relation
   case exp as RELATION(__) then
@@ -5072,7 +5113,7 @@ template relationTpl(Integer index1, Exp relation, Option<list<SimIterator>> ite
 let &preExp = buffer ""
   let &sub = buffer ""
   let forHead = match iter
-    case SOME(iter_) then (iter_ |> it as SIM_ITERATOR(__) =>
+    case SOME(iter_) then (iter_ |> it =>
       forIterator(it, contextZeroCross, &preExp, &varDecls, &auxFunction, &sub)
       ;separator="\n";empty)
     else ""
@@ -5083,7 +5124,7 @@ let &preExp = buffer ""
     else ""
   let tmp_ = match iter case SOME(iter_) then "+tmp" else ""
   let forTail = match iter
-    case SOME(iter_) then (iter_ |> it as SIM_ITERATOR(__) => "}";separator="\n";empty)
+    case SOME(iter_) then (iter_ |> it => "}";separator="\n";empty)
     else ""
   match relation
   case exp as RELATION(__) then
@@ -5191,9 +5232,9 @@ template functionlinearmodel(ModelInfo modelInfo, String modelNamePrefix) "templ
       <%vectorU%>
       <%vectorY%>
       "\n"
-      <%getVarName(vars.stateVars, "x")%>
-      <%getVarName(vars.inputVars, "u")%>
-      <%getVarName(vars.outputVars, "y")%>
+      <%getVarNameC(vars.stateVars, "x")%>
+      <%getVarNameC(vars.inputVars, "u")%>
+      <%getVarNameC(vars.outputVars, "y")%>
       "equation\n"
       "  der(x) = A * x + B * u;\n"
       "  y = C * x + D * u;\n"
@@ -5222,10 +5263,10 @@ template functionlinearmodel(ModelInfo modelInfo, String modelNamePrefix) "templ
       <%vectorY%>
       <%vectorZ%>
       "\n"
-      <%getVarName(vars.stateVars, "x")%>
-      <%getVarName(vars.inputVars, "u")%>
-      <%getVarName(vars.outputVars, "y")%>
-      <%getVarName(vars.algVars, "z")%>
+      <%getVarNameC(vars.stateVars, "x")%>
+      <%getVarNameC(vars.inputVars, "u")%>
+      <%getVarNameC(vars.outputVars, "y")%>
+      <%getVarNameC(vars.algVars, "z")%>
       "equation\n"
       "  der(x) = A * x + B * u;\n"
       "  y = C * x + D * u;\n"
@@ -5363,17 +5404,18 @@ template functionlinearmodelPython(ModelInfo modelInfo, String modelNamePrefix) 
   end match
 end functionlinearmodelPython;
 
-template getVarName(list<SimVar> simVars, String arrayName) "template getVarName
-  Generates name for a varables."
+template getVarNameC(list<SimVar> simVars, String arrayName)
+  "template getVarNameC
+   Generates name for a variable inside a C string."
 ::=
   simVars |> var hasindex arrindex fromindex 1 => (match var
     case SIMVAR(__) then
-      <<"  Real '<%arrayName%>_<%crefStrNoUnderscore(name)%>' = <%arrayName%>[<%arrindex%>];\n">>
+      <<"  Real '<%arrayName%>_<%Util.escapeModelicaStringToCString(escapeSingleQuoteIdent(crefStrNoUnderscore(name)))%>' = <%arrayName%>[<%arrindex%>];\n">>
     end match) ;separator="\n"
-end getVarName;
+end getVarNameC;
 
 template getVarNameMatlab(list<SimVar> simVars, String arrayName) "template getVarName
-  Generates name for a varables."
+  Generates name for a variable."
 ::=
   simVars |> var hasindex arrindex fromindex 1 => (match var
     case SIMVAR(__) then
@@ -5382,7 +5424,7 @@ template getVarNameMatlab(list<SimVar> simVars, String arrayName) "template getV
 end getVarNameMatlab;
 
 template getVarNamePython(list<SimVar> simVars, String arrayName) "template getVarName
-  Generates name for a variables."
+  Generates name for a variable."
 ::=
   simVars |> var hasindex arrindex fromindex 0 => (match var
     case SIMVAR(__) then
@@ -5391,7 +5433,7 @@ template getVarNamePython(list<SimVar> simVars, String arrayName) "template getV
 end getVarNamePython;
 
 template getVarNameJulia(list<SimVar> simVars, String arrayName) "template getVarName
-  Generates name for a varables."
+  Generates name for a variable."
 ::=
   simVars |> var hasindex arrindex fromindex 0 => (match var
     case SIMVAR(__) then
@@ -5530,7 +5572,7 @@ match sparsepattern
     let sp_size_index =  lengthListElements(unzipSecond(sparsepattern))
     let sizeleadindex = listLength(sparsepattern)
     let fileName = '<%fileNamePrefix%>_Jac<%matrixname%>.bin'
-    let colorString = readSPColors(colorList, "jacobian->sparsePattern->colorCols")
+    let colorString = readSPColors(colorList, "jacobian->sparsePattern->colorCols", sizeleadindex)
     let availability = if SimCodeUtil.jacobianColumnsAreEmpty(jacobianColumn) then 'JACOBIAN_ONLY_SPARSITY' else 'JACOBIAN_AVAILABLE'
     let sizeRows = (jacobianColumn |> JAC_COLUMN(numberOfResultVars=nRows) => '<%nRows%>';separator="\n")
     let tmpvarsSize = (jacobianColumn |> JAC_COLUMN(columnVars=vars) => listLength(vars);separator="\n")
@@ -5560,7 +5602,7 @@ match sparsepattern
       /* read sparse index */
       count = omc_fread(jacobian->sparsePattern->index, sizeof(unsigned int), <%sp_size_index%>, pFile, FALSE);
       if (count != <%sp_size_index%>) {
-        throwStreamPrint(threadData, "Error while reading row index list of sparsity pattern. Expected %d, got %zu", <%sizeleadindex%>+1, count);
+        throwStreamPrint(threadData, "Error while reading row index list of sparsity pattern. Expected %d, got %zu", <%sp_size_index%>, count);
       }
 
       /* write color array */
@@ -5708,16 +5750,15 @@ template genSPColors(list<list<Integer>> colorList, String arrayName)
   >>
 end genSPColors;
 
-template readSPColors(list<list<Integer>> colorList, String arrayName)
+template readSPColors(list<list<Integer>> colorList, String arrayName, String maxIndex)
 "This template generates row of the CRS format"
 ::=
   let colorArray = (colorList |> (indices) hasindex index0 =>
     let length = '<%listLength(indices)%>'
     let index = '<%intAdd(index0,1)%>'
-    let ind_name = 'indices_<%index%>'
   <<
   /* color <%index%> with <%length%> columns */
-  readSparsePatternColor(threadData, pFile, <%arrayName%>, <%index%>, <%length%>);
+  readSparsePatternColor(threadData, pFile, <%arrayName%>, <%index%>, <%length%>, <%maxIndex%>);
   >>;separator="\n")
   <<
   <%colorArray%>
@@ -7301,12 +7342,14 @@ end equationNames_Partial;
 template genericCallBodies(list<SimGenericCall> genericCalls, Context context)
  "Generates the body for a set of generic calls."
 ::=
-  let &sub = buffer ""
-  let &preExp = buffer ""
-  let &varDecls = buffer ""
-  let &auxFunction = buffer ""
   let jac = match context case JACOBIAN_CONTEXT() then ", ANALYTIC_JACOBIAN *jacobian" else ""
-  (genericCalls |> call => match call
+  (genericCalls |> call =>
+    let &sub = buffer ""
+    let &preExp = buffer ""
+    let &varDecls = buffer ""
+    let &auxFunction = buffer ""
+
+    match call
     case SINGLE_GENERIC_CALL() then
       let lhs_ = daeExp(lhs, context, &preExp, &varDecls, &auxFunction)
       let rhs_ = daeExp(rhs, context, &preExp, &varDecls, &auxFunction)
@@ -7322,6 +7365,7 @@ template genericCallBodies(list<SimGenericCall> genericCalls, Context context)
         <%lhs_%> = <%rhs_%>;
       }
       >>
+
     case IF_GENERIC_CALL() then
       let iter_ = (iters |> iter => genericIterator(iter, context, &preExp, &varDecls, &auxFunction, &sub); separator = "\n")
       let branches_ = (branches |> branch => genericBranch(branch, context, &preExp, &varDecls, &auxFunction, &sub); separator = " else ")
@@ -7336,6 +7380,7 @@ template genericCallBodies(list<SimGenericCall> genericCalls, Context context)
         <%branches_%>
       }
       >>
+
     case WHEN_GENERIC_CALL() then
       let iter_ = (iters |> iter => genericIterator(iter, context, &preExp, &varDecls, &auxFunction, &sub); separator = "\n")
       let branches_ = (branches |> branch => genericBranch(branch, context, &preExp, &varDecls, &auxFunction, &sub); separator = " else ")
@@ -7381,33 +7426,53 @@ end genericBranch;
 
 template genericIterator(SimIterator iter, Context context, Text &preExp, Text &varDecls, Text &auxFunction, Text &sub)
 ::= match iter
-  case SIM_ITERATOR() then
-  let iter_ = contextCref(name, contextOther, &preExp, &varDecls, &auxFunction, &sub)
-  <<
-  int <%iter_%>_loc = tmp % <%size%>;
-  int <%iter_%> = <%step%> * <%iter_%>_loc + <%start%>;
-  tmp /= <%size%>;
-  >>
+  case SIM_ITERATOR_RANGE() then
+    let iter_ = contextCref(name, contextOther, &preExp, &varDecls, &auxFunction, &sub)
+    <<
+    int <%iter_%>_loc = tmp % <%size%>;
+    int <%iter_%> = <%step%> * <%iter_%>_loc + <%start%>;
+    tmp /= <%size%>;
+    >>
+  case SIM_ITERATOR_LIST() then
+    let iter_ = contextCref(name, contextOther, &preExp, &varDecls, &auxFunction, &sub)
+    let arr = (lst |> elem => '<%elem%>'; separator=", ")
+    <<
+    static const int <%iter_%>_lst[<%size%>] = {<%arr%>};
+    int <%iter_%>_loc = tmp % <%size%>;
+    int <%iter_%> = <%iter_%>_lst[<%iter_%>_loc];
+    tmp /= <%size%>;
+    >>
 end genericIterator;
 
 template forIterator(SimIterator iter, Context context, Text &preExp, Text &varDecls, Text &auxFunction, Text &sub)
 ::= match iter
-  case SIM_ITERATOR() then
-  let iter_ = contextCref(name, contextOther, &preExp, &varDecls, &auxFunction, &sub)
-  let rel = if intGt(step, 0) then "<" else ">"
-  let sign = if intGt(step, 0) then "+" else "-"
-  <<
-  for(int <%iter_%>=<%start%>; <%iter_%><%rel%><%start%><%sign%><%size%>; <%iter_%>+=<%step%>){
-  >>
+  case SIM_ITERATOR_RANGE() then
+    let iter_ = contextCref(name, contextOther, &preExp, &varDecls, &auxFunction, &sub)
+    let rel = if intGt(step, 0) then "<" else ">"
+    let sign = if intGt(step, 0) then "+" else "-"
+    <<
+    for(int <%iter_%>=<%start%>; <%iter_%><%rel%><%start%><%sign%><%size%>; <%iter_%>+=<%step%>){
+    >>
+  case SIM_ITERATOR_LIST() then
+    let iter_ = contextCref(name, contextOther, &preExp, &varDecls, &auxFunction, &sub)
+    <<
+    for(int <%iter_%>_=0; <%iter_%>_<<%size%>; <%iter_%>_++){
+      <%iter_%> = <%iter_%>_lst[<%iter_%>_];
+    >>
 end forIterator;
 
 template forIteratorBody(SimIterator iter, Context context, Text &preExp, Text &varDecls, Text &auxFunction, Text &sub)
 ::= match iter
-  case SIM_ITERATOR() then
-  let iter_ = contextCref(name, contextOther, &preExp, &varDecls, &auxFunction, &sub)
-  <<
-  (<%iter_%>-<%start%>)/<%step%>+<%size%>*(
-  >>
+  case SIM_ITERATOR_RANGE() then
+    let iter_ = contextCref(name, contextOther, &preExp, &varDecls, &auxFunction, &sub)
+    <<
+    (<%iter_%>-<%start%>)/<%step%>+<%size%>*(
+    >>
+  case SIM_ITERATOR_LIST() then
+    let iter_ = contextCref(name, contextOther, &preExp, &varDecls, &auxFunction, &sub)
+    <<
+    <%iter_%>_+<%size%>*(
+    >>
 end forIteratorBody;
 
 template genericCallHeaders(list<SimGenericCall> genericCalls, Context context)

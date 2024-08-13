@@ -205,6 +205,9 @@ public:
   Element(Element *pElement, GraphicsView *pGraphicsView);
   // used for interface point
   Element(ElementInfo *pElementInfo, Element *pParentElement);
+  bool isRoot() const {return mElementType == Element::Root;}
+  bool isExtend() const {return mElementType == Element::Extend;}
+  bool isPort() const {return mElementType == Element::Port;}
   bool isInheritedElement() {return mIsInheritedElement;}
   bool hasShapeAnnotation(Element *pElement);
   bool hasNonExistingClass();
@@ -213,6 +216,7 @@ public:
   QRectF itemsBoundingRect();
   void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget = 0) override;
   ModelInstance::Model *getModel() const {return mpModel;}
+  void setModel(ModelInstance::Model *pModel) {mpModel = pModel;}
   ModelInstance::Component *getModelComponent() const {return mpModelComponent;}
   void setModelComponent(ModelInstance::Component *pModelComponent) {mpModelComponent = pModelComponent;}
   LibraryTreeItem* getLibraryTreeItem() {return mpLibraryTreeItem;}
@@ -224,7 +228,6 @@ public:
   Element *getReferenceElement() {return mpReferenceElement;}
   Element* getParentElement() const {return mpParentElement;}
   Element* getRootParentElement();
-  ElementType getElementType() const {return mElementType;}
   QString getTransformationString() {return mTransformationString;}
   void setDialogAnnotation(QStringList dialogAnnotation) {mDialogAnnotation = dialogAnnotation;}
   QStringList getDialogAnnotation() {return mDialogAnnotation;}
@@ -292,8 +295,8 @@ public:
   void emitChanged();
   void emitDeleted();
   void componentParameterHasChanged();
-  QString getParameterDisplayString(QString parameterName);
-  QString getParameterModifierValue(const QString &parameterName, const QString &modifier);
+  QPair<QString, bool> getParameterDisplayString(QString parameterName);
+  QPair<QString, bool> getParameterModifierValue(const QString &parameterName, const QString &modifier);
   QString getDerivedClassModifierValue(QString modifierName);
   QString getInheritedDerivedClassModifierValue(Element *pElement, QString modifierName);
   void shapeAdded();
@@ -382,9 +385,9 @@ private:
   void hideResizerItems();
   void getScale(qreal *sx, qreal *sy);
   void updateConnections();
-  QString getParameterDisplayStringFromExtendsModifiers(QString parameterName);
-  QString getParameterDisplayStringFromExtendsParameters(QString parameterName, QString modifierString);
-  static QString getParameterDisplayStringFromExtendsParameters(ModelInstance::Model *pModel, QString parameterName, QString modifierString);
+  QPair<QString, bool> getParameterDisplayStringFromExtendsModifiers(QString parameterName);
+  QPair<QString, bool> getParameterDisplayStringFromExtendsParameters(QString parameterName, QPair<QString, bool> modifierString);
+  static QPair<QString, bool> getParameterDisplayStringFromExtendsParameters(ModelInstance::Model *pModel, QString parameterName, QPair<QString, bool> modifierString);
   static bool checkEnumerationDisplayString(QString &displayString, const QString &typeName);
   void updateToolTip();
   bool canUseDiagramAnnotation() const;

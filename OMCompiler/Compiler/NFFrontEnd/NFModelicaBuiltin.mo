@@ -288,13 +288,13 @@ annotation(__OpenModelica_builtin=true, Documentation(info="<html>
 </html>"));
 end log10;
 
-impure function homotopy
+impure function homotopy "Homotopy operator actual*lambda + simplified*(1-lambda)"
   input Real actual;
   input Real simplified;
   output Real outValue;
 external "builtin";
 annotation(__OpenModelica_builtin=true, version="Modelica 3.2",Documentation(info="<html>
-  See <a href=\"modelica://ModelicaReference.Operators.'homotopy()'\">homotopy()</a> (experimental implementation)
+  See <a href=\"https://specification.modelica.org/maint/3.6/operators-and-expressions.html#homotopy\">homotopy()</a>
 </html>"));
 end homotopy;
 
@@ -854,7 +854,7 @@ If no class was being simulated, the last simulated class or a default will be u
 "),version="Modelica 3.3");
 end getInstanceName;
 
-function spatialDistribution "Not yet implemented"
+function spatialDistribution "Approximation of variable-speed transport of properties"
   input Real in0;
   input Real in1;
   input Real x;
@@ -864,7 +864,9 @@ function spatialDistribution "Not yet implemented"
   output Real out0;
   output Real out1;
 external "builtin";
-annotation(__OpenModelica_builtin=true, version="Modelica 3.3");
+annotation(Documentation(info="<html>
+spatialDistribution allows approximation of variable-speed transport of properties. For further details, see the Modelica Language Specification <a href=\"https://specification.modelica.org/maint/3.6/operators-and-expressions.html#spatialdistribution\">spatialdistribution()</a>.
+</html>"), version="Modelica 3.3");
 end spatialDistribution;
 
 function previous<__ComponentExpression> "Access previous value of a clocked variable"
@@ -1446,6 +1448,9 @@ was read in binary format from a file with the same name.
   input String filename = "<interactive>";
   input String encoding = "UTF-8" "Deprecated as *ALL* strings are now UTF-8 encoded";
   input Boolean merge = false "if merge is true the parsed AST is merged with the existing AST, default to false which means that is replaced, not merged";
+  input Boolean uses = true;
+  input Boolean notify = true "Give a notification of the libraries and versions that were loaded";
+  input Boolean requireExactVersion = false "If the version is required to be exact, if there is a uses Modelica(version=\"3.2\"), Modelica 3.2.1 will not match it.";
   output Boolean success;
 external "builtin";
 annotation(preferredView="text");
@@ -2965,7 +2970,7 @@ function copyClass
 "Copies a class within the same level"
  input TypeName className "the class that should be copied";
  input String newClassName "the name for new class";
- input TypeName withIn = $TypeName(TopLevel) "the with in path for new class";
+ input TypeName withIn = $TypeName(__OpenModelica_TopLevel) "the with in path for new class";
  output Boolean result;
 external "builtin";
 annotation(preferredView="text");
@@ -3211,7 +3216,7 @@ end plotParametric;
 
 function readSimulationResult "Reads a result file, returning a matrix corresponding to the variables and size given."
   input String filename;
-  input VariableNames variables;
+  input VariableNames variables "e.g. {a.b, a[1].b[3].c}, or a single VariableName";
   input Integer size = 0 "0=read any size... If the size is not the same as the result-file, this function fails";
   output Real result[:,:];
 external "builtin";
@@ -3585,6 +3590,18 @@ annotation(
 </html>"),
   preferredView="text");
 end setElementAnnotation;
+
+function setElementType
+  input TypeName elementName;
+  input VariableName typeName;
+  output Boolean success;
+external "builtin";
+annotation(
+  Documentation(info="<html>
+  <p>Changes the type of a component or short class element.</p>
+</html>"),
+  preferredView="text");
+end setElementType;
 
 function getInstantiatedParametersAndValues
   input TypeName cls;

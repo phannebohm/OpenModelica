@@ -288,8 +288,6 @@ void ElementInfo::parseElementInfoString(QString value)
   }
 }
 
-
-
 /*!
  * \brief ElementInfo::fetchParameterValue
  * Fetches the Element parameter value if any.
@@ -540,11 +538,12 @@ Element::Element(ModelInstance::Component *pModelComponent, bool inherited, Grap
   // transformation
   mTransformation = Transformation(mpGraphicsView->getViewType(), this);
   if (createTransformation) {
-    if (boundingRect().width() > 0) {
-      mTransformation.setWidth(boundingRect().width());
+    QRectF boundingRectangle = boundingRect();
+    if (boundingRectangle.width() > 0) {
+      mTransformation.setWidth(boundingRectangle.width());
     }
-    if (boundingRect().height() > 0) {
-      mTransformation.setHeight(boundingRect().height());
+    if (boundingRectangle.height() > 0) {
+      mTransformation.setHeight(boundingRectangle.height());
     }
     // snap to grid while creating component
     position = mpGraphicsView->snapPointToGrid(position);
@@ -552,12 +551,13 @@ Element::Element(ModelInstance::Component *pModelComponent, bool inherited, Grap
     ModelInstance::CoordinateSystem coordinateSystem = getCoOrdinateSystemNew();
     qreal initialScale = coordinateSystem.getInitialScale();
     QVector<QPointF> extent;
-    qreal xExtent = initialScale * boundingRect().width() / 2;
-    qreal yExtent = initialScale * boundingRect().height() / 2;
+    qreal xExtent = initialScale * boundingRectangle.width() / 2;
+    qreal yExtent = initialScale * boundingRectangle.height() / 2;
     extent.append(QPointF(-xExtent, -yExtent));
     extent.append(QPointF(xExtent, yExtent));
     mTransformation.setExtent(extent);
     mTransformation.setRotateAngle(0.0);
+    mTransformation.setExtentCenter(boundingRectangle.center());
   } else if (!placementAnnotation.isEmpty()) {
     mTransformation.parseTransformationString(placementAnnotation, boundingRect().width(), boundingRect().height());
   } else {
@@ -572,6 +572,7 @@ Element::Element(ModelInstance::Component *pModelComponent, bool inherited, Grap
   createActions();
   mpOriginItem = new OriginItem(this);
   createResizerItems();
+  updateOriginItem();
   updateToolTip();
   connect(this, SIGNAL(transformHasChanged()), SLOT(updatePlacementAnnotation()));
   connect(this, SIGNAL(transformChange(bool)), SLOT(updateOriginItem()));
@@ -726,6 +727,7 @@ Element::Element(QString name, LibraryTreeItem *pLibraryTreeItem, QString annota
   createActions();
   mpOriginItem = new OriginItem(this);
   createResizerItems();
+  updateOriginItem();
   updateToolTip();
   if (mpLibraryTreeItem) {
     connect(mpLibraryTreeItem, SIGNAL(loadedForComponent()), SLOT(handleLoaded()));
@@ -869,6 +871,7 @@ Element::Element(Element *pElement, GraphicsView *pGraphicsView)
   mpGraphicsView->addItem(mpOriginItem);
   createResizerItems();
   mpGraphicsView->addItem(this);
+  updateOriginItem();
   updateToolTip();
   if (mpLibraryTreeItem) {
     connect(mpLibraryTreeItem, SIGNAL(loadedForComponent()), SLOT(handleLoaded()));
@@ -995,7 +998,7 @@ bool Element::hasShapeAnnotation(Element *pElement)
 bool Element::hasNonExistingClass()
 {
   if (mpGraphicsView->getModelWidget()->isNewApi()) {
-    return mpModel->isMissing();
+    return mpModel && mpModel->isMissing();
   } else {
     if (mpLibraryTreeItem && mpLibraryTreeItem->isNonExisting()) {
       return true;
@@ -1035,21 +1038,35 @@ bool Element::hasNonExistingClass()
  */
 QRectF Element::boundingRect() const
 {
-  if (mElementType == Element::Root) {
-    if (mpGraphicsView->getModelWidget()->isNewApi()) {
+  if (mpGraphicsView->getModelWidget()->isNewApi()) {
+    if (isRoot()) {
       ModelInstance::CoordinateSystem coordinateSystem = getCoOrdinateSystemNew();
       return coordinateSystem.getExtentRectangle();
-    } else {
-      CoOrdinateSystem coOrdinateSystem = getCoOrdinateSystem();
-      ExtentAnnotation extent = coOrdinateSystem.getExtent();
+    } else if (isPort()) {
+      ExtentAnnotation extent;
+      if (mpModelComponent) {
+        if (mpModelComponent->getModel()->isConnector() && (mpGraphicsView->getViewType() == StringHandler::Diagram) && canUseDiagramAnnotation()) {
+          mpModelComponent->getAnnotation()->getPlacementAnnotation().getTransformation().getExtent();
+        } else {
+          mpModelComponent->getAnnotation()->getPlacementAnnotation().getIconTransformation().getExtent();
+        }
+      }
       qreal left = extent.at(0).x();
       qreal bottom = extent.at(0).y();
       qreal right = extent.at(1).x();
       qreal top = extent.at(1).y();
       return QRectF(left, bottom, qFabs(left - right), qFabs(bottom - top));
+    } else {
+      return QRectF();
     }
   } else {
-    return QRectF();
+    CoOrdinateSystem coOrdinateSystem = getCoOrdinateSystem();
+    ExtentAnnotation extent = coOrdinateSystem.getExtent();
+    qreal left = extent.at(0).x();
+    qreal bottom = extent.at(0).y();
+    qreal right = extent.at(1).x();
+    qreal top = extent.at(1).y();
+    return QRectF(left, bottom, qFabs(left - right), qFabs(bottom - top));
   }
 }
 
@@ -1084,12 +1101,12 @@ void Element::paint(QPainter *painter, const QStyleOptionGraphicsItem *option, Q
   Q_UNUSED(widget);
   if (mTransformation.isValid()) {
     const bool condition = isCondition();
-    if (mElementType == Element::Root) {
+    if (isRoot()) {
       setVisible(mTransformation.getVisible());
       if (!condition) {
         setOpacity(0.3);
       }
-    } else if (mElementType == Element::Port) {
+    } else if (isPort()) {
       setVisible(mTransformation.getVisible() && condition);
     } else {
       /* Element::Extend type ends up in this block
@@ -1155,10 +1172,12 @@ QString Element::getClassName() const
  */
 QString Element::getComment() const
 {
-  if (mpGraphicsView->getModelWidget()->isNewApi()) {
+  if (mpModelComponent) {
     return mpModelComponent->getComment();
-  } else {
+  } else if (mpElementInfo) {
     return mpElementInfo->getComment();
+  } else {
+    return "";
   }
 }
 
@@ -1169,7 +1188,7 @@ QString Element::getComment() const
  */
 bool Element::isCondition() const
 {
-  if (mpGraphicsView->getModelWidget()->isNewApi()) {
+  if (mpModelComponent) {
     return mpModelComponent->getCondition();
   } else {
     return true;
@@ -1215,8 +1234,8 @@ CoOrdinateSystem Element::getCoOrdinateSystem() const
 ModelInstance::CoordinateSystem Element::getCoOrdinateSystemNew() const
 {
   ModelInstance::CoordinateSystem coordinateSystem;
-  if (mpModel) {
-    if (mpModel->isConnector() && (mpGraphicsView->getViewType() == StringHandler::Diagram) && canUseDiagramAnnotation()) {
+  if (mpModelComponent && mpModel) {
+    if (mpModelComponent->getModel()->isConnector() && (mpGraphicsView->getViewType() == StringHandler::Diagram) && canUseDiagramAnnotation()) {
       coordinateSystem = mpModel->getAnnotation()->getDiagramAnnotation()->mMergedCoOrdinateSystem;
     } else {
       coordinateSystem = mpModel->getAnnotation()->getIconAnnotation()->mMergedCoOrdinateSystem;
@@ -1283,7 +1302,7 @@ QString Element::getPlacementAnnotation(bool ModelicaSyntax)
       placementAnnotationString.append(QString("visible=%1,").arg(mTransformation.getVisible().toQString()));
     }
   }
-  if ((mpLibraryTreeItem && mpLibraryTreeItem->isConnector()) || (mpGraphicsView->getModelWidget()->isNewApi() && mpModel && mpModel->isConnector())) {
+  if ((mpLibraryTreeItem && mpLibraryTreeItem->isConnector()) || (mpGraphicsView->getModelWidget()->isNewApi() && mpModelComponent && mpModelComponent->getModel()->isConnector())) {
     if (mpGraphicsView->getViewType() == StringHandler::Icon) {
       // first get the component from diagram view and get the transformations
       Element *pElement = mpGraphicsView->getModelWidget()->getDiagramGraphicsView()->getElementObject(getName());
@@ -1349,7 +1368,7 @@ QString Element::getOMCPlacementAnnotation(QPointF position)
   if (mTransformation.isValid()) {
     placementAnnotationString.append(mTransformation.getVisible() ? "true" : "false");
   }
-  if ((mpLibraryTreeItem && mpLibraryTreeItem->isConnector()) || (mpGraphicsView->getModelWidget()->isNewApi() && mpModel && mpModel->isConnector())) {
+  if ((mpLibraryTreeItem && mpLibraryTreeItem->isConnector()) || (mpGraphicsView->getModelWidget()->isNewApi() && mpModelComponent && mpModelComponent->getModel()->isConnector())) {
     if (mpGraphicsView->getViewType() == StringHandler::Icon) {
       // first get the component from diagram view and get the transformations
       Element *pElement;
@@ -1425,7 +1444,7 @@ bool Element::isExpandableConnector() const
 bool Element::isArray() const
 {
   if (mpGraphicsView->getModelWidget()->isNewApi()) {
-    return mpModelComponent->getDimensions().isArray();
+    return (mpModelComponent && mpModelComponent->getDimensions().isArray());
   } else {
     return (mpElementInfo && mpElementInfo->isArray());
   }
@@ -1438,7 +1457,7 @@ bool Element::isArray() const
  */
 QStringList Element::getAbsynArrayIndexes() const
 {
-  if (mpGraphicsView->getModelWidget()->isNewApi()) {
+  if (mpModelComponent) {
     return mpModelComponent->getDimensions().getAbsynDimensions();
   } else if (mpElementInfo) {
     return QStringList() << mpElementInfo->getArrayIndex();
@@ -1454,7 +1473,7 @@ QStringList Element::getAbsynArrayIndexes() const
  */
 QStringList Element::getTypedArrayIndexes() const
 {
-  if (mpGraphicsView->getModelWidget()->isNewApi()) {
+  if (mpModelComponent) {
     return mpModelComponent->getDimensions().getTypedDimensions();
   } else if (mpElementInfo) {
     return QStringList() << mpElementInfo->getArrayIndex();
@@ -1491,13 +1510,15 @@ bool Element::isConnectorSizing()
 {
   if (mpGraphicsView->getModelWidget()->isNewApi()) {
     if (isArray()) {
-      // connectorSizing is only done on the single dimensional array.
-      QString parameter = mpModelComponent->getDimensions().getAbsynDimensions().at(0);
-      bool ok;
-      parameter.toInt(&ok);
-      // if the array index is not a number then look for parameter
-      if (!ok) {
-        return isParameterConnectorSizing(parameter);
+      if (mpModelComponent) {
+        // connectorSizing is only done on the single dimensional array.
+        QString parameter = mpModelComponent->getDimensions().getAbsynDimensions().at(0);
+        bool ok;
+        parameter.toInt(&ok);
+        // if the array index is not a number then look for parameter
+        if (!ok) {
+          return isParameterConnectorSizing(parameter);
+        }
       }
     }
   } else {
@@ -1593,12 +1614,14 @@ void Element::createClassElements()
   }
 
   if (mpGraphicsView->getModelWidget()->isNewApi()) {
-    QList<ModelInstance::Element*> elements = mpModel->getElements();
-    foreach (auto pElement, elements) {
-      if (pElement->isComponent()) {
-        auto pComponent = dynamic_cast<ModelInstance::Component*>(pElement);
-        if (pComponent->isPublic() && pComponent->getModel() && pComponent->getModel()->isConnector()) {
-          mElementsList.append(new Element(pComponent, this, getRootParentElement()));
+    if (mpModel) {
+      QList<ModelInstance::Element*> elements = mpModel->getElements();
+      foreach (auto pElement, elements) {
+        if (pElement->isComponent()) {
+          auto pComponent = dynamic_cast<ModelInstance::Component*>(pElement);
+          if (pComponent->isPublic() && pComponent->getModel() && pComponent->getModel()->isConnector()) {
+            mElementsList.append(new Element(pComponent, this, getRootParentElement()));
+          }
         }
       }
     }
@@ -1676,7 +1699,7 @@ void Element::setHasTransition(bool hasTransition)
     foreach (LineAnnotation *pTransitionLineAnnotation, mpGraphicsView->getTransitionsList()) {
       Element *pStartElement = pTransitionLineAnnotation->getStartElement();
       Element *pEndElement = pTransitionLineAnnotation->getEndElement();
-      if (pStartElement->getRootParentElement() == this || pEndElement->getRootParentElement() == this) {
+      if ((pStartElement && pStartElement->getRootParentElement() == this) || (pEndElement && pEndElement->getRootParentElement() == this)) {
         mHasTransition = true;
         update();
         return;
@@ -1699,7 +1722,7 @@ void Element::setIsInitialState(bool isInitialState)
   } else {
     foreach (LineAnnotation *pInitialStateLineAnnotation, mpGraphicsView->getInitialStatesList()) {
       Element *pStartElement = pInitialStateLineAnnotation->getStartElement();
-      if (pStartElement->getRootParentElement() == this) {
+      if (pStartElement && pStartElement->getRootParentElement() == this) {
         mIsInitialState = true;
         update();
         return;
@@ -1743,16 +1766,20 @@ void Element::removeChildrenNew()
 {
   foreach (Element *pInheritedElement, mInheritedElementsList) {
     pInheritedElement->removeChildrenNew();
-    delete pInheritedElement;
+    pInheritedElement->setModelComponent(nullptr);
+    pInheritedElement->setModel(nullptr);
+    pInheritedElement->deleteLater();
   }
   mInheritedElementsList.clear();
   foreach (Element *pElement, mElementsList) {
     pElement->removeChildrenNew();
-    delete pElement;
+    pElement->setModelComponent(nullptr);
+    pElement->setModel(nullptr);
+    pElement->deleteLater();
   }
   mElementsList.clear();
   foreach (ShapeAnnotation *pShapeAnnotation, mShapesList) {
-    delete pShapeAnnotation;
+    pShapeAnnotation->deleteLater();
   }
   mShapesList.clear();
 }
@@ -1835,20 +1862,20 @@ void Element::componentParameterHasChanged()
  * Reads the parameters of the component.\n
  * Returns the parameter string which can be either R=%R or %R.
  * \param parameterString - the parameter string to look for.
- * \return the parameter string with value.
+ * \return the parameter value.
  */
-QString Element::getParameterDisplayString(QString parameterName)
+QPair<QString, bool> Element::getParameterDisplayString(QString parameterName)
 {
   /* How to get the display value,
    * 0. If the component is inherited component then check if the value is available in the class extends modifiers.
    * 1. Check if the value is available in component modifier.
-   * 2 Check if the value is available in the component's class as a parameter or variable.
+   * 2. Check if the value is available in the component's class as a parameter or variable.
    * 3. Find the value in extends classes and check if the value is present in extends modifier.
    * 4. If there is no extends modifier then finally check if value is present in extends classes.
    */
   OMCProxy *pOMCProxy = MainWindow::instance()->getOMCProxy();
   QString className = mpGraphicsView->getModelWidget()->getLibraryTreeItem()->getNameStructure();
-  QString displayString = "";
+  QPair<QString, bool> displayString("", false);
   QString typeName = "";
   /* Ticket #4095
    * Handle parameters display of inherited components.
@@ -1856,55 +1883,67 @@ QString Element::getParameterDisplayString(QString parameterName)
   /* case 0 */
   if (isInheritedElement()) {
     if (mpGraphicsView->getModelWidget()->isNewApi()) {
-      displayString = mpModel->getParameterValueFromExtendsModifiers(parameterName);
+      displayString = mpGraphicsView->getModelWidget()->getModelInstance()->getParameterValueFromExtendsModifiers(QStringList() << getName() << parameterName);
+      if (displayString.second) {
+        return displayString;
+      }
     } else if (mpReferenceElement) {
       QString extendsClass = mpReferenceElement->getGraphicsView()->getModelWidget()->getLibraryTreeItem()->getNameStructure();
-      displayString = mpGraphicsView->getModelWidget()->getExtendsModifiersMap(extendsClass).value(QString("%1.%2").arg(getName()).arg(parameterName), "");
+      displayString.first = mpGraphicsView->getModelWidget()->getExtendsModifiersMap(extendsClass).value(QString("%1.%2").arg(getName()).arg(parameterName), "");
     }
   }
   /* case 1 */
-  if (displayString.isEmpty()) {
+  if (displayString.first.isEmpty()) {
     if (mpGraphicsView->getModelWidget()->isNewApi()) {
-      if (mpModelComponent->getModifier()) {
+      if (mpModelComponent && mpModelComponent->getModifier()) {
         displayString = mpModelComponent->getModifier()->getModifierValue(QStringList() << parameterName);
+        if (displayString.second) {
+          return displayString;
+        }
       }
     } else {
-      displayString = mpElementInfo->getModifiersMap(pOMCProxy, className, this).value(parameterName, "");
+      displayString.first = mpElementInfo->getModifiersMap(pOMCProxy, className, this).value(parameterName, "");
     }
   }
   /* case 2 or check for enumeration type if case 1 */
-  if (displayString.isEmpty() || typeName.isEmpty()) {
-    if (mpGraphicsView->getModelWidget()->isNewApi()) {
-      QString value = mpModel->getParameterValue(parameterName, typeName);
-      if (displayString.isEmpty()) {
+  if (displayString.first.isEmpty() || typeName.isEmpty()) {
+    if (mpGraphicsView->getModelWidget()->isNewApi() && mpModel) {
+      QPair<QString, bool> value = mpModel->getParameterValue(parameterName, typeName);
+      if (displayString.first.isEmpty()) {
         displayString = value;
       }
-      Element::checkEnumerationDisplayString(displayString, typeName);
+      Element::checkEnumerationDisplayString(displayString.first, typeName);
+      if (displayString.second) {
+        return displayString;
+      }
     } else if (mpLibraryTreeItem) {
       mpLibraryTreeItem->getModelWidget()->loadDiagramView();
       foreach (Element *pElement, mpLibraryTreeItem->getModelWidget()->getDiagramGraphicsView()->getElementsList()) {
         if (pElement->getElementInfo()->getName().compare(StringHandler::getFirstWordBeforeDot(parameterName)) == 0) {
-          if (displayString.isEmpty()) {
-            displayString = pElement->getElementInfo()->getParameterValue(pOMCProxy, mpLibraryTreeItem->getNameStructure());
+          if (displayString.first.isEmpty()) {
+            displayString.first = pElement->getElementInfo()->getParameterValue(pOMCProxy, mpLibraryTreeItem->getNameStructure());
           }
           // Fixes issue #7493. Handles the case where value is from instance name e.g., %instanceName.parameterName
-          if (displayString.isEmpty()) {
-            displayString = pOMCProxy->getParameterValue(pElement->getElementInfo()->getClassName(), StringHandler::getLastWordAfterDot(parameterName));
+          if (displayString.first.isEmpty()) {
+            displayString.first = pOMCProxy->getParameterValue(pElement->getElementInfo()->getClassName(), StringHandler::getLastWordAfterDot(parameterName));
           }
 
           typeName = pElement->getElementInfo()->getClassName();
-          Element::checkEnumerationDisplayString(displayString, typeName);
+          Element::checkEnumerationDisplayString(displayString.first, typeName);
           break;
         }
       }
     }
   }
   /* case 3 */
-  if (displayString.isEmpty()) {
+  if (displayString.first.isEmpty()) {
     displayString = getParameterDisplayStringFromExtendsModifiers(parameterName);
+    if (mpGraphicsView->getModelWidget()->isNewApi() && displayString.second) {
+      return displayString;
+    }
   }
   /* case 4 or check for enumeration type if case 3 */
-  if (displayString.isEmpty() || typeName.isEmpty()) {
+  if (displayString.first.isEmpty() || typeName.isEmpty()) {
     displayString = getParameterDisplayStringFromExtendsParameters(parameterName, displayString);
   }
   return displayString;
@@ -1917,15 +1956,17 @@ QString Element::getParameterDisplayString(QString parameterName)
  * \param modifier
  * \return
  */
-QString Element::getParameterModifierValue(const QString &parameterName, const QString &modifier)
+QPair<QString, bool> Element::getParameterModifierValue(const QString &parameterName, const QString &modifier)
 {
   /* How to get the parameter modifier value,
    * 1. Check if the value is available in component modifier.
    */
-  QString modifierValue = "";
+  QPair<QString, bool> modifierValue("", false);
   /* case 1 */
   if (mpGraphicsView->getModelWidget()->isNewApi()) {
-    modifierValue = mpModelComponent->getModifierValueFromType(QStringList() << parameterName << modifier);
+    if (mpModelComponent) {
+      modifierValue = mpModelComponent->getModifierValueFromType(QStringList() << parameterName << modifier);
+    }
   } else {
     OMCProxy *pOMCProxy = MainWindow::instance()->getOMCProxy();
     QString className = mpGraphicsView->getModelWidget()->getLibraryTreeItem()->getNameStructure();
@@ -1934,12 +1975,12 @@ QString Element::getParameterModifierValue(const QString &parameterName, const Q
     QMap<QString, QString>::iterator modifiersIterator;
     for (modifiersIterator = modifiers.begin(); modifiersIterator != modifiers.end(); ++modifiersIterator) {
       if (parameterAndModiferName.compare(modifiersIterator.key()) == 0) {
-        modifierValue = modifiersIterator.value();
+        modifierValue.first = modifiersIterator.value();
         break;
       }
     }
   }
-  return StringHandler::removeFirstLastQuotes(modifierValue);
+  return qMakePair(StringHandler::removeFirstLastQuotes(modifierValue.first), modifierValue.second);
 }
 
 /*!
@@ -2026,7 +2067,7 @@ QString Element::getInheritedDerivedClassModifierValue(Element *pElement, QStrin
 void Element::shapeAdded()
 {
   deleteNonExistingElement();
-  if (mElementType == Element::Root) {
+  if (isRoot()) {
     deleteDefaultElement();
   }
   if (mpGraphicsView->getViewType() == StringHandler::Icon) {
@@ -2052,7 +2093,7 @@ void Element::shapeUpdated()
 void Element::shapeDeleted()
 {
   deleteNonExistingElement();
-  if (mElementType == Element::Root) {
+  if (isRoot()) {
     deleteDefaultElement();
   }
   showNonExistingOrDefaultElementIfNeeded();
@@ -2276,12 +2317,14 @@ void Element::reDrawConnector(QPainter *painter)
 {
   if (mpDefaultElementRectangle && mpDefaultElementRectangle->isVisible()) {
     painter->save();
+    painter->setTransform(mpDefaultElementRectangle->sceneTransform(), true);
     mpDefaultElementRectangle->drawAnnotation(painter);
     painter->restore();
   }
 
   if (mpDefaultElementText && mpDefaultElementText->isVisible()) {
     painter->save();
+    painter->setTransform(mpDefaultElementText->sceneTransform(), true);
     mpDefaultElementText->drawAnnotation(painter);
     painter->restore();
   }
@@ -2471,7 +2514,7 @@ void Element::drawModelicaElement()
     showNonExistingOrDefaultElementIfNeeded();
   } else {
     if (!mpLibraryTreeItem) { // if built in type e.g Real, Boolean etc.
-      if (mElementType == Element::Root) {
+      if (isRoot()) {
         createDefaultElement();
       }
     } else if (mpLibraryTreeItem->isNonExisting()) { // if class is non existing
@@ -2620,7 +2663,7 @@ void Element::drawInheritedElementsAndShapes()
   } else {
     if (mpGraphicsView->getModelWidget()->getLibraryTreeItem()->getLibraryType() == LibraryTreeItem::Modelica) {
       if (!mpLibraryTreeItem) { // if built in type e.g Real, Boolean etc.
-        if (mElementType == Element::Root) {
+        if (isRoot()) {
           createDefaultElement();
         }
       } else if (mpLibraryTreeItem->isNonExisting()) { // if class is non existing
@@ -2655,7 +2698,7 @@ void Element::showNonExistingOrDefaultElementIfNeeded()
   if (!hasShapeAnnotation(this)) {
     if (hasNonExistingClass()) {
       createNonExistingElement();
-    } else if (mElementType == Element::Root) {
+    } else if (isRoot()) {
       createDefaultElement();
     }
   }
@@ -2697,7 +2740,7 @@ void Element::createClassShapes()
   if (mpGraphicsView->getModelWidget()->isNewApi()) {
     mpGraphicsView->getModelWidget()->addDependsOnModel(mpModel->getName());
     ModelInstance::Extend *pExtendModel = 0;
-    if (mElementType == Element::Extend) {
+    if (isExtend()) {
       pExtendModel = mpModel->getParentExtend();
     }
     /* issue #9557
@@ -2708,8 +2751,13 @@ void Element::createClassShapes()
      */
     QList<ModelInstance::Shape*> shapes;
     // Always use the IconMap here. Only IconMap makes sense for drawing icons of Element.
-    if (!(pExtendModel && !pExtendModel->getAnnotation()->getIconMap().getprimitivesVisible())) {
-      if (mpModel->isConnector() && mpGraphicsView->getViewType() == StringHandler::Diagram && canUseDiagramAnnotation()) {
+    if (!(pExtendModel && !pExtendModel->getIconDiagramMapPrimitivesVisible(true))) {
+      /* issue #12074
+       * Use mpModelComponent->getModel()->isConnector() here instead of mpModel->isConnector()
+       * So when called for extends we use the top level element restriction.
+       * We use the same mpModelComponent for top level and extends elements. See Element constructor above for extends element type.
+       */
+      if (mpModelComponent && mpModelComponent->getModel()->isConnector() && mpGraphicsView->getViewType() == StringHandler::Diagram && canUseDiagramAnnotation()) {
         shapes = mpModel->getAnnotation()->getDiagramAnnotation()->getGraphics();
       } else {
         shapes = mpModel->getAnnotation()->getIconAnnotation()->getGraphics();
@@ -2979,25 +3027,25 @@ void Element::updateConnections()
  * \param parameterName
  * \return
  */
-QString Element::getParameterDisplayStringFromExtendsModifiers(QString parameterName)
+QPair<QString, bool> Element::getParameterDisplayStringFromExtendsModifiers(QString parameterName)
 {
-  QString displayString = "";
+  QPair<QString, bool> displayString("", false);
   /* Ticket:4204
    * Get the extends modifiers of the class not the inherited class.
    */
-  if (mpGraphicsView->getModelWidget()->isNewApi()) {
-    displayString = mpModel->getParameterValueFromExtendsModifiers(parameterName);
+  if (mpGraphicsView->getModelWidget()->isNewApi() && mpModel) {
+    displayString = mpModel->getParameterValueFromExtendsModifiers(QStringList() << parameterName);
   } else if (mpLibraryTreeItem) {
     foreach (Element *pElement, mInheritedElementsList) {
       if (pElement->getLibraryTreeItem()) {
         QMap<QString, QString> extendsModifiersMap = mpLibraryTreeItem->getModelWidget()->getExtendsModifiersMap(pElement->getLibraryTreeItem()->getNameStructure());
-        displayString = extendsModifiersMap.value(parameterName, "");
-        if (!displayString.isEmpty()) {
+        displayString.first = extendsModifiersMap.value(parameterName, "");
+        if (!displayString.first.isEmpty()) {
           return displayString;
         }
       }
       displayString = pElement->getParameterDisplayStringFromExtendsModifiers(parameterName);
-      if (!displayString.isEmpty()) {
+      if (!displayString.first.isEmpty()) {
         return displayString;
       }
     }
@@ -3012,12 +3060,14 @@ QString Element::getParameterDisplayStringFromExtendsModifiers(QString parameter
  * \param modifierString an existing extends modifier or an empty string
  * \return
  */
-QString Element::getParameterDisplayStringFromExtendsParameters(QString parameterName, QString modifierString)
+QPair<QString, bool> Element::getParameterDisplayStringFromExtendsParameters(QString parameterName, QPair<QString, bool> modifierString)
 {
-  QString displayString = modifierString;
+  QPair<QString, bool> displayString = modifierString;
   QString typeName = "";
   if (mpGraphicsView->getModelWidget()->isNewApi()) {
-    displayString = Element::getParameterDisplayStringFromExtendsParameters(mpModel, parameterName, modifierString);
+    if (mpModel) {
+      displayString = Element::getParameterDisplayStringFromExtendsParameters(mpModel, parameterName, modifierString);
+    }
   } else {
     foreach (Element *pInheritedElement, mInheritedElementsList) {
       if (pInheritedElement->getLibraryTreeItem()) {
@@ -3032,12 +3082,12 @@ QString Element::getParameterDisplayStringFromExtendsParameters(QString paramete
              * Look for the parameter value in the parameter containing class not in the parameter class.
              */
             if (pInheritedElement->getLibraryTreeItem()) {
-              if (displayString.isEmpty()) {
-                displayString = pElement->getElementInfo()->getParameterValue(pOMCProxy, pInheritedElement->getLibraryTreeItem()->getNameStructure());
+              if (displayString.first.isEmpty()) {
+                displayString.first = pElement->getElementInfo()->getParameterValue(pOMCProxy, pInheritedElement->getLibraryTreeItem()->getNameStructure());
               }
               typeName = pElement->getElementInfo()->getClassName();
-              Element::checkEnumerationDisplayString(displayString, typeName);
-              if (!(displayString.isEmpty() || typeName.isEmpty())) {
+              Element::checkEnumerationDisplayString(displayString.first, typeName);
+              if (!(displayString.first.isEmpty() || typeName.isEmpty())) {
                 return displayString;
               }
             }
@@ -3045,7 +3095,7 @@ QString Element::getParameterDisplayStringFromExtendsParameters(QString paramete
         }
       }
       displayString = pInheritedElement->getParameterDisplayStringFromExtendsParameters(parameterName, displayString);
-      if (!(displayString.isEmpty() || typeName.isEmpty())) {
+      if (!(displayString.first.isEmpty() || typeName.isEmpty())) {
         return displayString;
       }
     }
@@ -3061,25 +3111,25 @@ QString Element::getParameterDisplayStringFromExtendsParameters(QString paramete
  * \param modifierString
  * \return
  */
-QString Element::getParameterDisplayStringFromExtendsParameters(ModelInstance::Model *pModel, QString parameterName, QString modifierString)
+QPair<QString, bool> Element::getParameterDisplayStringFromExtendsParameters(ModelInstance::Model *pModel, QString parameterName, QPair<QString, bool> modifierString)
 {
-  QString displayString = modifierString;
+  QPair<QString, bool> displayString = modifierString;
   QString typeName = "";
 
   QList<ModelInstance::Element*> elements = pModel->getElements();
   foreach (auto pElement, elements) {
     if (pElement->isExtend() && pElement->getModel()) {
       auto pExtend = dynamic_cast<ModelInstance::Extend*>(pElement);
-      QString value = pExtend->getModel()->getParameterValue(parameterName, typeName);
-      if (displayString.isEmpty()) {
+      QPair<QString, bool> value = pExtend->getModel()->getParameterValue(parameterName, typeName);
+      if (displayString.first.isEmpty()) {
         displayString = value;
       }
-      Element::checkEnumerationDisplayString(displayString, typeName);
-      if (!(displayString.isEmpty() || typeName.isEmpty())) {
+      Element::checkEnumerationDisplayString(displayString.first, typeName);
+      if (displayString.second) {
         return displayString;
       }
       displayString = Element::getParameterDisplayStringFromExtendsParameters(pExtend->getModel(), parameterName, displayString);
-      if (!(displayString.isEmpty() || typeName.isEmpty())) {
+      if (displayString.second) {
         return displayString;
       }
     }
@@ -3120,7 +3170,7 @@ void Element::updateToolTip()
     comment.replace("src=\"file://", "src=\"");
   #endif
 
-    if ((mIsInheritedElement || mElementType == Element::Port) && mpParentElement && !mpGraphicsView->isVisualizationView()) {
+    if ((mIsInheritedElement || isPort()) && mpParentElement && !mpGraphicsView->isVisualizationView()) {
       setToolTip(tr("<b>%1</b> %2<br/>%3<br /><br />Element declared in %4").arg(mpModel->getName())
                  .arg(mpModelComponent->getName()).arg(comment)
                  .arg(mpParentElement->getModel()->getName()));
@@ -3141,7 +3191,7 @@ void Element::updateToolTip()
       comment.replace("src=\"file://", "src=\"");
     #endif
 
-      if ((mIsInheritedElement || mElementType == Element::Port) && mpReferenceElement && !mpGraphicsView->isVisualizationView()) {
+      if ((mIsInheritedElement || isPort()) && mpReferenceElement && !mpGraphicsView->isVisualizationView()) {
         setToolTip(tr("<b>%1</b> %2<br/>%3<br /><br />Element declared in %4").arg(mpElementInfo->getClassName())
                    .arg(mpElementInfo->getName()).arg(comment)
                    .arg(mpReferenceElement->getGraphicsView()->getModelWidget()->getLibraryTreeItem()->getNameStructure()));
@@ -3160,12 +3210,12 @@ void Element::updateToolTip()
  */
 bool Element::canUseDiagramAnnotation() const
 {
-  if (getElementType() == Element::Port)
+  if (isPort())
     return false;
 
   Element *pElement = getParentElement();
   while (pElement) {
-    if (pElement->getElementType() == Element::Port) {
+    if (pElement->isPort()) {
       return false;
     }
     pElement = pElement->getParentElement();
@@ -3341,7 +3391,7 @@ void Element::handleNameChanged()
  */
 void Element::referenceElementAdded()
 {
-  if (mElementType == Element::Port) {
+  if (isPort()) {
     setVisible(true);
     if (mpReferenceElement && mpGraphicsView->getModelWidget()->getLibraryTreeItem()->getLibraryType() == LibraryTreeItem::OMS) {
       mpBusComponent = mpReferenceElement->getBusComponent();
@@ -3404,7 +3454,7 @@ void Element::referenceElementChanged()
  */
 void Element::referenceElementDeleted()
 {
-  if (mElementType == Element::Port) {
+  if (isPort()) {
     setVisible(false);
     if (mpReferenceElement && mpGraphicsView->getModelWidget()->getLibraryTreeItem()->getLibraryType() == LibraryTreeItem::OMS) {
       mpBusComponent = mpReferenceElement->getBusComponent();
@@ -3615,16 +3665,19 @@ void Element::duplicate()
   QString name = getName();
   QString defaultPrefix = "";
   if (mpLibraryTreeItem) {
-    if (!mpGraphicsView->performElementCreationChecks(mpLibraryTreeItem, &name, &defaultPrefix)) {
+    if (!mpGraphicsView->performElementCreationChecks(mpLibraryTreeItem->getNameStructure(), mpLibraryTreeItem->isPartial(), &name, &defaultPrefix)) {
       return;
     }
   } else {
-    name = mpGraphicsView->getUniqueElementName(getClassName(), StringHandler::toCamelCase(getName()));
+    if (!mpGraphicsView->performElementCreationChecks(getClassName(), mpModel->isPartial(), &name, &defaultPrefix)) {
+      return;
+    }
   }
   QPointF gridStep(mpGraphicsView->mMergedCoOrdinateSystem.getHorizontalGridStep() * 5, mpGraphicsView->mMergedCoOrdinateSystem.getVerticalGridStep() * 5);
   // add component
   if (mpGraphicsView->getModelWidget()->isNewApi()) {
-    ModelInstance::Component *pModelInstanceComponent = GraphicsView::createModelInstanceComponent(mpGraphicsView->getModelWidget()->getModelInstance(), name, getClassName(), false);
+    ModelInstance::Component *pModelInstanceComponent = GraphicsView::createModelInstanceComponent(mpGraphicsView->getModelWidget()->getModelInstance(), name,
+                                                                                                   getClassName(), mpModelComponent->getModel()->isConnector());
     mpGraphicsView->addElementToView(pModelInstanceComponent, false, true, false, QPointF(0, 0), getOMCPlacementAnnotation(gridStep), false);
     // set modifiers
     if (mpModelComponent->getModifier()) {
@@ -3887,7 +3940,7 @@ void Element::showParameters()
     if (!mpLibraryTreeItem || mpLibraryTreeItem->isNonExisting()) {
       QMessageBox::critical(pMainWindow, QString("%1 - %2").arg(Helper::applicationName).arg(Helper::error),
                             tr("Cannot show parameters window for component <b>%1</b>. Did not find type <b>%2</b>.").arg(getName())
-                            .arg(mpElementInfo->getClassName()), Helper::ok);
+                            .arg(mpElementInfo->getClassName()), QMessageBox::Ok);
       return;
     }
     pMainWindow->getStatusBar()->showMessage(tr("Opening %1 %2 parameters window").arg(mpLibraryTreeItem->getNameStructure()).arg(getName()));

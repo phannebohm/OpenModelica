@@ -43,7 +43,6 @@ protected
   import Absyn;
 
   // New Frontend Imports
-  import BackendExtension = NFBackendExtension;
   import Call = NFCall;
   import ComponentRef = NFComponentRef;
   import Expression = NFExpression;
@@ -51,6 +50,7 @@ protected
   import InstNode = NFInstNode.InstNode;
   import SimplifyExp = NFSimplifyExp;
   import Type = NFType;
+  import Operator = NFOperator;
   import Variable = NFVariable;
 
   // Backend imports
@@ -92,7 +92,7 @@ public
       then bdae;
 
       else algorithm
-        Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed!"});
+        Error.addMessage(Error.INTERNAL_ERROR, {getInstanceName() + " failed."});
       then fail();
     end match;
   end main;
@@ -130,6 +130,7 @@ protected
     VariablePointers algebraics     "Algebraic variables";
     VariablePointers discretes      "Discrete variables";
     VariablePointers discrete_states"Discrete state variables";
+    VariablePointers clocked_states "Clocked state variables";
     VariablePointers previous       "Previous discrete variables (pre(d) -> $PRE.d)";
     list<Pointer<Equation>> aux_eqns;
   algorithm
@@ -141,12 +142,16 @@ protected
           := continuousFunc(varData.variables, varData.unknowns, varData.knowns, varData.initials, varData.states, varData.derivatives, varData.algebraics, eqData.equations);
 
         // collect discrete states from discrete equations
-        (variables, disc_eqns, knowns, initials, discretes, discrete_states, previous)
-          := discreteFunc(varData.variables, eqData.discretes, varData.knowns, varData.initials, varData.discretes, varData.discrete_states, varData.previous, "discrete equations");
+        (variables, disc_eqns, knowns, initials, discretes, discrete_states, clocked_states, previous)
+          := discreteFunc(varData.variables, eqData.discretes, varData.knowns, varData.initials, varData.discretes, varData.discrete_states, varData.clocked_states, varData.previous, "discrete equations");
+
+        // collect clocked states from clocked equations
+        (variables, disc_eqns, knowns, initials, discretes, discrete_states, clocked_states, previous)
+          := discreteFunc(variables, eqData.clocked, knowns, initials, discretes, discrete_states, clocked_states, previous, "clocked equations");
 
         // collect discrete states from initial equations
-        (variables, init_eqns, knowns, initials, discretes, discrete_states, previous)
-          := discreteFunc(varData.variables, eqData.initials, varData.knowns, varData.initials, varData.discretes, varData.discrete_states, varData.previous, "initial equations");
+        (variables, init_eqns, knowns, initials, discretes, discrete_states, clocked_states, previous)
+          := discreteFunc(variables, eqData.initials, knowns, initials, discretes, discrete_states, clocked_states, previous, "initial equations");
 
         // update variable arrays
         varData.variables         := variables;
@@ -157,6 +162,7 @@ protected
         varData.algebraics        := algebraics;
         varData.discretes         := discretes;
         varData.discrete_states   := discrete_states;
+        varData.clocked_states    := clocked_states;
         varData.previous          := previous;
         varData.states            := states;
 
@@ -191,14 +197,15 @@ protected
   function detectDiscreteStatesDefault extends Module.detectDiscreteStatesInterface;
   protected
     Pointer<list<Pointer<Variable>>> acc_discrete_states = Pointer.create({});
+    Pointer<list<Pointer<Variable>>> acc_clocked_states = Pointer.create({});
     Pointer<list<Pointer<Variable>>> acc_previous = Pointer.create({});
   algorithm
     // collect all states on the lhs of a when
     EquationPointers.map(equations, function collectDiscreteStatesFromWhen(acc_discrete_states = acc_discrete_states, acc_previous = acc_previous, scalarized = variables.scalarized));
     // collect all pre(d)
-    EquationPointers.mapExp(equations, function collectPreAndPrevious(acc_previous = acc_previous, scalarized = variables.scalarized));
+    EquationPointers.mapExp(equations, function collectPreAndPrevious(acc_previous = acc_previous, acc_clocked_states = acc_clocked_states, scalarized = variables.scalarized));
     // move stuff to their correct arrays
-    (variables, knowns, initials, discretes, discrete_states, previous) := updateDiscreteStatesAndPrevious(variables, knowns, initials, discretes, discrete_states, previous, Pointer.access(acc_discrete_states), Pointer.access(acc_previous), context);
+    (variables, knowns, initials, discretes, discrete_states, clocked_states, previous) := updateDiscreteStatesAndPrevious(variables, knowns, initials, discretes, discrete_states, clocked_states, previous, Pointer.access(acc_discrete_states), Pointer.access(acc_clocked_states), Pointer.access(acc_previous), context);
   end detectDiscreteStatesDefault;
 
   function collectStatesAndDerivatives
@@ -217,7 +224,7 @@ protected
         arguments = {Expression.CREF(cref = state_cref)}))
         algorithm
           state_var := BVariable.getVarPointer(state_cref);
-          if BVariable.isState(state_var) then
+          if BVariable.hasDerVar(state_var) then
             // this derivative was already created -> the variable should already have a pointer to its derivative
             der_cref := BVariable.getDerCref(state_cref);
             if not scalarized then
@@ -232,7 +239,7 @@ protected
               (der_cref, der_var) := BVariable.makeDerVar(state_cref);
             end if;
             state_var := BVariable.getVarPointer(state_cref);
-            BVariable.makeStateVar(state_var, der_var);
+            BVariable.setStateDerivativeVar(state_var, der_var);
             Pointer.update(acc_states, state_var :: Pointer.access(acc_states));
             Pointer.update(acc_derivatives, der_var :: Pointer.access(acc_derivatives));
           end if;
@@ -274,7 +281,7 @@ protected
           else
             // one or less algebraic variables > differentiate the expression
             (returnExp, oDiffArgs) := Differentiate.differentiateExpression(arg, diffArgs);
-            returnExp := SimplifyExp.simplify(returnExp, true);
+            returnExp := SimplifyExp.simplifyDump(returnExp, true, getInstanceName());
             if listLength(oDiffArgs.new_vars) == 1 then
               der_var := List.first(oDiffArgs.new_vars);
               Pointer.update(acc_derivatives, der_var :: Pointer.access(acc_derivatives));
@@ -343,24 +350,99 @@ protected
     "Collects all pre and previous variables. Only to be used on discrete equations!"
     input output Expression exp;
     input Pointer<list<Pointer<Variable>>> acc_previous;
+    input Pointer<list<Pointer<Variable>>> acc_clocked_states;
     input Boolean scalarized;
   algorithm
     exp := match exp
       local
-        ComponentRef state_cref, pre_cref;
-        Pointer<Variable> state_var, pre_var;
+        Function.Function fn;
+        Boolean b;
+        list<Expression> args;
+        Expression new_exp, old_exp;
 
-      case Expression.CALL(call = Call.TYPED_CALL(fn = Function.FUNCTION(path = Absyn.IDENT(name = "pre")),
-        arguments = {Expression.CREF(cref = state_cref)}))
-        algorithm
-          state_var := BVariable.getVarPointer(state_cref);
-          pre_cref := getPreVar(state_cref, state_var, acc_previous, scalarized);
-      then Expression.fromCref(pre_cref);
-      // ToDo! General expressions inside pre call!
-      // ToDo! edge and change replacement!
+      // the call has an input that is only a boolean. for pre() return the boolean, for edge() and change() always false
+      case Expression.CALL(call = Call.TYPED_CALL(fn = fn, arguments = {Expression.BOOLEAN(b)}))
+      algorithm
+        new_exp := match fn
+          case Function.FUNCTION(path = Absyn.IDENT(name = "previous")) then Expression.BOOLEAN(b);
+          case Function.FUNCTION(path = Absyn.IDENT(name = "pre"))      then Expression.BOOLEAN(b);
+          case Function.FUNCTION(path = Absyn.IDENT(name = "edge"))     then Expression.BOOLEAN(false);
+          case Function.FUNCTION(path = Absyn.IDENT(name = "change"))   then Expression.BOOLEAN(false);
+          else exp;
+        end match;
+      then new_exp;
+
+      // the expression is previous(d) -> $PRE.d or previous(not d) -> not $PRE.d
+      // also store the clocked state
+      case Expression.CALL(call = Call.TYPED_CALL(fn = Function.FUNCTION(path = Absyn.IDENT(name = "previous")), arguments = args))
+      algorithm
+        (new_exp, old_exp) := preFromArgs(args, acc_previous, scalarized, "previous");
+        _ := match old_exp
+          case Expression.CREF() algorithm
+            Pointer.update(acc_clocked_states, BVariable.getVarPointer(old_exp.cref) :: Pointer.access(acc_clocked_states));
+          then ();
+
+          else algorithm
+            Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because previous() can only contain component references, but contained: "
+              + Expression.toString(old_exp)});
+          then fail();
+        end match;
+      then new_exp;
+
+      // the expression is pre(d) -> $PRE.d or pre(not d) -> not $PRE.d
+      case Expression.CALL(call = Call.TYPED_CALL(fn = Function.FUNCTION(path = Absyn.IDENT(name = "pre")), arguments = args))
+      algorithm
+        (new_exp, _) := preFromArgs(args, acc_previous, scalarized, "pre");
+      then new_exp;
+
+      // the expression is edge(d) -> d and not $PRE.d or edge(not d) not d and $PRE.d
+      case Expression.CALL(call = Call.TYPED_CALL(fn = Function.FUNCTION(path = Absyn.IDENT(name = "edge")), arguments = args))
+      algorithm
+        (new_exp, old_exp) := preFromArgs(args, acc_previous, scalarized, "edge");
+      then Expression.LBINARY(old_exp, Operator.makeAnd(Expression.typeOf(old_exp)), Expression.logicNegate(new_exp));
+
+      // the expression is change(d) -> d <> $PRE.d or change(not d) not d <> not $PRE.d
+      // (not necessary to have the "not" but works and is most consistent with other cases)
+      case Expression.CALL(call = Call.TYPED_CALL(fn = Function.FUNCTION(path = Absyn.IDENT(name = "change")), arguments = args))
+      algorithm
+        (new_exp, old_exp) := preFromArgs(args, acc_previous, scalarized, "change");
+      then Expression.RELATION(old_exp, Operator.makeNotEqual(Expression.typeOf(old_exp)), new_exp);
+
       else exp;
     end match;
   end collectPreAndPrevious;
+
+  function preFromArgs
+    "takes a list of arguments (expected to be only one cref) and creates the pre variable from it.
+    used for pre(), edge(), change()"
+    input list<Expression> args;
+    input Pointer<list<Pointer<Variable>>> acc_previous;
+    input Boolean scalarized;
+    input String context;
+    output Expression new_exp;
+    output Expression old_exp;
+  protected
+    ComponentRef state_cref, pre_cref;
+    Pointer<Variable> state_var, pre_var;
+    Boolean negated;
+  algorithm
+    (state_var, old_exp, negated) := match args
+      case {old_exp as Expression.CREF(cref = state_cref)}                           then (BVariable.getVarPointer(state_cref), old_exp, false);
+      case {old_exp as Expression.LUNARY(exp = Expression.CREF(cref = state_cref))}  then (BVariable.getVarPointer(state_cref), old_exp, true);
+      else algorithm
+        Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because of unexpected expression " + context + "("
+          + List.toString(args, Expression.toString, "", "", ", ", "") + ")."});
+      then fail();
+    end match;
+    pre_cref := getPreVar(state_cref, state_var, acc_previous, scalarized);
+    if not scalarized then
+      pre_cref := ComponentRef.setSubscriptsList(listReverse(ComponentRef.subscriptsAll(state_cref)), pre_cref);
+    end if;
+    new_exp := Expression.fromCref(pre_cref);
+    if negated then
+      new_exp := Expression.logicNegate(new_exp);
+    end if;
+  end preFromArgs;
 
   function updateDiscreteStatesAndPrevious
     "Updates the variable pointer arrays with the new information about states and derivatives."
@@ -369,19 +451,24 @@ protected
     input output VariablePointers initials        "initial unknowns";
     input output VariablePointers discretes       "Discrete variables";
     input output VariablePointers discrete_states "Discrete state variables";
+    input output VariablePointers clocked_states  "Clocked state variables";
     input output VariablePointers previous        "Previous (left limit) variables";
     input list<Pointer<Variable>> acc_discrete_states;
+    input list<Pointer<Variable>> acc_clocked_states;
     input list<Pointer<Variable>> acc_previous;
     input String context                          "only for debugging";
   algorithm
     // Add the new derivatives to variables, unknowns and derivative pointer arrays
-    variables := VariablePointers.addList(acc_previous, variables);
-    knowns := VariablePointers.addList(acc_previous, knowns);
-    initials := VariablePointers.addList(acc_previous, initials);
-    previous := VariablePointers.addList(acc_previous, previous);
+    variables       := VariablePointers.addList(acc_previous, variables);
+    knowns          := VariablePointers.addList(acc_previous, knowns);
+    initials        := VariablePointers.addList(acc_previous, initials);
+    previous        := VariablePointers.addList(acc_previous, previous);
     discrete_states := VariablePointers.addList(acc_discrete_states, discrete_states);
-    // also remove discrete states from discretes
-    discretes := VariablePointers.removeList(acc_discrete_states, discretes);
+    clocked_states  := VariablePointers.addList(acc_clocked_states, clocked_states);
+    // remove discrete states from discretes and remove clocked states from both discretes and discrete states
+    discretes       := VariablePointers.removeList(acc_discrete_states, discretes);
+    discretes       := VariablePointers.removeList(acc_clocked_states, discretes);
+    discrete_states := VariablePointers.removeList(acc_clocked_states, discrete_states);
 
     if Flags.isSet(Flags.DUMP_STATESELECTION_INFO) then
       print(StringUtil.headline_4("[stateselection] Natural discrete states from " + context + ":"));
@@ -389,6 +476,12 @@ protected
         print("\t<no discrete states>\n\n");
       else
         print(List.toString(acc_discrete_states, BVariable.pointerToString, "", "\t", "\n\t", "\n") + "\n");
+      end if;
+      print(StringUtil.headline_4("[stateselection] Natural clocked states from " + context + ":"));
+      if listEmpty(acc_clocked_states) then
+        print("\t<no clocked states>\n\n");
+      else
+        print(List.toString(acc_clocked_states, BVariable.pointerToString, "", "\t", "\n\t", "\n") + "\n");
       end if;
     end if;
   end updateDiscreteStatesAndPrevious;
@@ -464,7 +557,7 @@ protected
     input Boolean scalarized;
     output ComponentRef pre_cref;
   protected
-    Option<Pointer<Variable>> pre = BVariable.getPrePost(var_ptr);
+    Option<Pointer<Variable>> pre = BVariable.getVarPre(var_ptr);
     Pointer<Variable> pre_var;
   algorithm
     if Util.isSome(pre) then

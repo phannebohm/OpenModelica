@@ -3347,6 +3347,16 @@ algorithm
   end match;
 end hasBooleanNamedAnnotationInComponent;
 
+public function optCommentAnnotation
+  input Option<SCode.Comment> cmt;
+  output Option<SCode.Annotation> ann;
+algorithm
+  ann := match cmt
+    case SOME(SCode.COMMENT(annotation_ = ann)) then ann;
+    else NONE();
+  end match;
+end optCommentAnnotation;
+
 public function optCommentHasBooleanNamedAnnotation
 "check if the named annotation is present and has value true"
   input Option<SCode.Comment> comm;
@@ -3393,6 +3403,38 @@ algorithm
     else false;
   end match;
 end hasBooleanNamedAnnotation;
+
+public function optCommentHasBooleanNamedAnnotationFalse
+"check if the named annotation is present and has value false"
+  input Option<SCode.Comment> comm;
+  input String annotationName;
+  output Boolean outB;
+algorithm
+  outB := match (comm,annotationName)
+    local
+      SCode.Annotation ann;
+    case (SOME(SCode.COMMENT(annotation_=SOME(ann))),_)
+      then hasBooleanNamedAnnotationFalse(ann, annotationName);
+    else false;
+  end match;
+end optCommentHasBooleanNamedAnnotationFalse;
+
+public function hasBooleanNamedAnnotationFalse
+  "Checks if the given annotation contains an entry with the given name with the
+   value False."
+  input SCode.Annotation inAnnotation;
+  input String inName;
+  output Boolean outHasEntry;
+protected
+  Option<Absyn.Exp> binding;
+algorithm
+  binding := lookupAnnotationBinding(inAnnotation, inName);
+
+  outHasEntry := match binding
+    case SOME(Absyn.BOOL(value = false)) then true;
+  else false;
+  end match;
+end hasBooleanNamedAnnotationFalse;
 
 public function getEvaluateAnnotation
   "Looks up the Evaluate annotation and returns the value if the annotation

@@ -336,6 +336,9 @@ simulationnewbackend-arrayhandling.log: omc-diff
 simulationnewbackend-basics.log: omc-diff
 	$(MAKE) -C simulation/modelica/NBackend/basics/ -f Makefile test > $@
 	@echo $@ done
+simulationnewbackend-clocked.log: omc-diff
+	$(MAKE) -C simulation/modelica/NBackend/clocked/ -f Makefile test > $@
+	@echo $@ done
 simulationnewbackend-event_handling.log: omc-diff
 	$(MAKE) -C simulation/modelica/NBackend/event_handling/ -f Makefile test > $@
 	@echo $@ done
@@ -350,6 +353,8 @@ simulationnewbackend-ScalableTestsuite.log: omc-diff
 	@echo $@ done
 simulationnewbackend-simplify.log: omc-diff
 	$(MAKE) -C simulation/modelica/NBackend/simplify/ -f Makefile test > $@
+simulationnewbackend-tearing.log: omc-diff
+	$(MAKE) -C simulation/modelica/NBackend/tearing/ -f Makefile test > $@
 	@echo $@ done
 simulationdeclarations.log: omc-diff
 	$(MAKE) -C simulation/modelica/declarations -f Makefile test > $@

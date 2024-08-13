@@ -89,6 +89,9 @@ BuiltinAttribute20.mo \
 BuiltinAttribute21.mo \
 BuiltinAttribute22.mo \
 BuiltinAttribute23.mo \
+BuiltinAttribute24.mo \
+BuiltinAttribute25.mo \
+BuiltinAttribute26.mo \
 BuiltinLookup1.mo \
 BuiltinTime.mo \
 BuiltinTimeSubscripted.mo \
@@ -126,6 +129,7 @@ CevalBinding5.mo \
 CevalBinding6.mo \
 CevalBinding7.mo \
 CevalBinding8.mo \
+CevalBinding9.mo \
 CevalConstant1.mo \
 CevalCeil1.mo \
 CevalCos1.mo \
@@ -364,6 +368,9 @@ DimUnknown10.mo \
 DimUnknown11.mo \
 DimUnknown12.mo \
 DimUnknown13.mo \
+DimUnknown14.mo \
+DimUnknown15.mo \
+DimUnknown16.mo \
 dim1.mo \
 dim13.mo \
 dim16.mo \
@@ -380,6 +387,7 @@ DuplicateElements4.mo \
 DuplicateElements5.mo \
 DuplicateElements9.mo \
 DuplicateElements10.mo \
+DuplicateElements11.mo \
 DuplicateElementsValid1.mo \
 DuplicateElementsValid2.mo \
 DuplicateMod1.mo \
@@ -446,6 +454,8 @@ ExpandableConnector8.mo \
 ExpandableConnector9.mo \
 ExpandableConnector10.mo \
 ExpandableConnector11.mo \
+ExpandableConnector12.mo \
+ExpandableConnector13.mo \
 ExpandableConnectorComplex1.mo \
 ExpandableConnectorFlow1.mo \
 ExpandableConnectorFlow2.mo \
@@ -500,6 +510,7 @@ ExternalObject2.mo \
 ExternalObject3.mo \
 ExternalObject4.mo \
 ExternalObject5.mo \
+ExternalObject6.mo \
 ExternalObjectInvalidElement1.mo \
 ExternalObjectInvalidStructor1.mo \
 ExternalObjectMissingStructor1.mo \
@@ -532,6 +543,7 @@ ForStatement1.mo \
 ForStatement2.mo \
 ForStatement3.mo \
 ForStatementArray.mo \
+ForStatementAssign1.mo \
 ForStatementNonVector.mo \
 ForStatementPrefix.mo \
 func1.mo \
@@ -717,6 +729,7 @@ IfEquation5.mo \
 IfEquation6.mo \
 IfEquation7.mo \
 IfEquation8.mo \
+IfEquation9.mo \
 IfEquationEval1.mo \
 IfEquationEval2.mo \
 IfEquationEval3.mo \
@@ -734,6 +747,7 @@ IfExpression11.mo \
 IfExpression12.mo \
 IfExpression14.mo \
 IfExpression15.mo \
+IfExpression16.mo \
 IfEquationInvalidCond1.mo \
 ih1.mo \
 ih2.mo \
@@ -879,6 +893,7 @@ NoEvent2.mo \
 NonConnectorFlow1.mo \
 NonexistentRedeclareModifier1.mo \
 NonexistentRedeclareModifier2.mo \
+NonFixedConstant1.mo \
 NoScalarize1.mo \
 NoScalarize2.mo \
 NoScalarizeConnect1.mo \
@@ -938,6 +953,7 @@ ParameterBug.mos \
 ParameterDer.mo \
 PartialApplication1.mo \
 PartialApplication2.mo \
+PartialApplication3.mo \
 PartialApplicationInvalidArg1.mo \
 PartialApplicationInvalidArg2.mo \
 PartialClass1.mo \
@@ -985,6 +1001,7 @@ RecordBinding13.mo \
 RecordConstructor1.mo \
 RecordConstructor2.mo \
 RecordConstructor3.mo \
+RecordConstructor4.mo \
 RecordExtends1.mo \
 RecordExtends2.mo \
 RecordUnknownDim1.mo \
@@ -1036,6 +1053,7 @@ RedeclareMod8.mo \
 RedeclareMod9.mo \
 RedeclareMod10.mo \
 RedeclareMod11.mo \
+RedeclareMod12.mo \
 RedeclareNonReplaceable1.mo \
 redeclare10.mo \
 redeclare11.mo \
@@ -1062,6 +1080,7 @@ ReinitInvalid4.mo \
 ReinitInvalid5.mo \
 ReinitInvalid6.mo \
 ReinitInvalid7.mo \
+ReinitInvalid8.mo \
 Return1.mo \
 Return2.mo \
 Size1.mo \
@@ -1142,6 +1161,11 @@ TypeMissingBaseType1.mo \
 TypenameInvalid1.mo \
 TypenameInvalid2.mo \
 TypenameInvalid3.mo \
+UnboundParameter1.mo \
+UnboundParameter2.mo \
+UnboundParameter3.mo \
+UnboundParameter4.mo \
+UnboundParameter5.mo \
 usertype1.mo \
 usertype2.mo \
 usertype3.mo \
@@ -1151,6 +1175,7 @@ usertype6.mo \
 VectorizeBindings1.mo \
 VectorizeBindings2.mo \
 VectorizeBindings3.mo \
+VectorizeBindings4.mo \
 VectorTest.mo \
 Visibility1.mo \
 Visibility2.mo \

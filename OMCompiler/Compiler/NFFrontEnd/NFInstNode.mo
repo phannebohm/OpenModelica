@@ -31,6 +31,7 @@
 
 encapsulated package NFInstNode
 
+import BaseModelica;
 import Binding = NFBinding;
 import Component = NFComponent;
 import Class = NFClass;
@@ -120,12 +121,21 @@ end InstNodeType;
 
 constant Integer NUMBER_OF_CACHES = 2;
 
+type PackageCacheState = enumeration(
+  NOT_INITIALIZED,
+  PROCESSING,
+  EXPANDED,
+  PARTIALLY_INSTANTIATED,
+  INSTANTIATED
+);
+
 uniontype CachedData
 
   record NO_CACHE end NO_CACHE;
 
   record PACKAGE
     InstNode instance;
+    PackageCacheState state;
   end PACKAGE;
 
   record FUNCTION
@@ -751,7 +761,7 @@ uniontype InstNode
   algorithm
     topScope := match node
       case CLASS_NODE(nodeType = InstNodeType.TOP_SCOPE()) then node;
-      else topScope(parentScope(node));
+      else topScope(parent(node));
     end match;
   end topScope;
 
@@ -898,6 +908,7 @@ uniontype InstNode
     component := match node
       case COMPONENT_NODE() then Pointer.access(node.component);
       case VAR_NODE()       then Component.WILD();
+      case NAME_NODE()      then Component.WILD();
     end match;
   end component;
 
@@ -1155,31 +1166,27 @@ uniontype InstNode
   function getAnnotation
     input String name;
     input InstNode node;
-    output Option<SCode.SubMod> mod = NONE();
+    output SCode.Mod mod;
+    output InstNode scope = node;
+  protected
+    Option<SCode.Annotation> ann;
   algorithm
+    while InstNode.isComponent(scope) loop
+      ann := SCodeUtil.optCommentAnnotation(Component.comment(InstNode.component(scope)));
 
-    if InstNode.isComponent(node) then
-      mod := match Component.comment(InstNode.component(node))
-        local
-          list<SCode.SubMod> subModLst;
-          Boolean done = false;
+      if isSome(ann) then
+        mod := SCodeUtil.lookupAnnotation(Util.getOption(ann), name);
 
-        case SOME(SCode.COMMENT(annotation_=SOME(SCode.ANNOTATION(modification = SCode.MOD(subModLst = subModLst)))))
-        algorithm
-          for sm in subModLst loop
-            if sm.ident == name then
-              mod := SOME(sm);
-              done := true;
-              break;
-            end if;
-          end for;
-          if not done then
-            mod := getAnnotation(name, parent(node));
-          end if;
-        then mod;
-        else getAnnotation(name, parent(node));
-      end match;
-    end if;
+        if not SCodeUtil.isEmptyMod(mod) then
+          scope := instanceParent(scope);
+          return;
+        end if;
+      end if;
+
+      scope := instanceParent(scope);
+    end while;
+
+    mod := SCode.Mod.NOMOD();
   end getAnnotation;
 
   type ScopeType = enumeration(
@@ -1427,10 +1434,11 @@ uniontype InstNode
 
   function setPackageCache
     input output InstNode node;
-    input CachedData in_pack_cache;
+    input InstNode packageNode;
+    input PackageCacheState state;
   algorithm
     () := match node
-      case CLASS_NODE() algorithm CachedData.setPackageCache(node.caches, in_pack_cache); then ();
+      case CLASS_NODE() algorithm CachedData.setPackageCache(node.caches, CachedData.PACKAGE(packageNode, state)); then ();
       else algorithm Error.assertion(false, getInstanceName() + " got node without cache", sourceInfo()); then fail();
     end match;
   end setPackageCache;
@@ -1581,25 +1589,27 @@ uniontype InstNode
 
   function toFlatString
     input InstNode node;
+    input BaseModelica.OutputFormat format;
     input String indent;
     output String name;
   algorithm
     name := match node
-      case COMPONENT_NODE() then Component.toFlatString(node.name, Pointer.access(node.component), indent);
-      case CLASS_NODE() then Class.toFlatString(Pointer.access(node.cls), node, indent);
+      case COMPONENT_NODE() then Component.toFlatString(node.name, Pointer.access(node.component), format, indent);
+      case CLASS_NODE() then Class.toFlatString(Pointer.access(node.cls), node, format, indent);
       else name(node);
     end match;
   end toFlatString;
 
   function toFlatStream
     input InstNode node;
+    input BaseModelica.OutputFormat format;
     input String indent;
     input output IOStream.IOStream s;
   algorithm
     s := match node
-      case COMPONENT_NODE() then Component.toFlatStream(node.name, Pointer.access(node.component), indent, s);
-      case CLASS_NODE() then Class.toFlatStream(Pointer.access(node.cls), node, indent, s);
-      else IOStream.append(s, toFlatString(node, indent));
+      case COMPONENT_NODE() then Component.toFlatStream(node.name, Pointer.access(node.component), format, indent, s);
+      case CLASS_NODE() then Class.toFlatStream(Pointer.access(node.cls), node, format, indent, s);
+      else IOStream.append(s, toFlatString(node, format, indent));
     end match;
   end toFlatStream;
 
@@ -1715,6 +1725,26 @@ uniontype InstNode
       else ();
     end match;
   end protectComponent;
+
+  function protect
+      input output InstNode node;
+  algorithm
+    () := match node
+      case COMPONENT_NODE(visibility = Visibility.PUBLIC)
+        algorithm
+          node.visibility := Visibility.PROTECTED;
+        then
+          ();
+
+      case CLASS_NODE(visibility = Visibility.PUBLIC)
+        algorithm
+          node.visibility := Visibility.PROTECTED;
+        then
+          ();
+
+      else ();
+    end match;
+  end protect;
 
   function isEncapsulated
     input InstNode node;

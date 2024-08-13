@@ -123,13 +123,6 @@ public
   record ANY
   end ANY;
 
-  record SUBSCRIPTED
-    String name;
-    Type ty;
-    list<Type> subs;
-    Type subscriptedTy;
-  end SUBSCRIPTED;
-
   record CONDITIONAL_ARRAY
     "A type that might be one of two types depending on a condition.
      The two types are assumed to be array types with equal number of dimensions."
@@ -305,6 +298,12 @@ public
       else false;
     end match;
   end isClock;
+
+  function isContinuous
+    "update for records?"
+    input Type ty;
+    output Boolean b = isReal(elementType(ty));
+  end isContinuous;
 
   function isScalar
     input Type ty;
@@ -934,6 +933,7 @@ public
 
   function toFlatString
     input Type ty;
+    input BaseModelica.OutputFormat format;
     output String str;
   algorithm
     str := match ty
@@ -943,17 +943,17 @@ public
       case Type.BOOLEAN() then "Boolean";
       case Type.CLOCK() then "Clock";
       case Type.ENUMERATION() then if listEmpty(ty.literals) then "enumeration(:)" else Util.makeQuotedIdentifier(AbsynUtil.pathString(ty.typePath));
-      case Type.ARRAY() then List.toString(ty.dimensions, Dimension.toFlatString, toFlatString(ty.elementType), "[", ", ", "]", false);
-      case Type.TUPLE() then "(" + stringDelimitList(List.map(ty.types, toFlatString), ", ") + ")";
+      case Type.ARRAY() then List.toString(ty.dimensions, function Dimension.toFlatString(format = format), toFlatString(ty.elementType, format), "[", ", ", "]", false);
+      case Type.TUPLE() then "(" + stringDelimitList(List.map(ty.types, function toFlatString(format = format)), ", ") + ")";
       case Type.NORETCALL() then "()";
       case Type.UNKNOWN() then "unknown()";
       case Type.COMPLEX() then Util.makeQuotedIdentifier(AbsynUtil.pathString(InstNode.scopePath(ty.cls)));
       case Type.FUNCTION() then Function.typeString(ty.fn);
-      case Type.METABOXED() then "#" + toFlatString(ty.ty);
+      case Type.METABOXED() then "#" + toFlatString(ty.ty, format);
       case Type.POLYMORPHIC() then "<" + ty.name + ">";
       case Type.ANY() then "$ANY$";
-      case Type.CONDITIONAL_ARRAY() then toFlatString(ty.trueType) + "|" + toFlatString(ty.falseType);
-      case Type.UNTYPED() then List.toString(arrayList(ty.dimensions), Dimension.toFlatString, InstNode.name(ty.typeNode), "[", ", ", "]", false);
+      case Type.CONDITIONAL_ARRAY() then toFlatString(ty.trueType, format) + "|" + toFlatString(ty.falseType, format);
+      case Type.UNTYPED() then List.toString(arrayList(ty.dimensions), function Dimension.toFlatString(format = format), InstNode.name(ty.typeNode), "[", ", ", "]", false);
       else
         algorithm
           Error.assertion(false, getInstanceName() + " got unknown type: " + anyString(ty), sourceInfo());
@@ -964,10 +964,11 @@ public
 
   function dimensionsToFlatString
     input Type ty;
+    input BaseModelica.OutputFormat format;
     output String str;
   algorithm
     str := match ty
-      case Type.ARRAY() then stringDelimitList(List.map(ty.dimensions, Dimension.toFlatString), ", ");
+      case Type.ARRAY() then stringDelimitList(List.map(ty.dimensions, function Dimension.toFlatString(format = format)), ", ");
       else
         algorithm
           Error.assertion(false, getInstanceName() + " got unknown or not array type: " + anyString(ty), sourceInfo());
@@ -978,6 +979,7 @@ public
 
   function toFlatDeclarationStream
     input Type ty;
+    input BaseModelica.OutputFormat format;
     input String indent;
     input output IOStream.IOStream s;
   algorithm
@@ -1011,7 +1013,7 @@ public
           s;
 
       case COMPLEX(complexTy = ComplexType.RECORD())
-        then Record.toFlatDeclarationStream(ty.cls, indent, s);
+        then Record.toFlatDeclarationStream(ty.cls, format, indent, s);
 
       case COMPLEX(complexTy = complexTy as ComplexType.EXTERNAL_OBJECT())
         algorithm
@@ -1022,50 +1024,13 @@ public
           s := IOStream.append(s, name);
           s := IOStream.append(s, "\n  extends ExternalObject;\n\n");
           {f} := Function.typeNodeCache(complexTy.constructor);
-          s := Function.toFlatStream(f, indent + "  ", s, overrideName="constructor");
+          s := Function.toFlatStream(f, format, indent + "  ", s, overrideName="constructor");
           s := IOStream.append(s, ";\n\n");
           {f} := Function.typeNodeCache(complexTy.destructor);
-          s := Function.toFlatStream(f, indent + "  ", s, overrideName="destructor");
+          s := Function.toFlatStream(f, format, indent + "  ", s, overrideName="destructor");
           s := IOStream.append(s, ";\n\nend ");
           s := IOStream.append(s, name);
         then s;
-
-      case SUBSCRIPTED()
-        algorithm
-          s := IOStream.append(s, indent);
-          s := IOStream.append(s, "function ");
-          s := IOStream.append(s, Util.makeQuotedIdentifier(ty.name));
-          s := IOStream.append(s, "\n");
-
-          s := IOStream.append(s, indent);
-          s := IOStream.append(s, "  input ");
-          s := IOStream.append(s, toString(ty.ty));
-          s := IOStream.append(s, " exp;\n");
-
-          index := 1;
-          for sub in ty.subs loop
-            s := IOStream.append(s, indent);
-            s := IOStream.append(s, "  input ");
-            s := IOStream.append(s, toString(sub));
-            s := IOStream.append(s, " s");
-            s := IOStream.append(s, String(index));
-            s := IOStream.append(s, ";\n");
-            index := index + 1;
-          end for;
-
-          s := IOStream.append(s, indent);
-          s := IOStream.append(s, "  output ");
-          s := IOStream.append(s, toString(ty.subscriptedTy));
-          s := IOStream.append(s, " result = exp[");
-          s := IOStream.append(s,
-            stringDelimitList(list("s" + String(i) for i in 1:listLength(ty.subs)), ","));
-          s := IOStream.append(s, "];\n");
-
-          s := IOStream.append(s, indent);
-          s := IOStream.append(s, "end ");
-          s := IOStream.append(s, Util.makeQuotedIdentifier(ty.name));
-        then
-          s;
 
       else s;
     end match;
@@ -1137,6 +1102,10 @@ public
     end if;
 
     ty := match ty
+      case ARRAY(dimensions = dims)
+        guard not failOnError and listLength(subs) > listLength(dims)
+        then Type.UNKNOWN();
+
       case ARRAY(dimensions = dims)
         algorithm
           for sub in subs loop
@@ -1258,6 +1227,18 @@ public
     end match;
   end lookupRecordFieldType;
 
+  function recordFieldCount
+    input Type recordType;
+    output Integer fieldCount;
+  protected
+    array<Record.Field> fields;
+  algorithm
+    fieldCount := match recordType
+      case COMPLEX(complexTy = ComplexType.RECORD(fields = fields)) then arrayLength(fields);
+      else 0;
+    end match;
+  end recordFieldCount;
+
   function recordFields
     input Type recordType;
     output list<Record.Field> field_lst;
@@ -1365,20 +1346,6 @@ public
     end if;
   end sizeType;
 
-  function subscriptedTypeName
-    input Type expType;
-    input list<Type> subscriptTypes;
-    output String str;
-  protected
-    list<String> strl;
-  algorithm
-    strl := list(toString(t) for t in subscriptTypes);
-    strl := "_" :: strl;
-    strl := toString(expType) :: strl;
-    strl := "subscript" :: strl;
-    str := stringAppendList(strl);
-  end subscriptedTypeName;
-
   function simplify
     input output Type ty;
   algorithm
@@ -1412,8 +1379,9 @@ public
       case ARRAY() then sizeOf(ty.elementType) * Dimension.sizesProduct(ty.dimensions);
       case TUPLE() then List.fold(list(sizeOf(t) for t in ty.types), intAdd, 0);
       case COMPLEX(complexTy = ComplexType.EXTERNAL_OBJECT()) then 1;
-      case COMPLEX()
+      case COMPLEX(complexTy = ComplexType.RECORD())
         then ClassTree.foldComponents(Class.classTree(InstNode.getClass(ty.cls)), fold_comp_size, 0);
+      case COMPLEX() then 1;
       else 0;
     end match;
   end sizeOf;
@@ -1424,11 +1392,13 @@ public
     Non-complex types will return NONE()."
     input Type ty;
     output Option<Integer> sz;
+  protected
+    Class cls;
   algorithm
     sz := match ty
-      case ARRAY()    then complexSize(ty.elementType);
-      case COMPLEX()  then SOME(sizeOf(ty));
-                      else NONE();
+      case ARRAY()                                    then complexSize(ty.elementType);
+      case COMPLEX(complexTy = ComplexType.RECORD())  then SOME(sizeOf(ty));
+                                                      else NONE();
     end match;
   end complexSize;
 

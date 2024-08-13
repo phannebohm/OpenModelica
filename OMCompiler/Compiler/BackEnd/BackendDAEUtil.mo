@@ -401,7 +401,7 @@ protected
 algorithm
   name := Expression.reductionIterName(iter);
   cr := ComponentReference.makeCrefIdent(name,DAE.T_INTEGER_DEFAULT,{});
-  backendVar := BackendDAE.VAR(cr, BackendDAE.VARIABLE(), DAE.BIDIR(), DAE.NON_PARALLEL(), DAE.T_INTEGER_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false, false);
+  backendVar := BackendDAE.VAR(cr, BackendDAE.VARIABLE(), DAE.BIDIR(), DAE.NON_PARALLEL(), DAE.T_INTEGER_DEFAULT, NONE(), NONE(), {}, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false, false, false);
 end makeIterVariable;
 
 protected function checkEquationSize"author: Frenkel TUD 2010-12
@@ -1129,36 +1129,91 @@ algorithm
   end matchcontinue;
 end simplifySubscript;
 
-
 public function setTearingSelectAttribute
-  "Returns the expression of the __OpenModelica_tearingSelect annotation"
-  input Option<SCode.Comment> comment;
-  output Option<BackendDAE.TearingSelect> ts;
+  "__OpenModelica_tearingSelect is an annotation and has to be extracted from the comment."
+  input Option<SCode.Comment> optComment;
+  output Option<BackendDAE.TearingSelect> tearingSelect = NONE();
 protected
-  SCode.Annotation ann;
+  Option<SCode.Annotation> opt_anno;
+  SCode.Annotation anno;
+  SCode.Mod mod;
+  Option<Absyn.Exp> opt_val;
   Absyn.Exp val;
+  String name;
+  SourceInfo info;
 algorithm
-  try
-    SOME(SCode.COMMENT(annotation_=SOME(ann))) := comment;
-    try
-      SOME(val) := SCodeUtil.lookupAnnotationBinding(ann, "__OpenModelica_tearingSelect");
-    else
-      SOME(val) := SCodeUtil.lookupAnnotationBinding(ann, "tearingSelect");
-      Error.addCompilerWarning("Deprecated vendor annotation 'tearingSelect' found. Use '__OpenModelica_tearingSelect' instead.");
-    end try;
-    ts := match AbsynUtil.crefIdent(AbsynUtil.expCref(val))
-      case "always"   then SOME(BackendDAE.ALWAYS());
-      case "prefer"   then SOME(BackendDAE.PREFER());
-      case "avoid"    then SOME(BackendDAE.AVOID());
-      case "never"    then SOME(BackendDAE.NEVER());
-      case "default"  then SOME(BackendDAE.DEFAULT());
-      else NONE();
-    end match;
-  else
-    ts := NONE();
-  end try;
+  opt_anno := SCodeUtil.optCommentAnnotation(optComment);
+
+  if isNone(opt_anno) then
+    // No annotation.
+    return;
+  end if;
+
+  SOME(anno) := opt_anno;
+  mod := SCodeUtil.lookupAnnotation(anno, "__OpenModelica_tearingSelect");
+
+  if SCodeUtil.isEmptyMod(mod) then
+    mod := SCodeUtil.lookupAnnotation(anno, "tearingSelect");
+
+    if not SCodeUtil.isEmptyMod(mod) then
+      Error.addSourceMessage(Error.DEPRECATED_EXPRESSION,
+        {"tearingSelect", "__OpenModelica_tearingSelect"}, SCodeUtil.getModifierInfo(mod));
+    end if;
+  end if;
+
+  opt_val := SCodeUtil.getModifierBinding(mod);
+
+  if isNone(opt_val) then
+    // Annotation exists but has no value.
+    return;
+  end if;
+
+  SOME(val) := opt_val;
+  info := SCodeUtil.getModifierInfo(mod);
+  name := getTearingSelectName(val, info);
+  tearingSelect := lookupTearingSelectMember(name);
+
+  if isNone(tearingSelect) then
+    Error.addSourceMessage(Error.UNKNOWN_ANNOTATION_VALUE, {Dump.printExpStr(val)}, info);
+  end if;
 end setTearingSelectAttribute;
 
+protected function getTearingSelectName
+  input Absyn.Exp exp;
+  input SourceInfo info;
+  output String name;
+algorithm
+  name := match exp
+    // TearingSelect.name
+    case Absyn.Exp.CREF(componentRef =
+           Absyn.ComponentRef.CREF_QUAL(name = "TearingSelect", subscripts = {}, componentRef =
+             Absyn.ComponentRef.CREF_IDENT(name = name, subscripts = {})))
+      then name;
+
+    // Single name without the TearingSelect prefix is deprecated but still accepted.
+    case Absyn.Exp.CREF(componentRef = Absyn.ComponentRef.CREF_IDENT(name = name, subscripts = {}))
+      algorithm
+        Error.addSourceMessage(Error.DEPRECATED_EXPRESSION, {name, "TearingSelect." + name}, info);
+      then
+        name;
+
+    else "";
+  end match;
+end getTearingSelectName;
+
+protected function lookupTearingSelectMember
+  input String name;
+  output Option<BackendDAE.TearingSelect> tearingSelect;
+algorithm
+  tearingSelect := match name
+    case "never"    then SOME(BackendDAE.TearingSelect.NEVER());
+    case "avoid"    then SOME(BackendDAE.TearingSelect.AVOID());
+    case "default"  then SOME(BackendDAE.TearingSelect.DEFAULT());
+    case "prefer"   then SOME(BackendDAE.TearingSelect.PREFER());
+    case "always"   then SOME(BackendDAE.TearingSelect.ALWAYS());
+    else NONE();
+  end match;
+end lookupTearingSelectMember;
 
 public function setHideResultAttribute
   "Returns the expression of the hideResult annotation.
@@ -2321,6 +2376,7 @@ algorithm
   outLst := match(inLst, inIndexType)
     // transform to absolute indexes
     case (_, BackendDAE.ABSOLUTE())
+      guard not AvlSetInt.isEmpty(inLst) and AvlSetInt.smallestKey(inLst) < 0
       algorithm
         outLst := AvlSetInt.EMPTY();
         for key in AvlSetInt.listKeys(inLst) loop
@@ -7216,7 +7272,7 @@ algorithm
       Option<SCode.Comment> comment;
       DAE.ConnectorType ct;
       DAE.VarInnerOuter io;
-      Boolean unreplaceable, initNonlinear;
+      Boolean unreplaceable, initNonlinear, encrypted;
       String name;
       Option<BackendDAE.Var> v;
       Option<DAE.Exp> tplExp;
@@ -7224,22 +7280,22 @@ algorithm
     case NONE()
     then (NONE(), inTypeA);
 
-    case SOME(BackendDAE.VAR(cref, varKind, varDirection, varParallelism, varType, SOME(e1), tplExp, instdims, source, attr, ts, hideResult, comment, ct, io, unreplaceable, initNonlinear)) equation
+    case SOME(BackendDAE.VAR(cref, varKind, varDirection, varParallelism, varType, SOME(e1), tplExp, instdims, source, attr, ts, hideResult, comment, ct, io, unreplaceable, initNonlinear, encrypted)) equation
       (e1_, ext_arg_1) = func(e1, inTypeA);
       (attr_, ext_arg_2) = traverseBackendDAEVarAttr(attr, func, ext_arg_1);
       if referenceEq(e1,e1_) and referenceEq(attr,attr_) then
         v = inVar;
       else
-        v = SOME(BackendDAE.VAR(cref, varKind, varDirection, varParallelism, varType, SOME(e1_), tplExp, instdims, source, attr_, ts, hideResult, comment, ct, io, unreplaceable, initNonlinear));
+        v = SOME(BackendDAE.VAR(cref, varKind, varDirection, varParallelism, varType, SOME(e1_), tplExp, instdims, source, attr_, ts, hideResult, comment, ct, io, unreplaceable, initNonlinear, encrypted));
       end if;
     then (v, ext_arg_2);
 
-    case SOME(BackendDAE.VAR(cref, varKind, varDirection, varParallelism, varType, NONE(), tplExp, instdims, source, attr, ts, hideResult, comment, ct, io, unreplaceable, initNonlinear)) equation
+    case SOME(BackendDAE.VAR(cref, varKind, varDirection, varParallelism, varType, NONE(), tplExp, instdims, source, attr, ts, hideResult, comment, ct, io, unreplaceable, initNonlinear, encrypted)) equation
       (attr_, ext_arg_2) = traverseBackendDAEVarAttr(attr, func, inTypeA);
       if referenceEq(attr,attr_) then
         v = inVar;
       else
-        v = SOME(BackendDAE.VAR(cref, varKind, varDirection, varParallelism, varType, NONE(), tplExp, instdims, source, attr_, ts, hideResult, comment, ct, io, unreplaceable, initNonlinear));
+        v = SOME(BackendDAE.VAR(cref, varKind, varDirection, varParallelism, varType, NONE(), tplExp, instdims, source, attr_, ts, hideResult, comment, ct, io, unreplaceable, initNonlinear, encrypted));
       end if;
     then (v, ext_arg_2);
 

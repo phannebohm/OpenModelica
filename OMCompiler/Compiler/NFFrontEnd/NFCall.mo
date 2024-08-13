@@ -33,6 +33,7 @@ encapsulated uniontype NFCall
 
 import Absyn;
 import AbsynUtil;
+import BaseModelica;
 import DAE;
 import Expression = NFExpression;
 import NFCallAttributes;
@@ -68,6 +69,7 @@ import Prefixes = NFPrefixes;
 import Restriction = NFRestriction;
 import SCodeUtil;
 import SimplifyExp = NFSimplifyExp;
+import Structural = NFStructural;
 import Subscript = NFSubscript;
 import TypeCheck = NFTypeCheck;
 import Typing = NFTyping;
@@ -561,6 +563,44 @@ public
     end match;
   end isExternalObjectConstructor;
 
+  function isLiteral
+    input Call call;
+    output Boolean literal;
+  protected
+    function is_literal_iter
+      input tuple<InstNode, Expression> iter;
+      output Boolean literal = Expression.isLiteral(Util.tuple22(iter));
+    end is_literal_iter;
+  algorithm
+    literal := match call
+      case TYPED_CALL() then List.all(call.arguments, Expression.isLiteral);
+
+      case TYPED_REDUCTION()
+        then Expression.isLiteral(call.exp) and List.all(call.iters, is_literal_iter);
+
+      case TYPED_ARRAY_CONSTRUCTOR()
+        then Expression.isLiteral(call.exp) and List.all(call.iters, is_literal_iter);
+
+      else false;
+    end match;
+  end isLiteral;
+
+  function isKnownSizeFill
+    input Call call;
+    output Boolean res;
+  protected
+    function is_literal_iter
+      input tuple<InstNode, Expression> iter;
+      output Boolean literal = Expression.isLiteral(Util.tuple22(iter));
+    end is_literal_iter;
+  algorithm
+    res := match call
+      case TYPED_CALL() then isNamed(call, "fill") and List.all(listRest(call.arguments), Expression.isLiteral);
+      case TYPED_ARRAY_CONSTRUCTOR() then List.all(call.iters, is_literal_iter);
+      else false;
+    end match;
+  end isKnownSizeFill;
+
   function inlineType
     input NFCall call;
     output DAE.InlineType inlineTy;
@@ -759,6 +799,7 @@ public
 
   function toFlatString
     input NFCall call;
+    input BaseModelica.OutputFormat format;
     output String str;
   protected
     String name, arg_str,c;
@@ -769,12 +810,12 @@ public
       case TYPED_CALL()
         algorithm
           name := AbsynUtil.pathString(Function.nameConsiderBuiltin(call.fn));
-          arg_str := stringDelimitList(list(Expression.toFlatString(arg) for arg in call.arguments), ", ");
+          arg_str := stringDelimitList(list(Expression.toFlatString(arg, format) for arg in call.arguments), ", ");
         then
           if Function.isBuiltin(call.fn) then
             stringAppendList({name, "(", arg_str, ")"})
           elseif isExternalObjectConstructor(call) then
-            stringAppendList({Type.toFlatString(call.ty), "(", arg_str, ")"})
+            stringAppendList({Type.toFlatString(call.ty, format), "(", arg_str, ")"})
           else
             stringAppendList({Util.makeQuotedIdentifier(name), "(", arg_str, ")"});
 
@@ -784,12 +825,12 @@ public
             // Vectorized calls contains iterators with illegal Modelica names
             // (to avoid name conflicts), to make the flat output legal such
             // calls are reverted to their original form here.
-            str := toFlatString(devectorizeCall(call));
+            str := Expression.toFlatString(devectorizeCall(call), format);
           else
             name := AbsynUtil.pathString(Function.nameConsiderBuiltin(NFBuiltinFuncs.ARRAY_FUNC));
-            arg_str := Expression.toFlatString(call.exp);
+            arg_str := Expression.toFlatString(call.exp, format);
             c := stringDelimitList(list(Util.makeQuotedIdentifier(InstNode.name(Util.tuple21(iter))) + " in " +
-              Expression.toFlatString(Util.tuple22(iter)) for iter in call.iters), ", ");
+              Expression.toFlatString(Util.tuple22(iter), format) for iter in call.iters), ", ");
             str := stringAppendList({"{", arg_str, " for ", c, "}"});
           end if;
         then
@@ -798,9 +839,9 @@ public
       case TYPED_REDUCTION()
         algorithm
           name := AbsynUtil.pathString(Function.nameConsiderBuiltin(call.fn));
-          arg_str := Expression.toFlatString(call.exp);
+          arg_str := Expression.toFlatString(call.exp, format);
           c := stringDelimitList(list(Util.makeQuotedIdentifier(InstNode.name(Util.tuple21(iter))) + " in " +
-            Expression.toFlatString(Util.tuple22(iter)) for iter in call.iters), ", ");
+            Expression.toFlatString(Util.tuple22(iter), format) for iter in call.iters), ", ");
         then
           if Function.isBuiltin(call.fn) then
             stringAppendList({name, "(", arg_str, " for ", c, ")"})
@@ -2328,7 +2369,7 @@ protected
               if InstContext.inRelaxed(context) then
                 range := Ceval.tryEvalExp(range);
               else
-                range := Ceval.evalExp(range, Ceval.EvalTarget.RANGE(info));
+                range := Ceval.evalExp(range, Ceval.EvalTarget.new(info, NFInstContext.ITERATION_RANGE));
               end if;
               iter_ty := Expression.typeOf(range);
             end if;
@@ -2741,7 +2782,7 @@ protected
      used as a helper to output valid flat Modelica, and should probably not
      be used where e.g. correct types are required."
     input NFCall call;
-    output NFCall outCall;
+    output Expression result;
   protected
     Expression exp, iter_exp;
     list<tuple<InstNode, Expression>> iters;
@@ -2754,8 +2795,7 @@ protected
       exp := Expression.replaceIterator(exp, iter_node, iter_exp);
     end for;
 
-    exp := SimplifyExp.simplify(exp);
-    Expression.CALL(call = outCall) := exp;
+    result := SimplifyExp.simplify(exp);
   end devectorizeCall;
 
   function evaluateCallType
@@ -2803,7 +2843,8 @@ protected
 
           ErrorExt.setCheckpoint(getInstanceName());
           try
-            exp := Ceval.evalExp(exp, Ceval.EvalTarget.IGNORE_ERRORS());
+            Structural.markExp(exp);
+            exp := Ceval.evalExp(exp);
           else
           end try;
           ErrorExt.rollBack(getInstanceName());

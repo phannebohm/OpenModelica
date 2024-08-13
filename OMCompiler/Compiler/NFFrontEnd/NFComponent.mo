@@ -31,6 +31,7 @@
 
 encapsulated uniontype NFComponent
 
+import BaseModelica;
 import Binding = NFBinding;
 import Class = NFClass;
 import NFClassTree.ClassTree;
@@ -71,7 +72,6 @@ public
     Binding binding;
     Binding condition;
     Attributes attributes;
-    Option<Modifier> ann "the annotation from SCode.Comment as a modifier";
     Option<SCode.Comment> comment;
     ComponentState state;
     SourceInfo info;
@@ -93,9 +93,10 @@ public
     Modifier modifier;
   end TYPE_ATTRIBUTE;
 
-  record DELETED_COMPONENT
+  record INVALID_COMPONENT
     Component component;
-  end DELETED_COMPONENT;
+    String errors;
+  end INVALID_COMPONENT;
 
   record WILD "needed for new crefs in the backend" end WILD;
 
@@ -236,6 +237,7 @@ public
       case COMPONENT() then component.ty;
       case ITERATOR() then component.ty;
       case TYPE_ATTRIBUTE() then component.ty;
+      case INVALID_COMPONENT() then getType(component.component);
       else Type.UNKNOWN();
     end match;
   end getType;
@@ -319,6 +321,19 @@ public
     end match;
   end setAttributes;
 
+  function setComment
+    input Option<SCode.Comment> comment;
+    input output Component component;
+  algorithm
+    () := match component
+        case COMPONENT()
+          algorithm
+            component.comment := comment;
+        then
+          ();
+  end match;
+  end setComment;
+
   function getBinding
     input Component component;
     output Binding b;
@@ -400,7 +415,14 @@ public
     output Boolean b;
   protected
     Class cls;
-    array<InstNode> children;
+
+    function has_missing_binding
+      input InstNode component;
+      output Boolean noBinding;
+    algorithm
+      noBinding := InstNode.isComponent(component) and not hasBinding(InstNode.component(component));
+    end has_missing_binding;
+
   algorithm
     if Binding.isBound(getBinding(component)) then
       // Simple case, component has normal binding equation.
@@ -419,14 +441,9 @@ public
     end if;
 
     // Check if any child of this component is missing a binding.
-    children := ClassTree.getComponents(Class.classTree(cls));
-    for c in children loop
-      if InstNode.isComponent(c) and not hasBinding(InstNode.component(c)) then
-        b := false;
-        return;
-      end if;
-    end for;
-
+    if isSome(ClassTree.findComponent(Class.classTree(cls), has_missing_binding)) then
+      b := false;
+    end if;
 
     b := true;
   end hasBinding;
@@ -504,6 +521,7 @@ public
       case COMPONENT(attributes = Attributes.ATTRIBUTES(variability = variability)) then variability;
       case ITERATOR() then component.variability;
       case ENUM_LITERAL() then Variability.CONSTANT;
+      case INVALID_COMPONENT() then variability(component.component);
       else Variability.CONTINUOUS;
     end match;
   end variability;
@@ -719,6 +737,7 @@ public
   function toFlatStream
     input String name;
     input Component component;
+    input BaseModelica.OutputFormat format;
     input String indent;
     input output IOStream.IOStream s;
   protected
@@ -729,23 +748,23 @@ public
         algorithm
           s := IOStream.append(s, indent);
           s := Attributes.toFlatStream(component.attributes, component.ty, s);
-          s := IOStream.append(s, Type.toFlatString(component.ty));
+          s := IOStream.append(s, Type.toFlatString(component.ty, format));
           s := IOStream.append(s, " '");
           s := IOStream.append(s, name);
           s := IOStream.append(s, "'");
 
           ty_attrs := list((Modifier.name(a), Modifier.binding(a)) for a in
             Class.getTypeAttributes(InstNode.getClass(component.classInst)));
-          s := typeAttrsToFlatStream(ty_attrs, component.ty, s);
+          s := typeAttrsToFlatStream(ty_attrs, component.ty, format, s);
 
-          s := IOStream.append(s, Binding.toFlatString(component.binding, " = "));
+          s := IOStream.append(s, Binding.toFlatString(component.binding, format, " = "));
         then
           ();
 
       case TYPE_ATTRIBUTE()
         algorithm
           s := IOStream.append(s, name);
-          s := IOStream.append(s, Modifier.toFlatString(component.modifier, printName = false));
+          s := IOStream.append(s, Modifier.toFlatString(component.modifier, format, printName = false));
         then
           ();
     end match;
@@ -754,6 +773,7 @@ public
   function typeAttrsToFlatStream
     input list<tuple<String, Binding>> typeAttrs;
     input Type componentType;
+    input BaseModelica.OutputFormat format;
     input output IOStream.IOStream s;
   protected
     Integer var_dims, binding_dims;
@@ -780,7 +800,7 @@ public
 
       s := IOStream.append(s, name);
       s := IOStream.append(s, " = ");
-      s := IOStream.append(s, Binding.toFlatString(binding));
+      s := IOStream.append(s, Expression.toFlatString(bind_exp, format));
 
       ty_attrs := listRest(ty_attrs);
       if listEmpty(ty_attrs) then
@@ -796,13 +816,14 @@ public
   function toFlatString
     input String name;
     input Component component;
+    input BaseModelica.OutputFormat format;
     input String indent = "";
     output String str;
   protected
     IOStream.IOStream s;
   algorithm
     s := IOStream.create(name, IOStream.IOStreamType.LIST());
-    s := toFlatStream(name, component, indent, s);
+    s := toFlatStream(name, component, format, indent, s);
     str := IOStream.string(s);
     IOStream.delete(s);
   end toFlatString;
@@ -828,16 +849,6 @@ public
       else NONE();
     end match;
   end comment;
-
-  function ann
-    input Component component;
-    output Option<Modifier> ann;
-  algorithm
-    ann := match component
-      case COMPONENT() then component.ann;
-      else NONE();
-    end match;
-  end ann;
 
   function getEvaluateAnnotation
     input Component component;
@@ -865,7 +876,15 @@ public
       return;
     end if;
 
-    fixed := fixed and Expression.isTrue(Binding.getExp(binding));
+    if Binding.hasExp(binding) then
+      fixed := fixed and Expression.isTrue(Binding.getExp(binding));
+    else
+      fixed := match binding
+        case Binding.RAW_BINDING(bindingExp = Absyn.Exp.BOOL(true))
+          then true;
+        else false;
+      end match;
+    end if;
   end getFixedAttribute;
 
   function getUnitAttribute
@@ -905,6 +924,16 @@ public
       else false;
     end match;
   end isDeleted;
+
+  function isInvalid
+    input Component component;
+    output Boolean invalid;
+  algorithm
+    invalid := match component
+      case INVALID_COMPONENT() then true;
+      else false;
+    end match;
+  end isInvalid;
 
   function isTypeAttribute
     input Component component;

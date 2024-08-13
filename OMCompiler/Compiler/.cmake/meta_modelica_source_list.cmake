@@ -278,12 +278,11 @@ set(OMC_MM_BACKEND_SOURCES
     # "NBackend Classes";
     ${CMAKE_CURRENT_SOURCE_DIR}/NBackEnd/Classes/NBackendDAE.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NBackEnd/Classes/NBEquation.mo
+    ${CMAKE_CURRENT_SOURCE_DIR}/NBackEnd/Classes/NBPartition.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NBackEnd/Classes/NBStrongComponent.mo
-    ${CMAKE_CURRENT_SOURCE_DIR}/NBackEnd/Classes/NBSystem.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NBackEnd/Classes/NBVariable.mo
     # "NBackend Modules";
     ${CMAKE_CURRENT_SOURCE_DIR}/NBackEnd/Modules/NBModule.mo
-    ${CMAKE_CURRENT_SOURCE_DIR}/NBackEnd/Modules/1_Main/NBAdjacency.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NBackEnd/Modules/1_Main/NBCausalize.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NBackEnd/Modules/1_Main/NBDAEMode.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NBackEnd/Modules/1_Main/NBInitialization.mo
@@ -302,13 +301,14 @@ set(OMC_MM_BACKEND_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/NBackEnd/Modules/3_Post/NBTearing.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NBackEnd/Modules/3_Post/NBEvaluation.mo
     # "NBackend Util";
+    ${CMAKE_CURRENT_SOURCE_DIR}/NBackEnd/Util/NBAdjacency.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NBackEnd/Util/NBBackendUtil.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NBackEnd/Util/NBDifferentiate.mo
-    ${CMAKE_CURRENT_SOURCE_DIR}/NBackEnd/Util/NBGraphUtil.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NBackEnd/Util/NBReplacements.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NBackEnd/Util/NBSlice.mo
 
     # "NFFrontEnd";
+    ${CMAKE_CURRENT_SOURCE_DIR}/NFFrontEnd/BaseModelica.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NFFrontEnd/NFAlgorithm.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NFFrontEnd/NFArrayConnections.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NFFrontEnd/NFAttributes.mo
@@ -390,6 +390,7 @@ set(OMC_MM_BACKEND_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/NSimCode/NSimCodeUtil.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NSimCode/NSimGenericCall.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NSimCode/NSimJacobian.mo
+    ${CMAKE_CURRENT_SOURCE_DIR}/NSimCode/NSimPartition.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NSimCode/NSimStrongComponent.mo
     ${CMAKE_CURRENT_SOURCE_DIR}/NSimCode/NSimVar.mo
 

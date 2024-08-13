@@ -401,11 +401,12 @@ protected function checkUsesAndUpdateProgram
   input String modelicaPath;
   input Boolean notifyLoad;
   input Boolean requireExactVersion;
+  input Boolean mergeAST = false;
 protected
   list<tuple<Absyn.Path,String,list<String>,Boolean>> modelsToLoad;
 algorithm
   modelsToLoad := if checkUses then Interactive.getUsesAnnotationOrDefault(newp, requireExactVersion) else {};
-  p := InteractiveUtil.updateProgram(newp, p);
+  p := InteractiveUtil.updateProgram(newp, p, mergeAST);
   (p, _) := loadModel(modelsToLoad, modelicaPath, p, false, notifyLoad, checkUses, requireExactVersion, false);
 end checkUsesAndUpdateProgram;
 
@@ -1325,7 +1326,7 @@ algorithm
       algorithm
         strs := List.mapMap(vals,ValuesUtil.extractValueString,Testsuite.friendlyPath);
         newps := Parser.parallelParseFilesToProgramList(strs,encoding,numThreads=i);
-        newp := List.fold(newps, function checkUsesAndUpdateProgram(checkUses=b, modelicaPath=Settings.getModelicaPath(Testsuite.isRunning()), notifyLoad=b1, requireExactVersion=requireExactVersion), SymbolTable.getAbsyn());
+        newp := List.fold(newps, function checkUsesAndUpdateProgram(checkUses=b, modelicaPath=Settings.getModelicaPath(Testsuite.isRunning()), notifyLoad=b1, requireExactVersion=requireExactVersion, mergeAST=false), SymbolTable.getAbsyn());
         SymbolTable.setAbsyn(newp);
         outCache := FCore.emptyCache();
       then
@@ -1417,11 +1418,13 @@ algorithm
     case ("reloadClass",_)
       then Values.BOOL(false);
 
-    case ("loadString",Values.STRING(str)::Values.STRING(name)::Values.STRING(encoding)::Values.BOOL(mergeAST)::_)
+    case
+    ("loadString",Values.STRING(str)::Values.STRING(name)::Values.STRING(encoding)::Values.BOOL(mergeAST)::Values.BOOL(b)::Values.BOOL(b1)::Values.BOOL(requireExactVersion)::_)
       algorithm
         str := if not (encoding == "UTF-8") then System.iconv(str, encoding, "UTF-8") else str;
         newp := Parser.parsestring(str,name);
-        newp := InteractiveUtil.updateProgram(newp, SymbolTable.getAbsyn(), mergeAST);
+        newp := checkUsesAndUpdateProgram(newp, SymbolTable.getAbsyn(), b,
+          Settings.getModelicaPath(Testsuite.isRunning()), b1, requireExactVersion, mergeAST);
         SymbolTable.setAbsyn(newp);
         outCache := FCore.emptyCache();
       then
@@ -2964,14 +2967,19 @@ protected function unZipEncryptedPackageAndCheckFile
   output Boolean success;
   output String outFilename;
 protected
-  String workdir, s1, s2, s3, filename_1, filename1, filename2, filename3, filename4, str, str1, str2, str3, str4;
+  String workdir, s1, s2, s3, filename_1, filename1, filename2, filename3, filename4, str, str1, str2, str3, str4, cmd, cmdPrefix;
+  Boolean isWindows = Autoconf.os == "Windows_NT";
 algorithm
   success := false;
   outFilename := "";
   if (System.regularFileExists(filename)) then
     if (StringUtil.endsWith(filename, ".mol")) then
       workdir := if System.directoryExists(inWorkdir) then inWorkdir else System.pwd();
-      if (skipUnzip or 0 == System.systemCall("unzip -q -o -d \"" + workdir + "\" \"" +  filename + "\"")) then
+      // use ripunzip (https://github.com/google/ripunzip) on Windows as is twice as fast
+      // TODO on Linux we should check if it is in the path
+      cmdPrefix := if isWindows then "ripunzip.exe -q unzip-file -d " else "unzip -q -o -d ";
+      cmd := cmdPrefix + "\"" + workdir + "\" \"" + filename + "\"";
+      if (skipUnzip or 0 == System.systemCall(cmd)) then
         s1 := System.basename(filename);
         s2 := Util.removeLast4Char(s1);
         s3 := listGet(Util.stringSplitAtChar(s2," "),1);

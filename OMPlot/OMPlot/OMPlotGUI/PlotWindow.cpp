@@ -52,8 +52,11 @@
 #include <QDir>
 #include <QMessageBox>
 #include <QFileDialog>
+#include <QPainter>
 #include <QPrinter>
 #include <QPrintDialog>
+#include <QRegExp>
+#include <QStack>
 #include <QLineEdit>
 #include <QColorDialog>
 
@@ -64,7 +67,11 @@ PlotWindow::PlotWindow(QStringList arguments, QWidget *parent, bool isInteractiv
 {
   /* set the widget background white. so that the plot is more useable in books and publications. */
   QPalette p(palette());
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
   p.setColor(QPalette::Window, Qt::white);
+#else
+  p.setColor(QPalette::Background, Qt::white);
+#endif
   setAutoFillBackground(true);
   setPalette(p);
   // setup the main window widget
@@ -143,8 +150,6 @@ void PlotWindow::initializePlot(QStringList arguments)
   }
   setTimeUnit("");
   setPrefixUnits(true);
-  setCanUseXPrefixUnits(false);
-  setCanUseYPrefixUnits(false);
   /* read variables */
   QStringList variablesToRead;
   for(int i = 18; i < arguments.length(); i++)
@@ -182,11 +187,6 @@ void PlotWindow::setVariablesList(QStringList variables)
 void PlotWindow::setPlotType(PlotType type)
 {
   mPlotType = type;
-}
-
-PlotWindow::PlotType PlotWindow::getPlotType()
-{
-  return mPlotType;
 }
 
 void PlotWindow::initializeFile(QString file)
@@ -397,7 +397,7 @@ void PlotWindow::setupToolbar()
 void PlotWindow::plot(PlotCurve *pPlotCurve)
 {
   QString currentLine;
-  if (mVariablesList.isEmpty() && getPlotType() == PlotWindow::PLOT)
+  if (mVariablesList.isEmpty() && isPlot())
     throw NoVariableException(QString("No variables specified!").toStdString().c_str());
 
   bool editCase = pPlotCurve ? true : false;
@@ -428,7 +428,7 @@ void PlotWindow::plot(PlotCurve *pPlotCurve)
       if (currentLine.contains("DataSet:"))
       {
         currentVariable = currentLine.remove("DataSet: ");
-        if (mVariablesList.contains(currentVariable) || getPlotType() == PlotWindow::PLOTALL)
+        if (mVariablesList.contains(currentVariable) || isPlotAll())
         {
           variablesPlotted.append(currentVariable);
           if (!editCase) {
@@ -448,18 +448,18 @@ void PlotWindow::plot(PlotCurve *pPlotCurve)
             pPlotCurve->addYAxisValue(QString(values[1]).toDouble());
             currentLine = mpTextStream->readLine();
           }
-          pPlotCurve->setData(pPlotCurve->getXAxisVector(), pPlotCurve->getYAxisVector(), pPlotCurve->getSize());
+          pPlotCurve->plotData();
           pPlotCurve->attach(mpPlot);
           mpPlot->replot();
         }
         // if plottype is PLOT and we have read all the variable we need to plot then simply break the loop
-        if (getPlotType() == PlotWindow::PLOT)
-          if (mVariablesList.size() == variablesPlotted.size())
-            break;
+        if (isPlot() && mVariablesList.size() == variablesPlotted.size()) {
+          break;
+        }
       }
     }
     // if plottype is PLOT then check which requested variables are not found in the file
-    if (getPlotType() == PlotWindow::PLOT)
+    if (isPlot())
       checkForErrors(mVariablesList, variablesPlotted);
     // close the file
     mFile.close();
@@ -490,7 +490,7 @@ void PlotWindow::plot(PlotCurve *pPlotCurve)
     // read in all values
     for (int i = 0; i < csvReader->numvars; i++)
     {
-      if (mVariablesList.contains(csvReader->variables[i]) || getPlotType() == PlotWindow::PLOTALL)
+      if (mVariablesList.contains(csvReader->variables[i]) || isPlotAll())
       {
         variablesPlotted.append(csvReader->variables[i]);
         double *vals = read_csv_dataset(csvReader, csvReader->variables[i]);
@@ -513,13 +513,13 @@ void PlotWindow::plot(PlotCurve *pPlotCurve)
           pPlotCurve->addXAxisValue(timeVals[i]);
           pPlotCurve->addYAxisValue(vals[i]);
         }
-        pPlotCurve->setData(pPlotCurve->getXAxisVector(), pPlotCurve->getYAxisVector(), pPlotCurve->getSize());
+        pPlotCurve->plotData();
         pPlotCurve->attach(mpPlot);
         mpPlot->replot();
       }
     }
     // if plottype is PLOT then check which requested variables are not found in the file
-    if (getPlotType() == PlotWindow::PLOT)
+    if (isPlot())
       checkForErrors(mVariablesList, variablesPlotted);
     // close the file
     omc_free_csv_reader(csvReader);
@@ -552,7 +552,7 @@ void PlotWindow::plot(PlotCurve *pPlotCurve)
     }
     // read in all values
     for (uint32_t i = 0; i < reader.nall; i++) {
-      if (mVariablesList.contains(reader.allInfo[i].name) || getPlotType() == PlotWindow::PLOTALL) {
+      if (mVariablesList.contains(reader.allInfo[i].name) || isPlotAll()) {
         variablesPlotted.append(reader.allInfo[i].name);
         // create the plot curve for variable
         if (!editCase) {
@@ -581,7 +581,7 @@ void PlotWindow::plot(PlotCurve *pPlotCurve)
             pPlotCurve->addXAxisValue(timeVals[i]);
             pPlotCurve->addYAxisValue(vals[i]);
           }
-          pPlotCurve->setData(pPlotCurve->getXAxisVector(), pPlotCurve->getYAxisVector(), pPlotCurve->getSize());
+          pPlotCurve->plotData();
           pPlotCurve->attach(mpPlot);
           mpPlot->replot();
         } else { // if variable is a parameter then
@@ -595,14 +595,14 @@ void PlotWindow::plot(PlotCurve *pPlotCurve)
           pPlotCurve->addYAxisValue(val);
           pPlotCurve->addXAxisValue(stopTime);
           pPlotCurve->addYAxisValue(val);
-          pPlotCurve->setData(pPlotCurve->getXAxisVector(), pPlotCurve->getYAxisVector(), pPlotCurve->getSize());
+          pPlotCurve->plotData();
           pPlotCurve->attach(mpPlot);
           mpPlot->replot();
         }
       }
     }
     // if plottype is PLOT then check which requested variables are not found in the file
-    if (getPlotType() == PlotWindow::PLOT)
+    if (isPlot())
       checkForErrors(mVariablesList, variablesPlotted);
     // close the file
     omc_free_matlab4_reader(&reader);
@@ -693,7 +693,7 @@ void PlotWindow::plotParametric(PlotCurve *pPlotCurve)
             // when two variables are found plot then plot them
             if (variablesPlotted.size() == 2)
             {
-              pPlotCurve->setData(pPlotCurve->getXAxisVector(), pPlotCurve->getYAxisVector(), pPlotCurve->getSize());
+              pPlotCurve->plotData();
               pPlotCurve->attach(mpPlot);
               mpPlot->replot();
             }
@@ -755,7 +755,7 @@ void PlotWindow::plotParametric(PlotCurve *pPlotCurve)
         pPlotCurve->addXAxisValue(xVals[i]);
         pPlotCurve->addYAxisValue(yVals[i]);
       }
-      pPlotCurve->setData(pPlotCurve->getXAxisVector(), pPlotCurve->getYAxisVector(), pPlotCurve->getSize());
+      pPlotCurve->plotData();
       pPlotCurve->attach(mpPlot);
       mpPlot->replot();
       // check which requested variables are not found in the file
@@ -803,12 +803,13 @@ void PlotWindow::plotParametric(PlotCurve *pPlotCurve)
       // if variable is a parameter then
       else
       {
-        double xval;
-        if (omc_matlab4_val(&xval,&reader,var,0.0)) {
+        double xVal;
+        if (omc_matlab4_val(&xVal,&reader,var,0.0)) {
           omc_free_matlab4_reader(&reader);
           throw NoVariableException(QString("Parameter doesn't have a value : ").append(xVariable).toStdString().c_str());
         }
-        pPlotCurve->addXAxisValue(xval);
+        for (uint32_t i = 0 ; i < reader.nrows ; i++)
+          pPlotCurve->addXAxisValue(xVal);
       }
       //Fill variable y with data
       var = omc_matlab4_find_var(&reader, yVariable.toStdString().c_str());
@@ -830,14 +831,15 @@ void PlotWindow::plotParametric(PlotCurve *pPlotCurve)
       // if variable is a parameter then
       else
       {
-        double yval;
-        if (omc_matlab4_val(&yval,&reader,var,0.0)) {
+        double yVal;
+        if (omc_matlab4_val(&yVal,&reader,var,0.0)) {
           omc_free_matlab4_reader(&reader);
           throw NoVariableException(QString("Parameter doesn't have a value : ").append(yVariable).toStdString().c_str());
         }
-        pPlotCurve->addYAxisValue(yval);
+        for (uint32_t i = 0 ; i < reader.nrows ; i++)
+          pPlotCurve->addYAxisValue(yVal);
       }
-      pPlotCurve->setData(pPlotCurve->getXAxisVector(), pPlotCurve->getYAxisVector(), pPlotCurve->getSize());
+      pPlotCurve->plotData();
       pPlotCurve->attach(mpPlot);
       mpPlot->replot();
       omc_free_matlab4_reader(&reader);
@@ -938,7 +940,7 @@ void PlotWindow::plotArray(double time, PlotCurve *pPlotCurve)
   double *res;
   QString currentLine;
   setTime(time);
-  if (mVariablesList.isEmpty() && getPlotType() == PlotWindow::PLOTARRAY)
+  if (mVariablesList.isEmpty() && isPlotArray())
     throw NoVariableException(QString("No variables specified!").toStdString().c_str());
   bool editCase = pPlotCurve ? true : false;
   //PLOT PLT
@@ -996,7 +998,7 @@ void PlotWindow::plotArray(double time, PlotCurve *pPlotCurve)
         pPlotCurve->addXAxisValue(i+1);
         pPlotCurve->addYAxisValue(arrLst[i]);
       }
-      pPlotCurve->setData(pPlotCurve->getXAxisVector(), pPlotCurve->getYAxisVector(), pPlotCurve->getSize());
+      pPlotCurve->plotData();
       pPlotCurve->attach(mpPlot);
       updateTimeText();
     }
@@ -1055,7 +1057,7 @@ void PlotWindow::plotArray(double time, PlotCurve *pPlotCurve)
         pPlotCurve->addXAxisValue(j+1);
         pPlotCurve->addYAxisValue(res[j]);
       }
-      pPlotCurve->setData(pPlotCurve->getXAxisVector(), pPlotCurve->getYAxisVector(), pPlotCurve->getSize());
+      pPlotCurve->plotData();
       pPlotCurve->attach(mpPlot);
       updateTimeText();
     }
@@ -1114,13 +1116,13 @@ void PlotWindow::plotArray(double time, PlotCurve *pPlotCurve)
           pPlotCurve->addXAxisValue(i+1);
           pPlotCurve->addYAxisValue(res[i]);
         }
-        pPlotCurve->setData(pPlotCurve->getXAxisVector(), pPlotCurve->getYAxisVector(), pPlotCurve->getSize());
+        pPlotCurve->plotData();
         pPlotCurve->attach(mpPlot);
         updateTimeText();
         delete[] res;
       }
       // if plottype is PLOT then check which requested variables are not found in the file
-      if (getPlotType() == PlotWindow::PLOT)
+      if (isPlot())
         checkForErrors(mVariablesList, variablesPlotted);
       // close the file
       omc_free_matlab4_reader(&reader);
@@ -1209,7 +1211,7 @@ void PlotWindow::plotArrayParametric(double time, PlotCurve *pPlotCurve)
         pPlotCurve->addXAxisValue(xValsLst[i]);
         pPlotCurve->addYAxisValue(yValsLst[i]);
       }
-      pPlotCurve->setData(pPlotCurve->getXAxisVector(), pPlotCurve->getYAxisVector(), pPlotCurve->getSize());
+      pPlotCurve->plotData();
       pPlotCurve->attach(mpPlot);
       updateTimeText();
       mFile.close();
@@ -1268,7 +1270,7 @@ void PlotWindow::plotArrayParametric(double time, PlotCurve *pPlotCurve)
             pPlotCurve->addXAxisValue(res[i]);
         }
         else { //yVar
-          if (pPlotCurve->getSize()!=res.count()) {
+          if (pPlotCurve->getXAxisSize()!=res.count()) {
             omc_free_csv_reader(csvReader);
             throw PlotException(tr("Arrays must be of the same length in array parametric plot."));
           }
@@ -1276,7 +1278,7 @@ void PlotWindow::plotArrayParametric(double time, PlotCurve *pPlotCurve)
             pPlotCurve->addYAxisValue(res[i]);
         }
       }
-      pPlotCurve->setData(pPlotCurve->getXAxisVector(), pPlotCurve->getYAxisVector(), pPlotCurve->getSize());
+      pPlotCurve->plotData();
       pPlotCurve->attach(mpPlot);
       updateTimeText();
       omc_free_csv_reader(csvReader);
@@ -1339,7 +1341,7 @@ void PlotWindow::plotArrayParametric(double time, PlotCurve *pPlotCurve)
           for (int i = 0; i < vars.count(); i++)
             pPlotCurve->addXAxisValue(res[i]);
         else{
-          if (pPlotCurve->getSize()!=vars.count()) {
+          if (pPlotCurve->getXAxisSize()!=vars.count()) {
             omc_free_matlab4_reader(&reader);
             throw PlotException("Arrays must be of the same length in array parametric plot.");
           }
@@ -1348,7 +1350,7 @@ void PlotWindow::plotArrayParametric(double time, PlotCurve *pPlotCurve)
         }
         delete[] res;
       }
-      pPlotCurve->setData(pPlotCurve->getXAxisVector(), pPlotCurve->getYAxisVector(), pPlotCurve->getSize());
+      pPlotCurve->plotData();
       pPlotCurve->attach(mpPlot);
       updateTimeText();
       omc_free_matlab4_reader(&reader);
@@ -1358,7 +1360,7 @@ void PlotWindow::plotArrayParametric(double time, PlotCurve *pPlotCurve)
 
 QPair<QVector<double>*, QVector<double>*> PlotWindow::plotInteractive(PlotCurve *pPlotCurve)
 {
-  if (mVariablesList.isEmpty() && getPlotType() == PlotWindow::PLOTINTERACTIVE) {
+  if (mVariablesList.isEmpty() && isPlotInteractive()) {
     throw NoVariableException(QString(tr("No variables specified!")).toStdString().c_str());
   } else if (mVariablesList.size() != 1) {
     throw NoVariableException(QString(tr("Could not determine the variable name!")).toStdString().c_str());
@@ -1402,15 +1404,19 @@ void PlotWindow::setTitle(QString title)
 
 /*!
  * \brief PlotWindow::updatePlot
- * This function is called by OMEdit when auto scale is false.
- * Updates the plot manually.
+ * Updates the plot.
+ * If auto scale is enabled then calls PlotWindow::fitInView()
  */
 void PlotWindow::updatePlot()
 {
-  mpPlot->updateLayout();
-  mpPlot->replot();
-  if (mpPlot->getPlotZoomer()->zoomStack().size() == 1) {
-    mpPlot->getPlotZoomer()->setZoomBase(false);
+  if (mpAutoScaleButton->isChecked()) {
+    fitInView();
+  } else {
+    mpPlot->updateLayout();
+    mpPlot->replot();
+    if (mpPlot->getPlotZoomer()->zoomStack().size() == 1) {
+      mpPlot->getPlotZoomer()->setZoomBase(false);
+    }
   }
 }
 
@@ -1606,26 +1612,6 @@ void PlotWindow::setPrefixUnits(bool prefixUnits)
   mPrefixUnits = prefixUnits;
 }
 
-bool PlotWindow::canUseXPrefixUnits() const
-{
-  return mCanUseXPrefixUnits;
-}
-
-void PlotWindow::setCanUseXPrefixUnits(bool canUseXPrefixUnits)
-{
-  mCanUseXPrefixUnits = canUseXPrefixUnits;
-}
-
-bool PlotWindow::canUseYPrefixUnits() const
-{
-  return mCanUseYPrefixUnits;
-}
-
-void PlotWindow::setCanUseYPrefixUnits(bool canUseYPrefixUnits)
-{
-  mCanUseYPrefixUnits = canUseYPrefixUnits;
-}
-
 void PlotWindow::checkForErrors(QStringList variables, QStringList variablesPlotted)
 {
   QStringList nonExistingVariables;
@@ -1662,11 +1648,20 @@ void PlotWindow::closeEvent(QCloseEvent *event)
   event->accept();
 }
 
+void PlotWindow::fitInView()
+{
+  mpPlot->getPlotZoomer()->zoom(0);
+  mpPlot->setAxisAutoScale(QwtPlot::yLeft);
+  mpPlot->setAxisAutoScale(QwtPlot::xBottom);
+  mpPlot->replot();
+  mpPlot->getPlotZoomer()->setZoomBase(false);
+}
+
 void PlotWindow::updateCurves()
 {
   for (auto & p : mpPlot->getPlotCurvesList()) {
     // append the last point to the plotting curve
-    p->getPlotDirectPainter()->drawSeries(p, p->getSize() - 2, -1);
+    p->getPlotDirectPainter()->drawSeries(p, p->getXAxisSize() - 2, -1);
   }
 }
 
@@ -1805,15 +1800,6 @@ void PlotWindow::setGrid(int index)
   mpPlot->replot();
 }
 
-void PlotWindow::fitInView()
-{
-  mpPlot->getPlotZoomer()->zoom(0);
-  mpPlot->setAxisAutoScale(QwtPlot::yLeft);
-  mpPlot->setAxisAutoScale(QwtPlot::xBottom);
-  mpPlot->replot();
-  mpPlot->getPlotZoomer()->setZoomBase(false);
-}
-
 void PlotWindow::setLogX(bool on)
 {
   if (on) {
@@ -1866,7 +1852,7 @@ bool PlotWindow::toggleSign(PlotCurve *pPlotCurve, bool checked)
     for (int i = 0 ; i < pPlotCurve->mYAxisVector.size() ; i++) {
       pPlotCurve->updateYAxisValue(i, -pPlotCurve->mYAxisVector.at(i));
     }
-    pPlotCurve->setData(pPlotCurve->getXAxisVector(), pPlotCurve->getYAxisVector(), pPlotCurve->getSize());
+    pPlotCurve->plotData(true);
     toggleSign = true;
   }
   return toggleSign;
@@ -2215,40 +2201,40 @@ void SetupDialog::selectVariable(QString variable)
   }
 }
 
-bool SetupDialog::setupPlotCurve(VariablePageWidget *pVariablePageWidget)
+void SetupDialog::setupPlotCurve(VariablePageWidget *pVariablePageWidget)
 {
-  if (!pVariablePageWidget) {
-    return false;
+  if (pVariablePageWidget) {
+    PlotCurve *pPlotCurve = pVariablePageWidget->getPlotCurve();
+    /* set the legend title */
+    if (pPlotCurve->getCustomTitle().isEmpty() && pPlotCurve->title().text().compare(pVariablePageWidget->getLegendTextBox()->text()) == 0) {
+      pPlotCurve->setCustomTitle("");
+    } else {
+      pPlotCurve->setCustomTitle(pVariablePageWidget->getLegendTextBox()->text());
+    }
+    /* set the curve color title */
+    pPlotCurve->setCustomColor(!pVariablePageWidget->getAutomaticColorCheckBox()->isChecked());
+    if (pVariablePageWidget->getAutomaticColorCheckBox()->isChecked()) {
+      pVariablePageWidget->setCurveColor(pPlotCurve->pen().color());
+      pVariablePageWidget->setCurvePickColorButtonIcon();
+    } else {
+      QPen pen = pPlotCurve->pen();
+      pen.setColor(pVariablePageWidget->getCurveColor());
+      pPlotCurve->setPen(pen);
+    }
+    /* set the curve style */
+    QComboBox *pPatternComboBox = pVariablePageWidget->getPatternComboBox();
+    pPlotCurve->setCurveStyle(pPatternComboBox->itemData(pPatternComboBox->currentIndex()).toInt());
+    /* set the curve width */
+    pPlotCurve->setCurveWidth(pVariablePageWidget->getThicknessSpinBox()->value());
+    /* set the curve visibility */
+    pPlotCurve->toggleVisibility(!pVariablePageWidget->getHideCheckBox()->isChecked());
+    /* set the curve toggle sign */
+    mpPlotWindow->toggleSign(pPlotCurve, pVariablePageWidget->getToggleSignCheckBox()->isChecked());
+    // if prefixunits value is changed
+    if (mPrefixUnitsChanged) {
+      pPlotCurve->plotData();
+    }
   }
-
-  PlotCurve *pPlotCurve = pVariablePageWidget->getPlotCurve();
-
-  /* set the legend title */
-  if (pPlotCurve->getCustomTitle().isEmpty() && pPlotCurve->title().text().compare(pVariablePageWidget->getLegendTextBox()->text()) == 0) {
-    pPlotCurve->setCustomTitle("");
-  } else {
-    pPlotCurve->setCustomTitle(pVariablePageWidget->getLegendTextBox()->text());
-  }
-  /* set the curve color title */
-  pPlotCurve->setCustomColor(!pVariablePageWidget->getAutomaticColorCheckBox()->isChecked());
-  if (pVariablePageWidget->getAutomaticColorCheckBox()->isChecked()) {
-    pVariablePageWidget->setCurveColor(pPlotCurve->pen().color());
-    pVariablePageWidget->setCurvePickColorButtonIcon();
-  } else {
-    QPen pen = pPlotCurve->pen();
-    pen.setColor(pVariablePageWidget->getCurveColor());
-    pPlotCurve->setPen(pen);
-  }
-  /* set the curve style */
-  QComboBox *pPatternComboBox = pVariablePageWidget->getPatternComboBox();
-  pPlotCurve->setCurveStyle(pPatternComboBox->itemData(pPatternComboBox->currentIndex()).toInt());
-  /* set the curve width */
-  pPlotCurve->setCurveWidth(pVariablePageWidget->getThicknessSpinBox()->value());
-  /* set the curve visibility */
-  pPlotCurve->toggleVisibility(!pVariablePageWidget->getHideCheckBox()->isChecked());
-  /* set the curve toggle sign */
-  bool toggleSign = mpPlotWindow->toggleSign(pPlotCurve, pVariablePageWidget->getToggleSignCheckBox()->isChecked());
-  return toggleSign;
 }
 
 void SetupDialog::variableSelected(QListWidgetItem *current, QListWidgetItem *previous)
@@ -2280,13 +2266,12 @@ void SetupDialog::saveSetup()
 
 void SetupDialog::applySetup()
 {
+  // set the prefix units. Always set prefixUnits before setting plot data.
+  mPrefixUnitsChanged = mpPrefixUnitsCheckbox->isChecked() != mpPlotWindow->getPrefixUnits();
+  mpPlotWindow->setPrefixUnits(mpPrefixUnitsCheckbox->isChecked());
   // set the variables attributes
-  bool requiresFitInView = false;
   for (int i = 0 ; i < mpVariablePagesStackedWidget->count() ; i++) {
-    // if any of the variable requires call to fitinview because of toggle sign.
-    if (setupPlotCurve(qobject_cast<VariablePageWidget*>(mpVariablePagesStackedWidget->widget(i)))) {
-      requiresFitInView = true;
-    }
+    setupPlotCurve(qobject_cast<VariablePageWidget*>(mpVariablePagesStackedWidget->widget(i)));
   }
   // set the font sizes. Don't move this line. We should set the font sizes before calling setLegendPosition
   mpPlotWindow->getPlot()->setFontSizes(mpTitleFontSizeSpinBox->value(), mpVerticalAxisTitleFontSizeSpinBox->value(), mpVerticalAxisNumbersFontSizeSpinBox->value(),
@@ -2299,8 +2284,6 @@ void SetupDialog::applySetup()
   mpPlotWindow->setFooter(mpPlotFooterTextBox->text());
   // set the legend
   mpPlotWindow->setLegendPosition(mpLegendPositionComboBox->itemData(mpLegendPositionComboBox->currentIndex()).toString());
-  // set the prefix units
-  mpPlotWindow->setPrefixUnits(mpPrefixUnitsCheckbox->isChecked());
   // set the auto scale
   mpPlotWindow->setAutoScale(mpAutoScaleCheckbox->isChecked());
   // set the range
@@ -2311,9 +2294,6 @@ void SetupDialog::applySetup()
     mpPlotWindow->setXRange(mpXMinimumTextBox->text().toDouble(), mpXMaximumTextBox->text().toDouble());
     mpPlotWindow->setYRange(mpYMinimumTextBox->text().toDouble(), mpYMaximumTextBox->text().toDouble());
   }
-  // replot
-  mpPlotWindow->getPlot()->replot();
-  if (requiresFitInView) {
-    mpPlotWindow->fitInView();
-  }
+  // update plot
+  mpPlotWindow->updatePlot();
 }

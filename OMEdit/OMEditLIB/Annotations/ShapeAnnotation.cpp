@@ -504,45 +504,34 @@ QRectF ShapeAnnotation::getBoundingRect() const
  */
 void ShapeAnnotation::applyLinePattern(QPainter *painter)
 {
-  qreal thickness = Utilities::convertMMToPixel(mLineThickness);
-  /* Ticket #4490
-   * The specification doesn't say anything about it.
-   * But just to keep this consist with Dymola set a default line thickness for border patterns raised & sunken.
-   * We need better handling of border patterns.
+  /* Fixes issue #12090.
+   * Some old issues with nice use cases #3222, #2272, #2268.
    */
-  if (mBorderPattern == StringHandler::BorderRaised || mBorderPattern == StringHandler::BorderSunken) {
-    thickness = Utilities::convertMMToPixel(0.25);
-  }
-  // Make the display of Library Browser icons sharper. Very low line thickness is hardly visible on high resolution.
-  if (mLineThickness < 1.0 && ((mpGraphicsView && mpGraphicsView->useSharpLibraryPixmap())
-                               || (mpParentComponent && mpParentComponent->getGraphicsView()->useSharpLibraryPixmap()))) {
-    thickness = Utilities::convertMMToPixel(1.0);
+  qreal thickness = mLineThickness;
+  qreal curScale = 0.0;
+  if ((mpGraphicsView && mpGraphicsView->isRenderingLibraryPixmap()) || (mpParentComponent && mpParentComponent->getGraphicsView()->isRenderingLibraryPixmap())) {
+    thickness = mLineThickness + 3.0;
+  } else if (mpParentComponent) {
+    const QTransform painterTransform = painter->transform();
+    const qreal m11 = painterTransform.m11();
+    const qreal m22 = painterTransform.m22();
+    const qreal m12 = painterTransform.m12();
+    const qreal m21 = painterTransform.m21();
+    qreal xScale = qSqrt(m11*m11 + m12*m12);
+    qreal yScale = qSqrt(m22*m22 + m21*m21);
+    curScale = qMin(xScale, yScale);
+
+    if (mLineThickness > 0.0 && mLineThickness < 1.0 && curScale < 2.0) {
+      thickness = 1.0;
+    }
   }
 
-  QPen pen(QBrush(mLineColor), thickness, StringHandler::getLinePatternType(mLinePattern), Qt::SquareCap, Qt::MiterJoin);
-  /* The specification doesn't say anything about it.
-   * But just to keep this consist with Dymola we use Qt::BevelJoin for Line shapes.
-   * All other shapes use Qt::MiterJoin
-   */
-  if (dynamic_cast<LineAnnotation*>(this)) {
-    pen.setJoinStyle(Qt::BevelJoin);
+  QPen pen(QBrush(mLineColor), thickness, StringHandler::getLinePatternType(mLinePattern), Qt::FlatCap, Qt::MiterJoin);
+  if (qFuzzyCompare(mLineThickness, 0.0) || (mpParentComponent && mLineThickness < 1.0 && curScale < 2.0)) {
+    pen.setCosmetic(true);
   }
-  /* Ticket #3222
-   * Make all the shapes use cosmetic pens so that they perserve their pen width when scaled i.e zoomed in/out.
-   */
-  pen.setCosmetic(true);
-  /* Ticket #2272, Ticket #2268.
-   * If thickness is greater than 4 then don't make the pen cosmetic since cosmetic pens don't change the width with respect to zoom.
-   * Use non cosmetic pens for Library Browser and shapes inside component when thickness is greater than 4.
-   */
-  if (thickness > 4
-      && ((mpGraphicsView && mpGraphicsView->isRenderingLibraryPixmap()) || mpParentComponent)) {
-    pen.setCosmetic(false);
-  }
-  // if thickness is greater than 1 pixel then use antialiasing.
-  if (thickness > 1) {
-    painter->setRenderHint(QPainter::Antialiasing);
-  }
+  pen.setMiterLimit(1);
+  painter->setRenderHint(QPainter::Antialiasing);
   painter->setPen(pen);
 }
 
@@ -609,10 +598,10 @@ QList<QPointF> ShapeAnnotation::getExtentsForInheritedShapeFromIconDiagramMap(Gr
     ModelInstance::Extend *pExtend = dynamic_cast<ModelInstance::Extend*>(getExtend());
     if (pExtend) {
       if (pGraphicsView->getViewType() == StringHandler::Icon) {
-        extent = pExtend->getAnnotation()->getIconMap().getExtent();
+        extent = pExtend->getIconDiagramMapExtent(true);
         preserveAspectRatio = pExtend->getModel()->getAnnotation()->getIconAnnotation()->mMergedCoOrdinateSystem.getPreserveAspectRatio();
       } else {
-        extent = pExtend->getAnnotation()->getDiagramMap().getExtent();
+        extent = pExtend->getIconDiagramMapExtent(false);
         preserveAspectRatio = pExtend->getModel()->getAnnotation()->getDiagramAnnotation()->mMergedCoOrdinateSystem.getPreserveAspectRatio();
       }
     }
@@ -711,7 +700,7 @@ void ShapeAnnotation::applyTransformation()
     const qreal y = Utilities::mapToCoOrdinateSystem(scenePos().y(), bottom, top, extendsCoOrdinateExtents.at(0).y(), extendsCoOrdinateExtents.at(1).y());
     QTransform finalTransform(scaledTransform.m11(), scaledTransform.m12(), scaledTransform.m13(),
                               scaledTransform.m21(), scaledTransform.m22(), scaledTransform.m23(),
-                              x, y);
+                              x, y, 1.0);
     setTransform(finalTransform);
   }
   updateCornerItems();

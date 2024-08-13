@@ -97,13 +97,13 @@ protected
 algorithm
   structural := Variable.variability(var) <= Variability.STRUCTURAL_PARAMETER and
                 not Type.isExternalObject(var.ty);
-  binding := evaluateBinding(var.binding, var.name, structural, context, settings);
+  binding := evaluateBinding(var.binding, var.name, structural, context);
 
   if not referenceEq(binding, var.binding) then
     var.binding := binding;
   end if;
 
-  var.typeAttributes := list(evaluateTypeAttribute(a, var.name, context, settings) for a in var.typeAttributes);
+  var.typeAttributes := list(evaluateTypeAttribute(a, var.name, context) for a in var.typeAttributes);
   var.children := list(evaluateVariable(v, context, settings) for v in var.children);
 end evaluateVariable;
 
@@ -112,7 +112,6 @@ function evaluateBinding
   input ComponentRef prefix;
   input Boolean structural;
   input InstContext.Type context;
-  input EvalSettings settings;
 protected
   Expression exp, eexp;
   SourceInfo info;
@@ -121,18 +120,21 @@ algorithm
     exp := Binding.getTypedExp(binding);
 
     if structural then
-      if not settings.scalarize and Expression.isLiteralFill(exp) then
-        eexp := exp;
-      elseif InstContext.inRelaxed(context) then
-        eexp := Ceval.tryEvalExp(exp);
-      else
-        eexp := Ceval.evalExp(exp, Ceval.EvalTarget.ATTRIBUTE(binding));
-      end if;
-
-      eexp := Flatten.flattenExp(eexp, Flatten.PREFIX(InstNode.EMPTY_NODE(), prefix));
-    else
       info := Binding.getInfo(binding);
       eexp := evaluateExp(exp, info);
+      eexp := SimplifyExp.simplify(eexp);
+
+      if not (Expression.isLiteral(eexp) or Expression.isKnownSizeFill(eexp)) then
+        if InstContext.inRelaxed(context) then
+          eexp := Ceval.tryEvalExp(eexp);
+        else
+          eexp := Ceval.evalExp(eexp, Ceval.EvalTarget.new(info, context));
+        end if;
+      end if;
+
+      eexp := Flatten.flattenExp(eexp, Flatten.PREFIX(InstNode.EMPTY_NODE(), prefix), info);
+    else
+      eexp := evaluateExp(exp, Binding.getInfo(binding));
     end if;
 
     if not referenceEq(exp, eexp) then
@@ -145,7 +147,6 @@ function evaluateTypeAttribute
   input output tuple<String, Binding> attribute;
   input ComponentRef prefix;
   input InstContext.Type context;
-  input EvalSettings settings;
 protected
   String name;
   Binding binding, sbinding;
@@ -153,7 +154,7 @@ protected
 algorithm
   (name, binding) := attribute;
   structural := name == "fixed" or name == "stateSelect";
-  sbinding := evaluateBinding(binding, prefix, structural, context, settings);
+  sbinding := evaluateBinding(binding, prefix, structural, context);
 
   if not referenceEq(binding, sbinding) then
     attribute := (name, sbinding);
@@ -203,8 +204,8 @@ algorithm
         if ComponentRef.nodeVariability(cref) <= Variability.STRUCTURAL_PARAMETER and
            not Type.isExternalObject(ty) then
           // Evaluate all constants and structural parameters.
-          outExp := Ceval.evalCref(cref, outExp, Ceval.EvalTarget.IGNORE_ERRORS(), evalSubscripts = false);
-          outExp := Flatten.flattenExp(outExp, Flatten.Prefix.PREFIX(InstNode.EMPTY_NODE(), cref));
+          outExp := Ceval.evalCref(cref, outExp, NFCeval.noTarget, evalSubscripts = false);
+          outExp := Flatten.flattenExp(outExp, Flatten.Prefix.PREFIX(InstNode.EMPTY_NODE(), cref), info);
           outChanged := true;
         elseif outChanged then
           ty := ComponentRef.getSubscriptedType(cref);
@@ -306,9 +307,7 @@ function evaluateIfExp
   "Evaluates constants in an if-expression. This is done by first checking if
    the condition can be evaluated, in which case branch selection is done to
    avoid issues that can arise when evaluating constants in branches that are
-   expected to be discarded. This function also makes sure that if-expressions
-   with branches that have different dimensions are resolved to the correct
-   branch based on the type matching in earlier stages of the compilation."
+   expected to be discarded."
   input Expression exp;
   input SourceInfo info;
   output Expression outExp;
@@ -325,54 +324,25 @@ algorithm
   // Simplify the condition in case it can be reduced to a literal value.
   cond := SimplifyExp.simplify(cond);
 
-  if Type.isConditionalArray(ty) then
-    (outExp, outChanged) := match cond
-      case Expression.BOOLEAN()
-        algorithm
-          if not Type.isMatchedBranch(cond.value, ty) then
-            // The branch with the incompatible dimensions was chosen, print an error and fail.
-            (tb, fb) := Util.swap(cond.value, fb, tb);
-            Error.addSourceMessage(Error.ARRAY_DIMENSION_MISMATCH,
-              {Expression.toString(tb), Type.toString(Expression.typeOf(tb)),
-               Dimension.toStringList(Type.arrayDims(Expression.typeOf(fb)), brackets = false)}, info);
-            fail();
-          end if;
+  (outExp, outChanged) := match cond
+    // Only evaluate constants in and return one of the branches if the
+    // condition is a literal boolean value.
+    case Expression.BOOLEAN()
+      algorithm
+        outExp := evaluateExpTraverser(if cond.value then tb else fb, info);
+      then
+        (outExp, true);
 
-          outExp := evaluateExpTraverser(if cond.value then tb else fb, info);
-        then
-          (outExp, true);
+    // Otherwise evaluate constants in both branches and return the whole
+    // if-expression.
+    else
+      algorithm
+        (tb, c1) := evaluateExpTraverser(tb, info);
+        (fb, c2) := evaluateExpTraverser(fb, info);
+      then
+        (Expression.IF(ty, cond, tb, fb), outChanged or c1 or c2);
 
-      else
-        algorithm
-          // The condition could not be evaluated to a literal. This is required
-          // if the branches have different dimensions, so print an error and fail.
-          Error.addSourceMessage(Error.TYPE_MISMATCH_IF_EXP,
-            {"", Expression.toString(tb), Type.toString(Expression.typeOf(tb)),
-                 Expression.toString(fb), Type.toString(Expression.typeOf(fb))}, info);
-        then
-          fail();
-    end match;
-  else
-    (outExp, outChanged) := match cond
-      // Only evaluate constants in and return one of the branches if the
-      // condition is a literal boolean value.
-      case Expression.BOOLEAN()
-        algorithm
-          outExp := evaluateExpTraverser(if cond.value then tb else fb, info);
-        then
-          (outExp, true);
-
-      // Otherwise evaluate constants in both branches and return the whole
-      // if-expression.
-      else
-        algorithm
-          (tb, c1) := evaluateExpTraverser(tb, info);
-          (fb, c2) := evaluateExpTraverser(fb, info);
-        then
-          (Expression.IF(ty, cond, tb, fb), outChanged or c1 or c2);
-
-    end match;
-  end if;
+  end match;
 end evaluateIfExp;
 
 function evaluateEquations
@@ -637,7 +607,7 @@ algorithm
         if evaluateAll or not isLocalFunctionVariable(e.cref, fnNode) then
           ErrorExt.setCheckpoint(getInstanceName());
           try
-            outExp := Ceval.evalCref(e.cref, e, Ceval.EvalTarget.IGNORE_ERRORS(), evalSubscripts = false);
+            outExp := Ceval.evalCref(e.cref, e, NFCeval.noTarget, evalSubscripts = false);
           else
             outExp := e;
           end try;

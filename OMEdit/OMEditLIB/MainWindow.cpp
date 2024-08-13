@@ -82,6 +82,7 @@
 #include "CrashReport/CrashReportDialog.h"
 
 #include <QtSvg/QSvgGenerator>
+#include <QNetworkProxyFactory>
 
 namespace ToolBars {
   QString welcomePerspective = "welcomePerspective";
@@ -125,9 +126,15 @@ MainWindow::MainWindow(QWidget *parent)
    * Because RecentFile, FindTextOM and DebuggerConfiguration structs should be registered before reading the recentFilesList, FindTextOM and
    * DebuggerConfiguration section respectively from the settings file.
    */
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
+  qRegisterMetaType<RecentFile>("RecentFile");
+  qRegisterMetaType<FindTextOM>("FindTextOM");
+  qRegisterMetaType<DebuggerConfiguration>("DebuggerConfiguration");
+#else // #if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
   qRegisterMetaTypeStreamOperators<RecentFile>("RecentFile");
   qRegisterMetaTypeStreamOperators<FindTextOM>("FindTextOM");
   qRegisterMetaTypeStreamOperators<DebuggerConfiguration>("DebuggerConfiguration");
+#endif // #if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
   /*! @note The above three lines registers the structs as QMetaObjects. Do not remove/move them. */
   qRegisterMetaType<QProcess::ProcessError>("QProcess::ProcessError");
   qRegisterMetaType<QProcess::ExitStatus>("QProcess::ExitStatus");
@@ -428,10 +435,14 @@ void MainWindow::setUpMainWindow(threadData_t *threadData)
   // restore OMEdit widgets state
   QSettings *pSettings = Utilities::getApplicationSettings();
   if (OptionsDialog::instance()->getGeneralSettingsPage()->getPreserveUserCustomizations()) {
-    restoreGeometry(pSettings->value("application/geometry").toByteArray());
     bool restoreMessagesWidget = !MessagesWidget::instance()->getAllMessageWidget()->getMessagesTextBrowser()->toPlainText().isEmpty();
     mRestoringState = true;
+    /* With qt6 we need to call restoreState before restoreGeometry otherwise OMEdit crash on startup.
+     * Don't know why this is happening.
+     * The example in Qt docs calls restoreGeometry first.
+     */
     restoreState(pSettings->value("application/windowState").toByteArray());
+    restoreGeometry(pSettings->value("application/geometry").toByteArray());
     mRestoringState = false;
     pSettings->beginGroup("algorithmicDebugger");
     /* restore stackframes list and locals columns width */
@@ -443,7 +454,7 @@ void MainWindow::setUpMainWindow(threadData_t *threadData)
       if (!OptionsDialog::instance()->getMessagesPage()->getEnlargeMessageBrowserCheckBox()->isChecked()) {
         showMessageBrowser();
       } else {
-        animateMessagesTabWidgetForNewMessage(StringHandler::NoOMError);
+        markMessagesTabWidgetChangedForNewMessage(StringHandler::NoOMError);
       }
     }
   }
@@ -1160,8 +1171,11 @@ void MainWindow::exportModelFMU(LibraryTreeItem *pLibraryTreeItem)
   // show the progress bar
   mpProgressBar->setRange(0, 0);
   showProgressBar();
-  // create a folder with model name to dump the files in it.
-  QString modelDirectoryPath = QString("%1/%2").arg(OptionsDialog::instance()->getGeneralSettingsPage()->getWorkingDirectory(), pLibraryTreeItem->getNameStructure());
+  /*
+   * create a folder with hashed string from model name
+   * see https://github.com/OpenModelica/OpenModelica/issues/12171, to have short temp directory path and dump the files in it.
+  */
+  QString modelDirectoryPath = QString("%1/%2%3").arg(OptionsDialog::instance()->getGeneralSettingsPage()->getWorkingDirectory(), pLibraryTreeItem->getName(), Utilities::generateHash(pLibraryTreeItem->getNameStructure()));
   if (!QDir().exists(modelDirectoryPath)) {
     QDir().mkpath(modelDirectoryPath);
   }
@@ -1241,7 +1255,7 @@ void showEncryptionSupportMessage()
                                    " For that, you need a special version of OpenModelica that is only released in binary form;"
                                    " please contact your library supplier for information on how to get it.<br /><br />"
                                    "Read more about <u><a href=\"https://openmodelica.org/doc/OpenModelicaUsersGuide/%1/encryption.html\">OpenModelica Encryption</a></u>.")
-                           .arg(Helper::OpenModelicaUsersGuideVersion), Helper::ok);
+                           .arg(Helper::OpenModelicaUsersGuideVersion), QMessageBox::Ok);
 }
 #endif // OM_ENABLE_ENCRYPTION
 
@@ -1479,7 +1493,11 @@ void MainWindow::exportModelToOMNotebook(LibraryTreeItem *pLibraryTreeItem)
   QFile omnotebookFile(omnotebookFileName);
   omnotebookFile.open(QIODevice::WriteOnly);
   QTextStream textStream(&omnotebookFile);
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
+  textStream.setEncoding(QStringConverter::Utf8);
+#else
   textStream.setCodec(Helper::utf8.toUtf8().constData());
+#endif
   textStream.setGenerateByteOrderMark(false);
   textStream << xmlDocument.toString();
   omnotebookFile.close();
@@ -1668,10 +1686,9 @@ void MainWindow::PlotCallbackFunction(void *p, int externalWindow, const char* f
     if (!fileInfo.exists()) return;
     OMPlot::PlotWindow *pPlotWindow = pMainWindow->getPlotWindowContainer()->getCurrentWindow();
     if (pPlotWindow && !externalWindow) {
-      if (pPlotWindow->getPlotType() == OMPlot::PlotWindow::PLOT && strcmp(plotType, "plotparametric") == 0) {
+      if (pPlotWindow->isPlot() && strcmp(plotType, "plotparametric") == 0) {
         pMainWindow->getPlotWindowContainer()->addParametricPlotWindow();
-      } else if (pPlotWindow->getPlotType() == OMPlot::PlotWindow::PLOTPARAMETRIC &&
-                 ((strcmp(plotType, "plot") == 0) || (strcmp(plotType, "plotall") == 0))) {
+      } else if (pPlotWindow->isPlotParametric() && ((strcmp(plotType, "plot") == 0) || (strcmp(plotType, "plotall") == 0))) {
         pMainWindow->getPlotWindowContainer()->addPlotWindow();
       }
     } else if (externalWindow || pMainWindow->getPlotWindowContainer()->subWindowList().size() == 0) {
@@ -1820,11 +1837,11 @@ void MainWindow::writeNewApiProfiling(const QString &str)
 }
 
 /*!
- * \brief MainWindow::animateMessagesTabWidgetForNewMessage
+ * \brief MainWindow::markMessagesTabWidgetChangedForNewMessage
  * Start the animation of MessageTab.
  * \param errorType
  */
-void MainWindow::animateMessagesTabWidgetForNewMessage(StringHandler::OpenModelicaErrors errorType)
+void MainWindow::markMessagesTabWidgetChangedForNewMessage(StringHandler::OpenModelicaErrors errorType)
 {
   MessageTab *pMessageTab = 0;
   switch (errorType) {
@@ -1843,12 +1860,12 @@ void MainWindow::animateMessagesTabWidgetForNewMessage(StringHandler::OpenModeli
   }
 
   if (pMessageTab) {
-    pMessageTab->startAnimation();
+    pMessageTab->markTabChanged();
   }
 
   MessageTab *pAllMessageTab = qobject_cast<MessageTab*>(mpMessagesTabWidget->widget(0));
   if (pAllMessageTab) {
-    pAllMessageTab->startAnimation();
+    pAllMessageTab->markTabChanged();
   }
 }
 
@@ -2894,7 +2911,7 @@ void MainWindow::importModelfromOMNotebook()
   if (!file.open(QIODevice::ReadOnly))
   {
     QMessageBox::critical(this, QString("%1 - %2").arg(Helper::applicationName, Helper::error),
-                          GUIMessages::getMessage(GUIMessages::ERROR_OPENING_FILE).arg(fileName).arg(file.errorString()), Helper::ok);
+                          GUIMessages::getMessage(GUIMessages::ERROR_OPENING_FILE).arg(fileName).arg(file.errorString()), QMessageBox::Ok);
     hideProgressBar();
     return;
   }
@@ -2903,7 +2920,7 @@ void MainWindow::importModelfromOMNotebook()
   QDomDocument xmlDocument;
   if (!xmlDocument.setContent(&file))
   {
-    QMessageBox::critical(this, QString("%1 - %2").arg(Helper::applicationName, Helper::error), tr("Error reading the xml file"), Helper::ok);
+    QMessageBox::critical(this, QString("%1 - %2").arg(Helper::applicationName, Helper::error), tr("Error reading the xml file"), QMessageBox::Ok);
     hideProgressBar();
     return;
   }
@@ -3003,7 +3020,7 @@ void MainWindow::exportModelAsImage(bool copyToClipboard)
     pGraphicsView->mSkipBackground = oldSkipDrawBackground;
     if (!fileName.endsWith(".svg") && !copyToClipboard) {
       if (!modelImage.save(fileName)) {
-        QMessageBox::critical(this, QString("%1 - %2").arg(Helper::applicationName, Helper::error), tr("Error saving the image file"), Helper::ok);
+        QMessageBox::critical(this, QString("%1 - %2").arg(Helper::applicationName, Helper::error), tr("Error saving the image file"), QMessageBox::Ok);
       }
     } else if (copyToClipboard) {
       QClipboard *pClipboard = QApplication::clipboard();
@@ -3151,7 +3168,7 @@ void MainWindow::runOMSensPlugin()
     ModelInterface *pModelInterface = qobject_cast<ModelInterface*>(mpOMSensPlugin);
     pModelInterface->analyzeModel(pModelWidget->toOMSensData());
   } else {
-    QMessageBox::information(this, QString("%1 - %2").arg(Helper::applicationName).arg(Helper::information), tr("Please open a model before starting the OMSens plugin."), Helper::ok);
+    QMessageBox::information(this, QString("%1 - %2").arg(Helper::applicationName).arg(Helper::information), tr("Please open a model before starting the OMSens plugin."), QMessageBox::Ok);
   }
 #endif
 }
@@ -3543,7 +3560,7 @@ void MainWindow::readInterfaceData(LibraryTreeItem *pLibraryTreeItem)
   if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
     QMessageBox::critical(this, QString(Helper::applicationName).append(" - ").append(Helper::error),
                           GUIMessages::getMessage(GUIMessages::ERROR_OPENING_FILE).arg("interfaceData.xml")
-                          .arg(file.errorString()), Helper::ok);
+                          .arg(file.errorString()), QMessageBox::Ok);
   } else {
     QDomDocument modelDataDocument;
     modelDataDocument.setContent(&file);
@@ -3651,7 +3668,7 @@ void MainWindow::threeDViewerDockWidgetVisibilityChanged(bool visible)
 void MainWindow::messagesTabBarClicked(int index)
 {
   showMessageBrowser();
-  emit stopMessagesTabWidgetAnimation();
+  emit resetMessagesTabWidgetNames();
   MessagesWidget::instance()->getMessagesTabWidget()->setCurrentIndex(index);
 }
 
@@ -3667,6 +3684,7 @@ void MainWindow::messagesDockWidgetVisibilityChanged(bool visible)
     mpMessagesTabWidget->setVisible(!visible);
     if (!visible) {
       mpMessagesTabWidget->setCurrentIndex(MessagesWidget::instance()->getMessagesTabWidget()->currentIndex());
+      emit resetMessagesTabWidgetNames();
     }
   }
 }
@@ -4739,12 +4757,12 @@ void MainWindow::switchToWelcomePerspective()
  */
 void MainWindow::switchToModelingPerspective()
 {
+  ADD_SHOW_DIAGRAMVIEW();
   mpCentralStackedWidget->setCurrentWidget(mpModelWidgetContainer);
   mpModelWidgetContainer->currentModelWidgetChanged(mpModelWidgetContainer->getCurrentMdiSubWindow());
   if (OptionsDialog::instance()->getGeneralSettingsPage()->getHideVariablesBrowserCheckBox()->isChecked()) {
     mpVariablesDockWidget->hide();
   }
-  ADD_SHOW_DIAGRAMVIEW();
   // In case user has tabbed the dock widgets then make LibraryWidget active.
   QList<QDockWidget*> tabifiedDockWidgetsList = tabifiedDockWidgets(mpLibraryDockWidget);
   if (tabifiedDockWidgetsList.size() > 0) {
@@ -4777,7 +4795,7 @@ void MainWindow::switchToPlottingPerspective()
   mpModelSwitcherToolButton->setEnabled(false);
   // if no plotwindow is opened then open one for user
   if (mpPlotWindowContainer->subWindowList().size() == 0) {
-    mpPlotWindowContainer->addPlotWindow(true);
+    mpPlotWindowContainer->addPlotWindow();
   }
   if (pModelWidget) {
     mpPlotWindowContainer->showDiagramWindow(pModelWidget);
@@ -5153,13 +5171,12 @@ void MainWindow::toolBarVisibilityChanged(const QString &toolbar, bool visible)
  */
 MessageTab *MainWindow::createMessageTab(const QString &name, bool fixedTab)
 {
-  MessageTab *pMessageTab = new MessageTab(fixedTab);
+  MessageTab *pMessageTab = new MessageTab(name, fixedTab);
   int index = mpMessagesTabWidget->addTab(pMessageTab, name);
   pMessageTab->setIndex(index);
-  pMessageTab->setColor(mpMessagesTabWidget->tabBar()->tabTextColor(index));
   mpMessagesTabWidget->setCurrentIndex(index);
   connect(pMessageTab, SIGNAL(clicked(int)), mpMessagesTabWidget, SIGNAL(tabBarClicked(int)));
-  connect(this, SIGNAL(stopMessagesTabWidgetAnimation()), pMessageTab, SLOT(stopAnimation()));
+  connect(this, SIGNAL(resetMessagesTabWidgetNames()), pMessageTab, SLOT(resetTabText()));
   return pMessageTab;
 }
 
@@ -5361,9 +5378,10 @@ void AboutOMEditDialog::crashTest()
  * \brief MessageTab::MessageTab
  * \param fixedTab
  */
-MessageTab::MessageTab(bool fixedTab)
+MessageTab::MessageTab(const QString &name, bool fixedTab)
  : QWidget()
 {
+  mName = name;
   mpProgressLabel = new Label;
   mpProgressLabel->setElideMode(Qt::ElideMiddle);
   mpProgressLabel->installEventFilter(this);
@@ -5373,26 +5391,23 @@ MessageTab::MessageTab(bool fixedTab)
   mpProgressBar = new QProgressBar;
   mpProgressBar->setAlignment(Qt::AlignHCenter);
   mpProgressBar->installEventFilter(this);
-  // timer to change tab color
-  mTimer.setInterval(500); // 0.5 sec
-  connect(&mTimer, SIGNAL(timeout()), SLOT(updateTabTextColor()));
   // layout
-  QGridLayout *pMainLayout = new QGridLayout;
+  QHBoxLayout *pMainLayout = new QHBoxLayout;
   pMainLayout->setContentsMargins(5, 5, 5, 5);
-  pMainLayout->addWidget(mpProgressLabel, 0, 0);
+  pMainLayout->addWidget(mpProgressLabel);
   if (!fixedTab) {
-    pMainLayout->addWidget(mpProgressBar, 0, 1);
+    pMainLayout->addWidget(mpProgressBar);
   }
   setLayout(pMainLayout);
 }
 
 /*!
- * \brief MessageTab::startAnimation
- * Starts the timer.
+ * \brief MessageTab::markTabChanged
+ * Mark the tab changed by adding an asterisk to its name.
  */
-void MessageTab::startAnimation()
+void MessageTab::markTabChanged()
 {
-  mTimer.start();
+  MainWindow::instance()->getMessagesTabWidget()->tabBar()->setTabText(mIndex, QString(mName).append("*"));
 }
 
 /*!
@@ -5418,29 +5433,12 @@ void MessageTab::updateProgress(QProgressBar *pProgressBar)
 }
 
 /*!
- * \brief MessageTab::stopAnimation
- * Stops the timer.
- * Sets the animation counter to 0 and resets the tab text color.
+ * \brief MessageTab::resetTabText
+ * Resets the tab text to its original text.
  */
-void MessageTab::stopAnimation()
+void MessageTab::resetTabText()
 {
-  mTimer.stop();
-  mAnimationCounter = 0;
-  MainWindow::instance()->getMessagesTabWidget()->tabBar()->setTabTextColor(mIndex, mColor);
-}
-
-/*!
- * \brief MessageTab::updateTabTextColor
- * Updates the tab text color.
- */
-void MessageTab::updateTabTextColor()
-{
-  mAnimationCounter++;
-  // We can stop the animation after certain number of times. But for now we use MainWindow::stopMessagesTabWidgetAnimation() signal.
-//  if (mCount > 10) {
-//    return;
-//  }
-  MainWindow::instance()->getMessagesTabWidget()->tabBar()->setTabTextColor(mIndex, (mAnimationCounter % 2 == 0) ? mColor : Qt::transparent);
+  MainWindow::instance()->getMessagesTabWidget()->tabBar()->setTabText(mIndex, mName);
 }
 
 /*!

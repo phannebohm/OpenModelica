@@ -105,9 +105,9 @@ const char * const Helper::fmuPlatformNamePropertyId = "fmu-platform-name";
 QFontInfo Helper::systemFontInfo = QFontInfo(QFont());
 QFontInfo Helper::monospacedFontInfo = QFontInfo(QFont());
 #ifdef Q_OS_MAC
-QString Helper::toolsOptionsPath = "OMEdit->Preferences";
+QString Helper::toolsOptionsPath = tr("OMEdit->Preferences");
 #else
-QString Helper::toolsOptionsPath = "Tools->Options";
+QString Helper::toolsOptionsPath = tr("Tools->Options");
 #endif
 QString Helper::speedOptions = "10,5,2,1,0.5,0.2,0.1";
 /* Meta Modelica Types */
@@ -757,7 +757,7 @@ QString GUIMessages::getMessage(int type)
     case SAME_COMPONENT_NAME:
       return tr("A component with the name <b>%1</b> already exists or is a Modelica keyword. Please choose another name.");
     case MISMATCHED_CONNECTORS_IN_CONNECT:
-      return tr("Connectors %1 and %2 are not compatible.");
+      return tr("Connectors <b>%1</b> and <b>%2</b> are not compatible.");
     case SAME_COMPONENT_CONNECT:
       return tr("You cannot connect a component to itself.");
     case NO_MODELICA_CLASS_OPEN:
@@ -823,7 +823,7 @@ QString GUIMessages::getMessage(int type)
     case ITEM_DROPPED_ON_ITSELF:
       return tr("You cannot drop an item on itself.");
     case MAKE_REPLACEABLE_IF_PARTIAL:
-      return tr("The <b>%1</b> <i>%2</i> is defined as <b>partial</b>.<br />The component will be added as a <b>replaceable</b> component.");
+      return tr("<b>%1</b> is defined as <b>partial</b>.<br />The component will be added as a <b>replaceable</b> component.");
     case INNER_MODEL_NAME_CHANGED:
       return tr("A component with the name <b>%1</b> already exists. The name is changed from <b>%1</b> to <b>%2</b>.<br /><br />This is probably wrong because the component is declared as <b>inner</b>.");
     case FMU_GENERATED:

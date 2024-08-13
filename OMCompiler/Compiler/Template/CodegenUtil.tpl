@@ -104,11 +104,15 @@ template crefStr(ComponentRef cr)
 end crefStr;
 
 template crefStrNoUnderscore(ComponentRef cr)
- "Generates the name of a variable for variable name array. However does not use underscores on qualified names.
- a.b not a._b. Used for generating variable names that are exported e.g. xml files"
+ "Generates the name of a variable for variable name array.
+  However does not use underscores on qualified names.
+  a.b not a._b.
+
+  Used for generating variable names that are exported e.g. to xml files"
 ::=
   match cr
-  case CREF_IDENT(__) then '<%ident%><%subscriptsStr(subscriptLst)%>'
+  case CREF_IDENT(__) then
+    '<%ident%><%subscriptsStr(subscriptLst)%>'
   case CREF_QUAL(ident = "$DER") then 'der(<%crefStrNoUnderscore(componentRef)%>)'
   case CREF_QUAL(ident = "$CLKPRE") then 'previous(<%crefStrNoUnderscore(componentRef)%>)'
   case CREF_QUAL(__) then '<%ident%><%subscriptsStr(subscriptLst)%>.<%crefStrNoUnderscore(componentRef)%>'
@@ -193,6 +197,13 @@ template crefCCommentWithVariability(SimVar v)
 end crefCCommentWithVariability;
 
 /*********************************************************/
+
+template escapeSingleQuoteIdent(String ident)
+  "Escape single quotes from quoted identifiers."
+::=
+  // TODO: How to replace "'" with "\'" but not "\'" with "\\'"?
+  '<%System.stringReplace(System.stringReplace(ident, "\\'", "\\\\'"), "'", "\\'")%>'
+end escapeSingleQuoteIdent;
 
 template initDefaultValXml(DAE.Type type_)
 ::=
@@ -334,13 +345,13 @@ end ScalarVariableTypeNominalAttribute;
 template ScalarVariableTypeUnitAttribute(String unit)
  "generates code for unit attribute"
 ::=
-  '<% if unit then ' unit="<%unit%>"' %>'
+  '<% if unit then ' unit="<%Util.escapeModelicaStringToXmlString(unit)%>"' %>'
 end ScalarVariableTypeUnitAttribute;
 
 template ScalarVariableTypeDisplayUnitAttribute(String displayUnit)
  "generates code for displayUnit attribute"
 ::=
-  '<% if displayUnit then ' displayUnit="<%displayUnit%>"' %>'
+  '<% if displayUnit then ' displayUnit="<%Util.escapeModelicaStringToXmlString(displayUnit)%>"' %>'
 end ScalarVariableTypeDisplayUnitAttribute;
 
 template MinString(DAE.Exp exp)

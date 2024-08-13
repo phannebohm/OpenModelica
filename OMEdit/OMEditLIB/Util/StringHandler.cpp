@@ -1154,79 +1154,88 @@ QString StringHandler::escapeTextAnnotationString(QString value)
   return res;
 }
 
-#define CONSUME_CHAR(value,res,i) \
-  if (value.at(i) == '\\') { \
-  i++; \
-  switch (value[i].toAscii()) { \
-  case '\'': res.append('\''); break; \
-  case '"':  res.append('\"'); break; \
-  case '?':  res.append('\?'); break; \
-  case '\\': res.append('\\'); break; \
-  case 'a':  res.append('\a'); break; \
-  case 'b':  res.append('\b'); break; \
-  case 'f':  res.append('\f'); break; \
-  case 'n':  res.append('\n'); break; \
-  case 'r':  res.append('\r'); break; \
-  case 't':  res.append('\t'); break; \
-  case 'v':  res.append('\v'); break; \
-  } \
+#define CONSUME_CHAR(value, res, len, i) \
+  if (value[i] == '\\' && i + 1 < len) { \
+    i++; \
+    switch (value[i].toAscii()) { \
+      case '\'': res.append('\''); break; \
+      case '"':  res.append('\"'); break; \
+      case '?':  res.append('\?'); break; \
+      case '\\': res.append('\\'); break; \
+      case 'a':  res.append('\a'); break; \
+      case 'b':  res.append('\b'); break; \
+      case 'f':  res.append('\f'); break; \
+      case 'n':  res.append('\n'); break; \
+      case 'r':  res.append('\r'); break; \
+      case 't':  res.append('\t'); break; \
+      case 'v':  res.append('\v'); break; \
+      default:   res.append('\\') \
+                    .append(value[i]); \
+    } \
   } else { \
-  res.append(value[i]); \
+    res.append(value[i]); \
   }
 
 QString StringHandler::unparse(QString value)
 {
   QString res;
   value = value.trimmed();
-  if (value.length() > 1 && value.at(0) == '\"' && value.at(value.length() - 1) == '\"') {
-    value = value.mid(1, (value.length() - 2));
-    for (int i=0; i < value.length(); i++) {
-      CONSUME_CHAR(value,res,i);
+  int len = value.length();
+  if (len > 2 && value.at(0) == '\"' && value.at(len - 1) == '\"') {
+    len -= 2;
+    value = value.mid(1, len);
+    for (int i = 0; i < len; i++) {
+      CONSUME_CHAR(value, res, len, i);
     }
-    return res;
-  } else {
-    return "";
   }
+  return res;
 }
 
 QStringList StringHandler::unparseStrings(QString value)
 {
   QStringList lst;
-  value = value.trimmed();
-  if (value[0] != '{') return lst; // ERROR?
-  int i=1;
   QString res;
-  while (value[i] == '"') {
+  value = value.trimmed();
+  int len = value.length();
+  if (len < 2 || value[0] != '{') {
+    return lst; // ERROR?
+  }
+  if (value[1] == '}') {
+    return lst; // empty list
+  }
+  int i = 1;
+  while (i < len && value[i] == '"') {
     i++;
-    while (value.at(i) != '"') {
-      CONSUME_CHAR(value,res,i);
-      i++;
+    while ((i < len && value[i] != '"')
       /* if we have unexpected double quotes then, however omc should return \" */
-      /* remove this block once fixed in omc */
-      if (value[i] == '"' && value[i+1] != ',') {
-        if (value[i+1] != '}') {
-          CONSUME_CHAR(value,res,i);
-          i++;
-        }
-      }
-      /* remove this block once fixed in omc */
+      /* remove this condition once fixed in omc */
+      || (i + 1 < len && value[i + 1] != ',' && value[i + 1] != '}')
+      /* remove this condition once fixed in omc */
+    ) {
+      CONSUME_CHAR(value, res, len, i);
+      i++;
     }
-    i++;
-    if (value[i] == '}') {
+    if (i < len) {
       lst.append(res);
+      res = QString();
+      i++;
+    }
+    if (i == len) {
+      return lst; // ERROR?
+    }
+    if (value[i] == '}') {
       return lst;
     }
     if (value[i] == ',') {
-      lst.append(res);
       i++;
-      res = "";
-      while (value[i] == ' ')     // if we have space before next value e.g {"x", "y", "z"}
+      while (i < len && value[i] == ' ') { // if we have space before next value e.g {"x", "y", "z"}
         i++;
-      continue;
-    }
-    while (value[i] != '"' && !value[i].isNull()) {
-      i++;
-      fprintf(stderr, "error? malformed string-list. skipping: %c\n", value[i].toAscii());
+      }
+    } else {
+      while (i < len && value[i] != '"') {
+        fprintf(stderr, "error? malformed string-list. skipping: %c\n", value[i].toAscii());
+        i++;
+      }
     }
   }
   return lst; // ERROR?
@@ -1576,10 +1585,14 @@ void StringHandler::fillEncodingComboBox(QComboBox *pEncodingComboBox)
 
 QStringList StringHandler::makeVariableParts(QString variable)
 {
+  /* Do not split quoted variable.
+   * See https://github.com/OpenModelica/OpenModelica/issues/10599#issuecomment-2077331404
+   */
+  QRegularExpression re("\\.(?=(?:[^\']*\'[^\']*\')*[^\']*$)(?![^\\[\\]]*\\])");
 #if (QT_VERSION >= QT_VERSION_CHECK(5, 14, 0))
-  return variable.split(QRegExp("\\.(?![^\\[\\]]*\\])"), Qt::SkipEmptyParts);
+  return variable.split(re, Qt::SkipEmptyParts);
 #else // QT_VERSION_CHECK
-  return variable.split(QRegExp("\\.(?![^\\[\\]]*\\])"), QString::SkipEmptyParts);
+  return variable.split(re, QString::SkipEmptyParts);
 #endif // QT_VERSION_CHECK
 }
 
@@ -1592,7 +1605,7 @@ QStringList StringHandler::makeVariablePartsWithInd(QString variable)
 
   if (!varParts.isEmpty()) {
 	  QString* lastStr = &(varParts.last());
-	  int i = lastStr->lastIndexOf(QRegExp("\\[\\d+\\]"));
+	  int i = lastStr->lastIndexOf(QRegularExpression("\\[\\d+\\]"));
 	  if(i>=0){
 		  QString indexPart = *lastStr;
 		  indexPart.remove(0,i);
@@ -1800,19 +1813,20 @@ bool StringHandler::isFileWritAble(QString filePath)
 }
 
 /*!
- * \brief StringHandler::containsSpace
- * Returns true if string contains a space.
- * \param str
+ * \brief StringHandler::nameContainsComma
+ * Checks if the name contains the comma.
+ * Quoted identifiers are allowed to have comma in them.
+ * \param name
  * \return
  */
-bool StringHandler::containsSpace(QString str)
+bool StringHandler::nameContainsComma(const QString &name)
 {
-  for (int i = 0 ; i < str.size() ; i++) {
-    if (str.at(i).isSpace()) {
-      return true;
-    }
+  QString str = name.trimmed();
+  if (str.contains(',') && !(str.startsWith('\'') && str.endsWith('\''))) {
+    return true;
+  } else {
+    return false;
   }
-  return false;
 }
 
 /*!

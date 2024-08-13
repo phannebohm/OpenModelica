@@ -187,7 +187,7 @@ public:
   bool addClassAnnotation(QString className, QString annotation);
   QString getDefaultComponentName(QString className);
   QString getDefaultComponentPrefixes(QString className);
-  bool addComponent(QString name, QString className, QString componentName, QString placementAnnotation);
+  bool addComponent(QString name, QString componentName, QString className, QString placementAnnotation);
   bool deleteComponent(QString name, QString componentName);
   bool renameComponent(QString className, QString oldName, QString newName);
   bool updateComponent(QString name, QString className, QString componentName, QString placementAnnotation);
@@ -199,7 +199,7 @@ public:
                               QString isReplaceAble, QString variability, QString isInner, QString isOuter, QString causality);
   bool setComponentComment(QString className, QString componentName, QString comment);
   bool setComponentDimensions(QString className, QString componentName, QString dimensions);
-  bool addConnection(QString from, QString to, QString className, QString annotation);
+  void addConnection(QString from, QString to, QString className, QString annotation);
   bool deleteConnection(QString from, QString to, QString className);
   bool addTransition(QString className, QString from, QString to, QString condition, bool immediate, bool reset, bool synchronize, int priority, QString annotation);
   bool deleteTransition(QString className, QString from, QString to, QString condition, bool immediate, bool reset, bool synchronize, int priority);

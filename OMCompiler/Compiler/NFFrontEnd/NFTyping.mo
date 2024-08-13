@@ -144,9 +144,15 @@ algorithm
 
     case Class.INSTANCED_CLASS(elements = cls_tree as ClassTree.FLAT_TREE())
       algorithm
-        for c in cls_tree.components loop
-          typeComponent(c, context);
-        end for;
+        if InstContext.inInstanceAPI(context) then
+          for c in cls_tree.components loop
+            typeComponentTry(c, context);
+          end for;
+        else
+          for c in cls_tree.components loop
+            typeComponent(c, context);
+          end for;
+        end if;
 
         () := match c.ty
           case Type.COMPLEX(complexTy = ComplexType.RECORD(constructor = con))
@@ -356,7 +362,7 @@ protected
 algorithm
   comp := InstNode.component(component);
 
-  if not Component.isConnector(comp) or Component.isExpandableConnector(comp) then
+  if not ConnectorType.isConnector(Component.connectorType(comp)) then
     return;
   end if;
 
@@ -476,6 +482,7 @@ algorithm
     case Component.COMPONENT() then c.ty;
     case Component.ITERATOR() then c.ty;
     case Component.ENUM_LITERAL(literal = Expression.ENUM_LITERAL(ty = ty)) then ty;
+    case Component.INVALID_COMPONENT() then Component.getType(c);
 
     // Any other type of component shouldn't show up here.
     else
@@ -486,6 +493,23 @@ algorithm
 
   end match;
 end typeComponent;
+
+function typeComponentTry
+  input InstNode componentNode;
+  input InstContext.Type context;
+protected
+  Component comp;
+algorithm
+  ErrorExt.setCheckpoint(getInstanceName());
+  try
+    typeComponent(componentNode, context);
+  else
+    comp := InstNode.component(componentNode);
+    comp := Component.INVALID_COMPONENT(comp, ErrorExt.printCheckpointMessagesStr());
+    InstNode.updateComponent(comp, componentNode);
+  end try;
+  ErrorExt.delCheckpoint(getInstanceName());
+end typeComponentTry;
 
 function checkComponentStreamAttribute
   input ConnectorType.Type cty;
@@ -582,6 +606,7 @@ algorithm
       TypingError ty_err;
       Integer parent_dims, dim_index;
       Boolean evaluated;
+      Ceval.EvalTarget target;
 
     // A dimension that we're already trying to type.
     case Dimension.UNTYPED(isProcessing = true)
@@ -614,7 +639,9 @@ algorithm
               exp := Ceval.tryEvalExp(exp);
               evaluated := Expression.isLiteral(exp);
             else
-              exp := Ceval.evalExp(exp, Ceval.EvalTarget.DIMENSION(component, index, exp, info));
+              target := Ceval.EvalTarget.new(info, context,
+                SOME(Ceval.EvalTargetData.DIMENSION_DATA(component, index, exp)));
+              exp := Ceval.evalExp(exp, target);
             end if;
           else
             Error.addSourceMessage(Error.DIMENSION_NOT_KNOWN, {Expression.toString(exp)}, info);
@@ -634,8 +661,23 @@ algorithm
       then
         dim;
 
-    // If the dimension is unknown in a function, keep it unknown.
-    case Dimension.UNKNOWN() guard InstContext.inFunction(context)
+    // Dimensions in a function can be flexible (non-input component with no
+    // binding) or determined by the call arguments (input component), keep the
+    // dimension unknown for these cases.
+    case Dimension.UNKNOWN() guard InstContext.inFunction(context) and
+                                   ((Binding.isUnbound(binding) and InstNode.isOutput(component)) or
+                                    not InstNode.isOutput(component))
+      then dimension;
+
+    // A dimension of a function output parameter that depends on e.g. an input
+    // can't be determined here, leave it unknown and let the call typing handle it.
+    // TODO: This assumes any binding that contains crefs can't be evaluated to
+    //       avoid e.g. using the default value of an input parameter, but some
+    //       cases such as an output dimension depending on another output
+    //       dimension could be fine.
+    case Dimension.UNKNOWN() guard InstContext.inFunction(context) and
+                                   Binding.hasExp(binding) and
+                                   Expression.contains(Binding.getExp(binding), Expression.isCref)
       then dimension;
 
     // If the dimension is unknown in a class, try to infer it from the components binding.
@@ -700,7 +742,9 @@ algorithm
               if InstContext.inRelaxed(context) then
                 exp := Ceval.tryEvalExp(exp);
               else
-                exp := Ceval.evalExp(exp, Ceval.EvalTarget.DIMENSION(component, index, exp, info));
+                target := Ceval.EvalTarget.new(info, context,
+                  SOME(Ceval.EvalTargetData.DIMENSION_DATA(component, index, exp)));
+                exp := Ceval.evalExp(exp, target);
               end if;
 
               exp := subscriptDimExp(exp, component);
@@ -765,7 +809,8 @@ algorithm
     if InstContext.inRelaxed(context) then
       e := Ceval.tryEvalExp(e);
     else
-      e := Ceval.evalExp(e, Ceval.EvalTarget.DIMENSION(component, index, e, info));
+      e := Ceval.evalExp(e, Ceval.EvalTarget.new(info, context,
+        SOME(Ceval.EvalTargetData.DIMENSION_DATA(component, index, e))));
     end if;
 
     (dim, error) := nthDimensionBoundsChecked(Expression.typeOf(e), dim_index);
@@ -961,7 +1006,7 @@ algorithm
 
   () := match c
     case Component.COMPONENT()
-      guard Component.isDeleted(c)
+      guard Component.isDeleted(c) or Component.isInvalid(c)
       then ();
 
     case Component.COMPONENT(binding = Binding.UNTYPED_BINDING(), attributes = attrs)
@@ -1060,6 +1105,8 @@ algorithm
       then
         ();
 
+    case Component.INVALID_COMPONENT() then ();
+
     else
       algorithm
         Error.assertion(false, getInstanceName() + " got invalid node " + InstNode.name(node), sourceInfo());
@@ -1118,15 +1165,16 @@ algorithm
       Expression exp;
       Type ty;
       Variability var;
+      Purity purity;
       SourceInfo info;
       NFBinding.EachType each_ty;
 
     case Binding.UNTYPED_BINDING(bindingExp = exp)
       algorithm
         info := Binding.getInfo(binding);
-        (exp, ty, var) := typeExp(exp, context, info);
+        (exp, ty, var, purity) := typeExp(exp, context, info);
       then
-        Binding.TYPED_BINDING(exp, ty, var, binding.eachType,
+        Binding.TYPED_BINDING(exp, ty, var, purity, binding.eachType,
           Mutable.create(NFBinding.EvalState.NOT_EVALUATED), false,
           binding.source, binding.info);
 
@@ -1152,14 +1200,17 @@ algorithm
       Expression exp;
       Type ty;
       Variability var;
+      Purity purity;
       SourceInfo info;
       MatchKind mk;
       NFBinding.EvalState eval_state;
+      InstContext.Type next_context;
 
     case Binding.UNTYPED_BINDING(bindingExp = exp)
       algorithm
+        next_context := InstContext.set(context, NFInstContext.CONDITION);
         info := Binding.getInfo(condition);
-        (exp, ty, var) := typeExp(exp, InstContext.set(context, NFInstContext.CONDITION), info);
+        (exp, ty, var, purity) := typeExp(exp, next_context, info);
         (exp, _, mk) := TypeCheck.matchTypes(ty, Type.BOOLEAN(), exp);
 
         if TypeCheck.isIncompatibleMatch(mk) then
@@ -1179,7 +1230,7 @@ algorithm
         if evaluate then
           ErrorExt.setCheckpoint(getInstanceName());
           try
-            exp := Ceval.evalExp(exp, Ceval.EvalTarget.CONDITION(info));
+            exp := Ceval.evalExp(exp, Ceval.EvalTarget.new(info, next_context));
             exp := simplifyDimExp(exp);
             eval_state := NFBinding.EvalState.EVALUATED;
           else
@@ -1187,7 +1238,7 @@ algorithm
           ErrorExt.rollBack(getInstanceName());
         end if;
       then
-        Binding.TYPED_BINDING(exp, ty, var, NFBinding.EachType.NOT_EACH,
+        Binding.TYPED_BINDING(exp, ty, var, purity, NFBinding.EachType.NOT_EACH,
           Mutable.create(eval_state), false, condition.source, info);
 
   end match;
@@ -1669,7 +1720,7 @@ algorithm
 
         if Type.isConditionalArray(ty) then
           e := Expression.map(e,
-            function evaluateArrayIf(target = Ceval.EvalTarget.GENERIC(info)));
+            function evaluateArrayIf(target = Ceval.EvalTarget.new(info, context)));
           (e, ty, _) := typeExp(e, context, info);
         end if;
 
@@ -1963,7 +2014,7 @@ algorithm
         // The context used when typing a component node depends on where the
         // component was declared, not where it's used. This can be different to
         // the given context, e.g. for package constants used in a function.
-        node_ty := typeComponent(cref.node, crefContext(cref.node), typeChildren = firstPart or not InstContext.inDimension(context));
+        node_ty := typeComponent(cref.node, crefContext(cref.node, context), typeChildren = firstPart or not InstContext.inDimension(context));
 
         (subs, subs_var) := typeSubscripts(cref.subscripts, node_ty, Expression.CREF(node_ty, cref), context, info);
         (rest_cr, rest_var) := typeCref2(cref.restCref, context, info, false);
@@ -1992,6 +2043,7 @@ end typeCref2;
 
 function crefContext
   input InstNode crefNode;
+  input InstContext.Type currentContext;
   output InstContext.Type context;
 protected
   InstNode parent;
@@ -1999,16 +2051,19 @@ protected
 algorithm
   parent := InstNode.explicitParent(crefNode);
 
+  context := InstContext.clearScopeFlags(currentContext);
+
   // Records might actually be record constructors that should count as
   // functions here, such record constructors are always root classes.
   if not InstNode.isRootClass(parent) then
-    context := NFInstContext.CLASS;
+    context := InstContext.set(context, NFInstContext.CLASS);
     return;
   end if;
 
   parent_res := InstNode.restriction(parent);
   context := if Restriction.isFunction(parent_res) or Restriction.isRecord(parent_res) then
-    NFInstContext.FUNCTION else NFInstContext.CLASS;
+    InstContext.set(context, NFInstContext.FUNCTION) else
+    InstContext.set(context, NFInstContext.CLASS);
 end crefContext;
 
 function typeSubscripts
@@ -2458,7 +2513,7 @@ algorithm
 
         if variability <= Variability.STRUCTURAL_PARAMETER and purity == Purity.PURE then
           // Evaluate the index if it's a constant.
-          index := Ceval.evalExp(index, Ceval.EvalTarget.IGNORE_ERRORS());
+          index := Ceval.evalExp(index, NFCeval.noTarget);
 
           // TODO: Print an error if the index couldn't be evaluated to an int.
           Expression.INTEGER(iindex) := index;
@@ -2632,7 +2687,7 @@ function evaluateCondition
 protected
   Expression cond_exp;
 algorithm
-  cond_exp := Ceval.evalExp(condExp, Ceval.EvalTarget.GENERIC(info));
+  cond_exp := Ceval.evalExp(condExp, Ceval.EvalTarget.new(info, context));
 
   if Expression.arrayAllEqual(cond_exp) then
     cond_exp := Expression.arrayFirstScalar(cond_exp);
@@ -2814,7 +2869,7 @@ algorithm
             algorithm
               // The only other kind of expression that's allowed is scalar constants.
               if Type.isScalarBuiltin(ty) and var == Variability.CONSTANT then
-                outArg := Ceval.evalExp(outArg, Ceval.EvalTarget.GENERIC(info));
+                outArg := Ceval.evalExp(outArg, Ceval.EvalTarget.new(info, NFInstContext.FUNCTION));
               else
                 Error.addSourceMessage(Error.EXTERNAL_ARG_WRONG_EXP,
                   {Expression.toString(outArg)}, info);
@@ -3364,6 +3419,10 @@ function checkAssignment
   input InstContext.Type context;
   input SourceInfo info;
 algorithm
+  if InstContext.inInstanceAPI(context) then
+    return;
+  end if;
+
   () := match lhsExp
     local
       Integer i;
@@ -3662,7 +3721,16 @@ algorithm
 
   // The first argument must be a cref.
   cref := match crefExp
-    case Expression.CREF() then crefExp.cref;
+    case Expression.CREF()
+      algorithm
+        if ComponentRef.isIterator(crefExp.cref) then
+          Error.addSourceMessage(Error.ASSIGN_ITERATOR_ERROR,
+            {ComponentRef.toString(crefExp.cref)}, info);
+          fail();
+        end if;
+      then
+        crefExp.cref;
+
     else
       algorithm
         Error.addSourceMessage(Error.REINIT_MUST_BE_VAR_OR_ARRAY, {}, info);

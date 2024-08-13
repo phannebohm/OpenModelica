@@ -279,12 +279,14 @@ package SimCodeVar
       Option<Integer> fmi_index "index of variable in modelDescription.xml";
       list<String> numArrayElement;
       Boolean isValueChangeable;
+      Boolean isEncrypted;
       Boolean isProtected;
       Option<Boolean> hideResult;
       Option<String> matrixName;
       Option<Variability> variability "FMI-2.0 variabilty attribute";
       Option<Initial> initial_ "FMI-2.0 initial attribute";
       Option<DAE.ComponentRef> exportVar "variables will only be exported to the modelDescription.xml if this attribute is SOME(cref)";
+      Boolean relativeQuantity           "annotation(absoluteValue=false) If false, then the variable defines a relativeQuantity=true else relativeQuantity=false";
     end SIMVAR;
   end SimVar;
 
@@ -767,6 +769,7 @@ package SimCode
     record MODELINFO
       Absyn.Path name;
       String description;
+      String version;
       String directory;
       VarInfo varInfo;
       SimCodeVar.SimVars vars;
@@ -1653,12 +1656,17 @@ package BackendDAE
   end ZeroCrossing;
 
   uniontype SimIterator
-    record SIM_ITERATOR
+    record SIM_ITERATOR_RANGE
       DAE.ComponentRef name;
       Integer start;
       Integer step;
       Integer size;
-    end SIM_ITERATOR;
+    end SIM_ITERATOR_RANGE;
+    record SIM_ITERATOR_LIST
+      DAE.ComponentRef name;
+      list<Integer> lst;
+      Integer size;
+    end SIM_ITERATOR_LIST;
   end SimIterator;
 
   uniontype TimeEvent

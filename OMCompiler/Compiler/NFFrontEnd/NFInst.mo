@@ -206,8 +206,10 @@ algorithm
   // Collect a tree of all functions that are still used in the flat model.
   functions := Flatten.collectFunctions(flatModel);
 
-  // Dump the flat model to a string if dumpFlat = true.
-  flatString := if dumpFlat then InstUtil.dumpFlatModel(flatModel, functions) else "";
+  // Dump the flat model to a string if dumpFlat = true and --baseModelicaOptions=scalarize is not set.
+  if not Flags.isConfigFlagSet(Flags.BASE_MODELICA_OPTIONS, "scalarize") then
+    flatString := if dumpFlat then InstUtil.dumpFlatModel(flatModel, functions) else "";
+  end if;
 
   InstUtil.dumpFlatModelDebug("simplify", flatModel, functions);
   InstUtil.printStructuralParameters(flatModel);
@@ -224,6 +226,10 @@ algorithm
   flatModel := InstUtil.replaceEmptyArrays(flatModel);
   InstUtil.dumpFlatModelDebug("scalarize", flatModel, functions);
 
+  // Dump the flat model to a string if dumpFlat = true and --baseModelicaOptions=scalarize is set.
+  if Flags.isConfigFlagSet(Flags.BASE_MODELICA_OPTIONS, "scalarize") then
+    flatString := if dumpFlat then InstUtil.dumpFlatModel(flatModel, functions) else "";
+  end if;
 
   if Flags.getConfigBool(Flags.NEW_BACKEND) then
     // Combine the binaries to multaries. For now only on new backend
@@ -244,7 +250,7 @@ algorithm
 
   // propagate hide result attribute
   // ticket #4346
-  flatModel.variables := list(Variable.propagateAnnotation("HideResult", false, var) for var in flatModel.variables);
+  flatModel.variables := list(Variable.propagateAnnotation("HideResult", false, true, var) for var in flatModel.variables);
 
   flatModel := FlatModel.removeNonTopLevelDirections(flatModel);
 
@@ -408,7 +414,8 @@ function instantiate
 algorithm
   node := expand(node);
 
-  if instPartial or not InstNode.isPartial(node) or InstContext.inRelaxed(context) then
+  if instPartial or not InstNode.isPartial(node) or
+     InstContext.inRelaxed(context) or InstContext.inRedeclared(context) then
     node := instClass(node, mod, NFAttributes.DEFAULT_ATTR, true, 0, parent, context);
   end if;
 end instantiate;
@@ -426,6 +433,7 @@ function makeTopNode
   input list<SCode.Element> annotationClasses;
   output InstNode topNode;
 protected
+  list<SCode.Element> top_classes;
   SCode.Element cls_elem, ann_package;
   Class cls, ann_cls;
   ClassTree elems;
@@ -433,11 +441,17 @@ protected
   InstNode ann_node;
   UnorderedMap<String, InstNode> generated_inners;
 algorithm
+  top_classes := topClasses;
+
+  if Flags.getConfigBool(Flags.BASE_MODELICA) then
+    top_classes := NFBuiltinFuncs.BASE_MODELICA_POSITIVE_MAX_SIMPLE :: top_classes;
+  end if;
+
   // Create a fake SCode.Element for the top scope, so we don't have to make the
   // definition in InstNode an Option only because of this node.
   cls_elem := SCode.CLASS("<top>", SCode.defaultPrefixes, SCode.NOT_ENCAPSULATED(),
     SCode.NOT_PARTIAL(), SCode.R_PACKAGE(),
-    SCode.PARTS(topClasses, {}, {}, {}, {}, {}, {}, NONE()),
+    SCode.PARTS(top_classes, {}, {}, {}, {}, {}, {}, NONE()),
     SCode.COMMENT(NONE(), NONE()), AbsynUtil.dummyInfo);
 
   // Make an InstNode for the top scope, to use as the parent of the top level elements.
@@ -469,7 +483,7 @@ algorithm
   topNode := InstNode.setNodeType(node_ty, topNode);
 
   // Create a new class from the elements, and update the inst node with it.
-  cls := Class.fromSCode(topClasses, false, topNode, NFClass.DEFAULT_PREFIXES);
+  cls := Class.fromSCode(top_classes, false, topNode, NFClass.DEFAULT_PREFIXES);
   // The class needs to be expanded to allow lookup in it. The top scope will
   // only contain classes, so we can do this instead of the whole expandClass.
   cls := Class.initExpandedClass(cls);
@@ -637,7 +651,6 @@ algorithm
     // A partial derivative of a function, function df = der(f, x).
     // Treat it as a short class definition here,
     case SCode.PDER()
-      guard Flags.getConfigBool(Flags.NEW_BACKEND)
       then expandClassDerived(def,
          SCode.ClassDef.DERIVED(Absyn.TypeSpec.TPATH(cdef.functionPath, NONE()),
                                 SCode.NOMOD(), SCode.defaultVarAttr),
@@ -1243,47 +1256,63 @@ end instExternalObjectStructors;
 function instPackage
   "This function instantiates a package given a package node. If the package has
    already been instantiated, then the cached instance from the node is
-   returned. Otherwise the node is fully instantiated, the instance is added to
-   the node's cache, and the instantiated node is returned."
+   returned. Otherwise the node is instantiated, the instance is added to the
+   node's cache, and the instantiated node is returned."
   input output InstNode node;
   input InstContext.Type context;
 protected
   CachedData cache;
   InstNode inst;
+  import NFInstNode.PackageCacheState;
+  PackageCacheState state;
 algorithm
   cache := InstNode.getPackageCache(node);
 
-  node := match cache
-    case CachedData.PACKAGE() then cache.instance;
-
-    case CachedData.NO_CACHE()
-      algorithm
-        // Cache the package node itself first, to avoid instantiation loops if
-        // the package uses itself somehow.
-        InstNode.setPackageCache(node, CachedData.PACKAGE(node));
-
-        if InstContext.inFastLookup(context) then
-          inst := expand(node);
-        else
-          // Instantiate the node.
-          inst := instantiate(node, context = context);
-
-          // Cache the instantiated node and instantiate expressions in it too.
-          if not InstNode.isPartial(inst) or InstContext.inRelaxed(context) then
-            InstNode.setPackageCache(node, CachedData.PACKAGE(inst));
-            instExpressions(inst, context = context);
-          end if;
-        end if;
-      then
-        inst;
-
-    else
-      algorithm
-        Error.assertion(false, getInstanceName() + " got invalid instance cache", sourceInfo());
-      then
-        fail();
-
+  // Check which state the cached package is in, if any.
+  (inst, state) := match cache
+    case CachedData.PACKAGE() then (cache.instance, cache.state);
+    else (node, PackageCacheState.NOT_INITIALIZED);
   end match;
+
+  // If the package is already fully instantiated then we don't need to do anything.
+  if state == PackageCacheState.INSTANTIATED then
+    node := inst;
+    return;
+  end if;
+
+  // If we're currently trying to instantiate this package then return it
+  // unchanged to avoid an instantiation loop.
+  if state == PackageCacheState.PROCESSING then
+    node := inst;
+    return;
+  end if;
+
+  // When doing lookup in some of the API functions we only need an expanded package.
+  if InstContext.inFastLookup(context) then
+    if state < PackageCacheState.EXPANDED then
+      InstNode.setPackageCache(node, node, PackageCacheState.PROCESSING);
+      inst := expand(node);
+      InstNode.setPackageCache(node, inst, PackageCacheState.EXPANDED);
+    end if;
+
+    return;
+  end if;
+
+  // Otherwise we need to at least partially instantiate the package.
+  if state < PackageCacheState.PARTIALLY_INSTANTIATED then
+    InstNode.setPackageCache(node, node, PackageCacheState.PROCESSING);
+    inst := instantiate(node, context = context);
+    InstNode.setPackageCache(node, inst, PackageCacheState.PARTIALLY_INSTANTIATED);
+  end if;
+
+  // If the package isn't partial we also instantiate expressions in it.
+  if state < PackageCacheState.INSTANTIATED and
+     (not InstNode.isPartial(inst) or InstContext.inRelaxed(context)) then
+    InstNode.setPackageCache(node, inst, PackageCacheState.INSTANTIATED);
+    instExpressions(inst, context = context);
+  end if;
+
+  node := inst;
 end instPackage;
 
 function modifyExtends
@@ -1493,14 +1522,24 @@ algorithm
             if InstNode.isProtected(node) and not (InstNode.isExtends(parent) or InstNode.isBaseClass(parent)) then
               Error.addMultiSourceMessage(Error.NF_MODIFY_PROTECTED,
                 {InstNode.name(node), Modifier.toString(mod)}, {Modifier.info(mod), InstNode.info(node)});
-              fail();
+
+              if InstContext.inInstanceAPI(context) then
+                continue;
+              else
+                fail();
+              end if;
             end if;
 
             if InstNode.isOnlyOuter(node) then
               Error.addSourceMessage(Error.OUTER_ELEMENT_MOD,
                 {Modifier.toString(mod, printName = false), Modifier.name(mod)},
                 Modifier.info(mod));
-              fail();
+
+              if InstContext.inInstanceAPI(context) then
+                continue;
+              else
+                fail();
+              end if;
             end if;
 
             if InstNode.isComponent(node) then
@@ -1836,6 +1875,7 @@ algorithm
       Component inst_comp;
       InstNode ty_node;
       Class ty;
+      SCode.Element elementDefinition;
       Boolean in_function;
       Restriction parent_res, res;
 
@@ -1875,7 +1915,7 @@ algorithm
         // is created by instClass. To break the circle we leave the class node
         // empty here, and let instClass set it for us instead.
         inst_comp := Component.COMPONENT(InstNode.EMPTY_NODE(), Type.UNKNOWN(),
-          binding, condition, attr, NONE(), SOME(component.comment),
+          binding, condition, attr, SOME(component.comment),
           ComponentState.PartiallyInstantiated, info);
         InstNode.updateComponent(inst_comp, node);
 
@@ -1890,6 +1930,15 @@ algorithm
           ty := InstNode.getClass(ty_node);
           res := Class.restriction(ty);
 
+          /* fix issue https://github.com/OpenModelica/OpenModelica/issues/12533
+           * check if restriction is TYPE and has named annotation absolulteValue=false, then copy the derived annotations to components annotation
+           * (e.g) type TemperatureDifference = Real (final quantity="ThermodynamicTemperature", final unit="K") annotation(absoluteValue=false);
+          */
+          elementDefinition := InstNode.definition(ty_node);
+          if (Restriction.isType(res) and SCodeUtil.optCommentHasBooleanNamedAnnotationFalse(SCodeUtil.getElementComment(elementDefinition), "absoluteValue")) then
+            InstNode.componentApply(node, Component.setComment, SCodeUtil.getElementComment(elementDefinition));
+          end if;
+
           if not InstContext.inRedeclared(context) then
             checkPartialComponent(node, attr, ty_node, Class.isPartial(ty), res, context, info);
           end if;
@@ -1903,6 +1952,12 @@ algorithm
           if not referenceEq(attr, ty_attr) then
             InstNode.componentApply(node, Component.setAttributes, ty_attr);
           end if;
+
+          if useBinding and Binding.isUnbound(binding) and not InstContext.inFunction(context) and
+             ty_attr.variability <= Variability.PARAMETER and Restriction.isType(res) then
+            updateParameterBinding(node, context);
+          end if;
+
         end if;
       then
         ();
@@ -2111,7 +2166,7 @@ algorithm
         cmt := orig_comp.comment;
       then
         Component.COMPONENT(rdcl_comp.classInst, rdcl_ty, binding, condition,
-          attr, NONE(), cmt, ComponentState.PartiallyInstantiated, rdcl_comp.info);
+          attr, cmt, ComponentState.PartiallyInstantiated, rdcl_comp.info);
 
     else
       algorithm
@@ -2234,6 +2289,36 @@ algorithm
     fail();
   end if;
 end checkRecursiveDefinition;
+
+function updateParameterBinding
+  "Tries to update the binding of a fixed parameter without binding by using the
+   parameter's start attribute."
+  input InstNode node;
+  input InstContext.Type context;
+protected
+  Component comp;
+  Binding binding;
+algorithm
+  comp := InstNode.component(node);
+
+  if not Component.getFixedAttribute(comp) or InstNode.hasBinding(node) then
+    // If the parameter is not fixed or belongs to a record with a binding, do nothing.
+    return;
+  end if;
+
+  binding := Component.getTypeAttributeBinding(comp, "start");
+
+  if Binding.isBound(binding) and not Binding.hasTypeOrigin(binding) then
+    if not InstContext.inRelaxed(context) then
+      Error.addSourceMessage(Error.UNBOUND_PARAMETER_WITH_START_VALUE_WARNING,
+        {AbsynUtil.pathString(InstNode.scopePath((node))), Binding.toString(binding)}, InstNode.info(node));
+    end if;
+
+    binding := Binding.unpropagate(binding, node);
+    comp := Component.setBinding(binding, comp);
+    InstNode.updateComponent(comp, node);
+  end if;
+end updateParameterBinding;
 
 function instDimension
   input output Dimension dimension;
@@ -3472,6 +3557,15 @@ protected
   Restriction res;
 algorithm
   () := match lhs
+    case Expression.CREF()
+      guard ComponentRef.isIterator(lhs.cref)
+      algorithm
+        // Give an error if assigning to an iterator.
+        Error.addSourceMessage(Error.ASSIGN_ITERATOR_ERROR,
+          {ComponentRef.toString(lhs.cref)}, info);
+      then
+        fail();
+
     case Expression.CREF()
       guard ComponentRef.isCref(lhs.cref)
       algorithm

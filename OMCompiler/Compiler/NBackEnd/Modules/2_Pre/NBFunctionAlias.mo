@@ -42,7 +42,6 @@ protected
   import DAE;
 
   // NF imports
-  import BackendExtension = NFBackendExtension;
   import Call = NFCall;
   import ComponentRef = NFComponentRef;
   import Dimension = NFDimension;
@@ -57,6 +56,8 @@ protected
   import BEquation = NBEquation;
   import Inline = NBInline;
   import NBEquation.{Equation, EquationPointers, EqData, EquationAttributes, EquationKind, Iterator};
+  import Partitioning = NBPartitioning;
+  import NBPartitioning.BClock;
   import BVariable = NBVariable;
   import NBVariable.{VariablePointers, VarData};
 
@@ -94,7 +95,7 @@ public
       then bdae;
 
       else algorithm
-        Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed!"});
+        Error.addMessage(Error.INTERNAL_ERROR, {getInstanceName() + " failed."});
       then fail();
     end match;
   end main;
@@ -176,8 +177,9 @@ protected
         output list<Pointer<Variable>> vars;
       algorithm
         vars := match exp
-          case Expression.CREF() then {BVariable.getVarPointer(exp.cref)};
-          case Expression.TUPLE() then List.flatten(list(getVarsExp(elem) for elem in exp.elements));
+          case Expression.CREF(cref = ComponentRef.WILD()) then {};
+          case Expression.CREF()    then {BVariable.getVarPointer(exp.cref)};
+          case Expression.TUPLE()   then List.flatten(list(getVarsExp(elem) for elem in exp.elements));
           else algorithm
             Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because function alias auxilliary has a return type that currently cannot be parsed: " + Expression.toString(exp)});
           then fail();
@@ -218,9 +220,10 @@ protected
     extends Module.functionAliasInterface;
   protected
     UnorderedMap<Call_Id, Call_Aux> map = UnorderedMap.new<Call_Aux>(Call_Id.hash, Call_Id.isEqual);
+    UnorderedMap<BClock, ComponentRef> clock_map;
     Pointer<Integer> index = Pointer.create(1);
-    list<Pointer<Variable>> new_vars_disc = {}, new_vars_cont = {}, new_vars_init = {}, new_vars_recd = {};
-    list<Pointer<Equation>> new_eqns_disc = {}, new_eqns_cont = {}, new_eqns_init = {};
+    list<Pointer<Variable>> new_vars_disc = {}, new_vars_cont = {}, new_vars_init = {}, new_vars_recd = {}, new_vars_clck;
+    list<Pointer<Equation>> new_eqns_disc = {}, new_eqns_cont = {}, new_eqns_init = {}, new_eqns_clck;
     list<tuple<Call_Id, Call_Aux>> debug_lst_sim, debug_lst_ini;
     list<tuple<String, String>> debug_str;
     Integer debug_max_length;
@@ -284,6 +287,9 @@ protected
             new_eqns_init := new_eqn :: new_eqns_init;
           end if;
         end for;
+
+        // create clock alias equations
+        (new_eqns_clck, new_vars_clck, clock_map) := addClockedAlias(eqData.simulation, eqData.uniqueIndex);
       then ();
       else ();
     end match;
@@ -292,9 +298,11 @@ protected
     varData := VarData.addTypedList(varData, new_vars_disc, VarData.VarType.DISCRETE);
     varData := VarData.addTypedList(varData, new_vars_init, VarData.VarType.PARAMETER);
     varData := VarData.addTypedList(varData, new_vars_recd, VarData.VarType.RECORD);
+    varData := VarData.addTypedList(varData, new_vars_clck, VarData.VarType.CLOCK);
     eqData  := EqData.addTypedList(eqData, new_eqns_cont, EqData.EqType.CONTINUOUS, false);
     eqData  := EqData.addTypedList(eqData, new_eqns_disc, EqData.EqType.DISCRETE, false);
     eqData  := EqData.addTypedList(eqData, new_eqns_init, EqData.EqType.INITIAL, false);
+    eqData  := EqData.addTypedList(eqData, new_eqns_clck, EqData.EqType.CLOCKED, false);
 
     // dump if flag is set
     if Flags.isSet(Flags.DUMP_CSE) then
@@ -309,6 +317,10 @@ protected
       print(List.toString(debug_str, function functionAliasTplString(max_length = debug_max_length), "", "  ", "\n  ", "\n\n"));
       print(StringUtil.headline_3("Initial Function Alias"));
       debug_str := list((Call_Aux.toString(Util.tuple22(tpl)), Call_Id.toString(Util.tuple21(tpl))) for tpl in debug_lst_ini);
+      debug_max_length := max(stringLength(Util.tuple21(tpl)) for tpl in debug_str) + 3;
+      print(List.toString(debug_str, function functionAliasTplString(max_length = debug_max_length), "", "  ", "\n  ", "\n\n"));
+      print(StringUtil.headline_3("Clocked Function Alias"));
+      debug_str := list((ComponentRef.toString(Util.tuple22(tpl)), BClock.toString(Util.tuple21(tpl))) for tpl in UnorderedMap.toList(clock_map));
       debug_max_length := max(stringLength(Util.tuple21(tpl)) for tpl in debug_str) + 3;
       print(List.toString(debug_str, function functionAliasTplString(max_length = debug_max_length), "", "  ", "\n  ", "\n\n"));
     end if;
@@ -331,6 +343,7 @@ protected
                                                             or Equation.isIfEquation(Pointer.create(body)));
       case Equation.WHEN_EQUATION()             then (Iterator.EMPTY(), true);
       case Equation.IF_EQUATION()               then (Iterator.EMPTY(), true);
+      case Equation.ALGORITHM()                 then (Iterator.EMPTY(), true);
                                                 else (Iterator.EMPTY(), false);
     end match;
     if not stop then
@@ -360,6 +373,7 @@ protected
         Option<Call_Aux> aux_opt;
         Expression new_exp, sub_exp;
         list<ComponentRef> names;
+        list<Expression> tpl_lst;
 
       case Expression.CALL() guard(checkCallReplacement(exp.call)) algorithm
         // strip nested iterator for the iterators that actually occure in the function call
@@ -381,8 +395,9 @@ protected
           ty := Expression.typeOf(exp);
           new_exp := match ty
             case Type.TUPLE() algorithm
-              names := list(Call_Aux.createName(sub_ty, new_iter, index, init) for sub_ty in ty.types);
-            then Expression.TUPLE(ty, list(Expression.fromCref(cref) for cref in names));
+              names   := list(Call_Aux.createName(sub_ty, new_iter, index, init) for sub_ty in ty.types);
+              tpl_lst := list(if ComponentRef.size(cref, true) == 0 then Expression.fromCref(ComponentRef.WILD()) else Expression.fromCref(cref) for cref in names);
+            then Expression.TUPLE(ty, tpl_lst);
             else algorithm
               name := Call_Aux.createName(ty, new_iter, index, init);
             then Expression.fromCref(name);
@@ -509,13 +524,33 @@ protected
       end for;
     elseif init then
       new_vars_init := BVariable.setFixed(new_var, false) :: new_vars_init;
-    elseif BVariable.isContinuous(new_var) then
+    elseif BVariable.isContinuous(new_var, false) then
       disc := false;
       new_vars_cont := new_var :: new_vars_cont;
     else
       new_vars_disc := new_var :: new_vars_disc;
     end if;
   end addAuxVar;
+
+  function addClockedAlias
+    input EquationPointers equations;
+    input Pointer<Integer> eqn_idx;
+    output list<Pointer<Equation>> clock_eqns = {};
+    output list<Pointer<Variable>> clock_vars;
+    output UnorderedMap<BClock, ComponentRef> collector = UnorderedMap.new<ComponentRef>(BClock.hash, BClock.isEqual);
+  protected
+    Pointer<list<Pointer<Variable>>> new_clocks = Pointer.create({});
+    Pointer<Integer> idx = Pointer.create(0);
+    BClock clock;
+    ComponentRef clock_name;
+  algorithm
+    EquationPointers.mapExp(equations, function Partitioning.extractClocks(collector = collector, new_clocks = new_clocks, idx = idx));
+    clock_vars := Pointer.access(new_clocks);
+    for tpl in UnorderedMap.toList(collector) loop
+      (clock, clock_name) := tpl;
+      clock_eqns := Equation.makeAssignment(Expression.fromCref(clock_name), BClock.toExp(clock), eqn_idx, NBVariable.AUXILIARY_STR, Iterator.EMPTY(), EquationAttributes.default(EquationKind.CLOCKED, false)) :: clock_eqns;
+    end for;
+  end addClockedAlias;
 
   annotation(__OpenModelica_Interface="backend");
 end NBFunctionAlias;

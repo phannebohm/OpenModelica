@@ -40,18 +40,22 @@
 #include "Editors/BaseEditor.h"
 
 #include <QApplication>
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 11, 0))
-#include <QScreen>
-#else // QT_VERSION_CHECK
-#include <QDesktopWidget>
-#endif // QT_VERSION_CHECK
+#include <QCryptographicHash>
+#include <QByteArray>
 #include <QGridLayout>
 #include <QStylePainter>
 #include <QPainter>
 #include <QColorDialog>
+#include <QDir>
+#include <QRegExp>
+#ifdef OM_OMEDIT_ENABLE_LIBXML2
+#include <libxml/parser.h>
+#include <libxml/valid.h>
+#else
 #include <QXmlSchema>
 #include <QXmlSchemaValidator>
-#include <QDir>
+#endif
+
 
 extern "C" {
 extern const char* System_openModelicaPlatform();
@@ -290,7 +294,13 @@ void Label::setText(const QString &text)
 {
   mText = text;
   setToolTip(text);
-  QLabel::setText(elidedText());
+  const QString text1 = elidedText();
+  // if text is empty OR if we get "..." i.e., QChar(0x2026) as text
+  if (text1.isEmpty() || text1.compare(QChar(0x2026)) == 0) {
+    QLabel::setText(mText);
+  } else {
+    QLabel::setText(text1);
+  }
 }
 
 QString Label::elidedText() const
@@ -578,6 +588,30 @@ QString& Utilities::tempDirectory()
   return tmpPath;
 }
 
+/*
+ * \brief Utilities::generateHash
+ * hash the string input
+ * \param input
+ * \return hashprefix with first 4 chars
+*/
+QString Utilities::generateHash(const QString &input)
+{
+    // Convert the input string to a QByteArray
+    QByteArray byteArray = input.toUtf8();
+    // Create a QCryptographicHash object with the desired algorithm (SHA-256 in this case)
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    // Add the data to be hashed
+    hash.addData(byteArray);
+    // Obtain the resulting hash as a QByteArray
+    QByteArray hashResult = hash.result();
+    // Convert the hash result to a hex string for readability
+    QString hashString = hashResult.toHex();
+    // Extract the first 4 characters
+    QString hashPrefix = hashString.left(4);
+
+    return hashPrefix;
+}
+
 /*!
  * \brief Utilities::getApplicationSettings
  * Returns the application settings object.
@@ -590,7 +624,9 @@ QSettings* Utilities::getApplicationSettings()
   if (!init) {
     init = 1;
     pSettings = new QSettings(QSettings::IniFormat, QSettings::UserScope, Helper::organization, Helper::application);
+#if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
     pSettings->setIniCodec(Helper::utf8.toUtf8().constData());
+#endif
   }
   return pSettings;
 }
@@ -610,6 +646,38 @@ void Utilities::parseCompositeModelText(MessageHandler *pMessageHandler, QString
   schemaFile.close();
   const QByteArray schemaData = schemaText.toUtf8();
 
+#ifdef OM_OMEDIT_ENABLE_LIBXML2
+  xmlDocPtr doc;
+  QByteArray contentsArray(contents.toLocal8Bit());
+  doc = xmlParseDoc((const xmlChar *)contentsArray.data());
+  if (doc)
+  {
+    xmlParserInputBufferPtr buf = xmlParserInputBufferCreateMem(schemaData.data(), schemaData.size(), XML_CHAR_ENCODING_UTF8);
+    xmlDtdPtr dtd = xmlIOParseDTD(NULL, buf, XML_CHAR_ENCODING_UTF8);
+    xmlFreeParserInputBuffer(buf);
+    if (dtd)
+    {
+      xmlValidCtxtPtr vctxt;
+      vctxt = xmlNewValidCtxt();
+      if (vctxt)
+      {
+        int ok = xmlValidateDtd(vctxt, doc, dtd);
+        if (!ok)
+          pMessageHandler->setFailed(true);
+        xmlFreeValidCtxt(vctxt);
+      }
+      else
+        pMessageHandler->setFailed(true);
+      xmlFreeDtd(dtd);
+    }
+    else
+      pMessageHandler->setFailed(true);
+    xmlFreeDoc(doc);
+  }
+  else
+      pMessageHandler->setFailed(true);
+
+#else
   QXmlSchema schema;
   schema.setMessageHandler(pMessageHandler);
   schema.load(schemaData);
@@ -621,6 +689,7 @@ void Utilities::parseCompositeModelText(MessageHandler *pMessageHandler, QString
       pMessageHandler->setFailed(true);
     }
   }
+#endif
 }
 
 /*!
@@ -647,7 +716,7 @@ bool Utilities::isValueLiteralConstant(QString value)
    * Issue #11840. Allow setting array of values.
    * The following regular expression allows decimal values and array of decimal values. The values can be negative.
    */
-  QRegExp rx("\\{?\\s*-?\\d+(\\.\\d+)?(?:\\s*,\\s*-?\\d+(\\.\\d+)?)*\\s*\\}?");
+  QRegExp rx("\\{?\\s*-?\\d+(\\.\\d+)?([eE][-+]?\\d+)?(?:\\s*,\\s*-?\\d+(\\.\\d+)?([eE][-+]?\\d+)?)*\\s*\\}?");
   return rx.exactMatch(value);
 }
 
@@ -1066,23 +1135,6 @@ bool Utilities::containsWord(QString text, int index, QString keyword, bool chec
     return true;
   }
   return false;
-}
-
-/*!
- * \brief Utilities::convertMMToPixel
- * Converts the value from mm to pixels
- * pixel = (dpi * mm / 1 inch)
- * 1 inch is 25.4
- * \param value
- * \return
- */
-qreal Utilities::convertMMToPixel(qreal value)
-{
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 11, 0))
-  return (QApplication::primaryScreen()->logicalDotsPerInchX() * value) / 25.4;
-#else // QT_VERSION_CHECK
-  return (QApplication::desktop()->screen()->logicalDpiX() * value) / 25.4;
-#endif // QT_VERSION_CHECK
 }
 
 /*!

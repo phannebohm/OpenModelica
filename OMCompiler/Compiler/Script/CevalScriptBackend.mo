@@ -402,21 +402,19 @@ algorithm
       GlobalScript.SimulationOptions defaults, simOpt;
       String experimentAnnotationStr;
       list<Absyn.NamedArg> named;
+      Option<Absyn.Modification> experiment_ann;
 
     // search inside annotation(experiment(...))
     case (_, _, _)
       equation
         defaults = Util.getOptionOrDefault(defaultOption, setFileNamePrefixInSimulationOptions(defaultSimulationOptions, inFileNamePrefix));
 
-        experimentAnnotationStr =
-          Interactive.getNamedAnnotation(
-            inModelPath,
-            SymbolTable.getAbsyn(),
-            Absyn.IDENT("experiment"),
-            SOME("{}"),
-            Interactive.getExperimentAnnotationString);
-                // parse the string we get back, either {} or {StopTime=5, Tolerance = 0.10};
+        experiment_ann = InteractiveUtil.getInheritedAnnotation(inModelPath, "experiment", SymbolTable.getAbsyn());
 
+        // TODO: Get the values from the modifier directly instead of this mess.
+        experimentAnnotationStr = Interactive.getExperimentAnnotationString(experiment_ann);
+
+        // parse the string we get back, either {} or {StopTime=5, Tolerance = 0.10};
         // jump to next case if the annotation is empty
         false = stringEq(experimentAnnotationStr, "{}");
 
@@ -530,6 +528,11 @@ algorithm
   // Interval needs to be handled last since it depends on the start and stop time.
   if isSome(interval) then
     options := setSimulationOptionsInterval(options, Expression.toReal(Util.getOption(interval)));
+  else
+    /*fix issue 12070, set proper default value of stepSize when Interval annotation is not provided
+      stepSize = (StopTime-StartTime)/500
+    */
+    options.stepSize := DAE.RCONST((Expression.toReal(options.stopTime) - Expression.toReal(options.startTime)) / 500);
   end if;
 end populateSimulationOptions;
 
@@ -1497,7 +1500,7 @@ algorithm
 
     case ("moveClassToBottom", _) then Values.BOOL(false);
 
-    case ("copyClass",{Values.CODE(Absyn.C_TYPENAME(classpath)), Values.STRING(name), Values.CODE(Absyn.C_TYPENAME(Absyn.IDENT("TopLevel")))})
+    case ("copyClass",{Values.CODE(Absyn.C_TYPENAME(classpath)), Values.STRING(name), Values.CODE(Absyn.C_TYPENAME(Absyn.IDENT("__OpenModelica_TopLevel")))})
       equation
         p = SymbolTable.getAbsyn();
         absynClass = InteractiveUtil.getPathedClassInProgram(classpath, p);
@@ -3096,6 +3099,14 @@ algorithm
       then
         Values.BOOL(b);
 
+    case ("setElementType",
+          {Values.CODE(Absyn.C_TYPENAME(path)),
+           Values.CODE(Absyn.C_VARIABLENAME(cr))})
+      algorithm
+        (p, b) := InteractiveUtil.setElementType(path, cr, SymbolTable.getAbsyn());
+      then
+        Values.BOOL(b);
+
  end matchcontinue;
 end cevalInteractiveFunctions4;
 
@@ -3468,7 +3479,6 @@ protected function callTranslateModel
   output String outFileDir;
   output list<tuple<String,Values.Value>> resultValues;
 algorithm
-
   (success, outCache, outStringLst, outFileDir, resultValues) :=
     SimCodeMain.translateModel(SimCodeMain.TranslateModelKind.NORMAL(), inCache, inEnv,
       className, inFileNamePrefix, runBackend, Flags.getConfigBool(Flags.DAE_MODE), runSilent, inSimSettingsOpt, Absyn.FUNCTIONARGS({},{}));
@@ -3502,15 +3512,14 @@ protected
   String fmuSourceDir;
   String CMAKE_GENERATOR = "", CMAKE_BUILD_TYPE;
   String quote, dquote, defaultFmiIncludeDirectoy;
-  String CC, CXX;
+  String CC;
   SimCodeFunction.MakefileParams makefileParams;
 algorithm
   makefileParams := SimCodeFunctionUtil.createMakefileParams({}, {}, {}, false, true);
   fmuSourceDir := fmutmp+"/sources/";
   quote := "'";
   dquote := if isWindows then "\"" else "'";
-  CC := "-DCMAKE_C_COMPILER=" + dquote + makefileParams.ccompiler + dquote;
-  CXX := "-DCMAKE_CXX_COMPILER=" + dquote + makefileParams.cxxcompiler + dquote;
+  CC := "-DCMAKE_C_COMPILER=" + dquote + System.basename(makefileParams.ccompiler) + dquote;
   defaultFmiIncludeDirectoy := dquote + Settings.getInstallationDirectoryPath() + "/include/omc/c/fmi" + dquote;
 
   // Set build type
@@ -3544,7 +3553,7 @@ algorithm
         end if;
         buildDir := "build_cmake_dynamic";
         cmakeCall := Autoconf.cmake + " " + CMAKE_GENERATOR +
-                     CMAKE_BUILD_TYPE + " " + CC + " " + CXX +
+                     CMAKE_BUILD_TYPE + " " + CC +
                      " ..";
         cmd := "cd " + dquote + fmuSourceDir + dquote + " && " +
                "mkdir " + buildDir + " && cd " + buildDir + " && " +
@@ -3561,9 +3570,9 @@ algorithm
         if isWindows then
           CMAKE_GENERATOR := "-G " + dquote + "MSYS Makefiles" + dquote + " ";
         end if;
-        buildDir := "build_cmake_dynamic";
+        buildDir := "build_cmake_static";
         cmakeCall := Autoconf.cmake + " " + CMAKE_GENERATOR +
-                     CMAKE_BUILD_TYPE + " " + CC + " " + CXX +
+                     CMAKE_BUILD_TYPE + " " + CC +
                      " ..";
         cmd := "cd " + dquote + fmuSourceDir + dquote + " && " +
                "mkdir " + buildDir + " && cd " + buildDir + " && " +
@@ -3923,12 +3932,20 @@ protected function buildModelFMU
   output FCore.Cache cache;
   output Values.Value outValue;
 protected
+  Absyn.Program p;
   Flags.Flag flags;
   String commandLineOptions;
   list<String> args;
   Boolean haveAnnotation;
 algorithm
-  if Config.ignoreCommandLineOptionsAnnotation() then
+  // handle encryption
+  // if AST contains encrypted class show nothing
+  p := SymbolTable.getAbsyn();
+  if Interactive.astContainsEncryptedClass(p) then
+    Error.addMessage(Error.ACCESS_ENCRYPTED_PROTECTED_CONTENTS, {});
+    cache := inCache;
+    outValue := Values.STRING("");
+  elseif Config.ignoreCommandLineOptionsAnnotation() then
     (cache, outValue) := callBuildModelFMU(inCache,inEnv,className,FMUVersion,inFMUType,inFileNamePrefix,addDummy,platforms,inSimSettings);
   else
     // read the __OpenModelica_commandLineOptions
@@ -4185,13 +4202,20 @@ protected function translateModelXML " author: Alachew
   input Boolean addDummy "if true, add a dummy state";
   input Option<SimCode.SimulationSettings> inSimSettingsOpt;
 protected
+  Absyn.Program p;
   Boolean success;
 algorithm
-  (success,cache) := SimCodeMain.translateModel(SimCodeMain.TranslateModelKind.XML(), cache, env, className,
-                    fileNamePrefix, true, false, true, inSimSettingsOpt);
-  outValue := Values.STRING(if success then ((if not Testsuite.isRunning() then System.pwd() + Autoconf.pathDelimiter else "") + fileNamePrefix+".xml") else "");
+  // handle encryption
+  // if AST contains encrypted class show nothing
+  p := SymbolTable.getAbsyn();
+  if Interactive.astContainsEncryptedClass(p) then
+    Error.addMessage(Error.ACCESS_ENCRYPTED_PROTECTED_CONTENTS, {});
+    outValue := Values.STRING("");
+  else
+    (success,cache) := SimCodeMain.translateModel(SimCodeMain.TranslateModelKind.XML(), cache, env, className, fileNamePrefix, true, false, true, inSimSettingsOpt);
+    outValue := Values.STRING(if success then ((if not Testsuite.isRunning() then System.pwd() + Autoconf.pathDelimiter else "") + fileNamePrefix+".xml") else "");
+  end if;
 end translateModelXML;
-
 
 public function translateGraphics "function: translates the graphical annotations from old to new version"
   input Absyn.Path className;
@@ -5081,8 +5105,12 @@ algorithm
 
   end match;
 
+  // Update the paths in the class to reflect the new location.
+  cls := NFApi.updateMovedClassPaths(inClass, inClassPath, inWithin);
+
   // Replace the filename of each element with the new path.
-  cls := moveClassInfo(inClass, dst_path);
+  cls := moveClassInfo(cls, dst_path);
+
   // Change the name of the class and put it in as a copy in the program.
   cls := AbsynUtil.setClassName(cls, inName);
   outProg := InteractiveUtil.updateProgram(Absyn.PROGRAM({cls}, inWithin), inProg);

@@ -41,14 +41,13 @@ namespace OMPlot
 class ScaleDraw : public QwtScaleDraw
 {
 public:
-  ScaleDraw(QwtPlot::Axis axis, Plot *pParent);
+  ScaleDraw(bool prefixLabel, Plot *pParent);
   QString getUnitPrefix() const {return mUnitPrefix;}
   int getExponent() const {return mExponent;}
-  void invalidateCache();
+  void invalidateCache() {QwtAbstractScaleDraw::invalidateCache();}
   virtual QwtText label(double value) const;
-
 private:
-  QwtPlot::Axis mAxis;
+  bool mPrefixLabel;
   Plot *mpParentPlot;
   mutable QString mUnitPrefix;
   mutable int mExponent;

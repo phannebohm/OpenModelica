@@ -284,6 +284,34 @@ algorithm
   end match;
 end isEqualOnTrue;
 
+public function allEqual<T>
+  "Takes a list and an equality function, and returns whether all elements in the list are equal."
+  input list<T> inList;
+  input CompFunc inCompFunc;
+  output Boolean outAllEqual = true;
+
+  partial function CompFunc
+    "Returns true if e1 = e2, otherwise false."
+    input T e1;
+    input T e2;
+    output Boolean res;
+  end CompFunc;
+
+protected
+  T e1;
+  list<T> rest;
+algorithm
+  if not listEmpty(inList) then
+    e1 :: rest := inList;
+    for e in rest loop
+      if not inCompFunc(e1, e) then
+        outAllEqual := false;
+        return;
+      end if;
+    end for;
+  end if;
+end allEqual;
+
 public function compare<T1, T2>
   "Returns -1 if list1 is shorter than list2 or 1 if list1 is longer than list2.
    If both lists are of equal length it applies the given compare function to
@@ -733,14 +761,12 @@ public function getAtIndexLst<T>
   input list<T> lst;
   input list<Integer> positions;
   input Boolean zeroBased = false;
-  output list<T> olst = {};
+  output list<T> olst;
 protected
   array<T> arr = listArray(lst);
   Integer shift = if zeroBased then 1 else 0;
 algorithm
-  for pos in listReverse(positions) loop
-    olst := arr[pos+shift] :: olst;
-  end for;
+  olst := list(arr[pos+shift] for pos in positions);
 end getAtIndexLst;
 
 public function firstN<T>
@@ -7013,56 +7039,25 @@ algorithm
 end findAndMap;
 
 public function findSome<T1,T2>
-  "Applies the given function over the list and returns first returned value that is not NONE()."
+  "Applies the given function over the list and returns either the first SOME()
+   value the function returns or NONE() if no SOME() is returned."
   input list<T1> inList;
   input FuncType inFunc;
-  output T2 outVal;
+  output Option<T2> outVal = NONE();
 
   partial function FuncType
     input T1 inElement;
     output Option<T2> outValOpt;
   end FuncType;
-protected
-  Option<T2> retOpt = NONE();
-  T1 e;
-  list<T1> rest = inList;
 algorithm
-  while isNone(retOpt)/*not listEmpty(rest) and not outFound*/ loop
-    e :: rest := rest;
-    retOpt := inFunc(e);
-  end while;
-  outVal := match retOpt
-    case SOME(outVal)
-      then outVal;
-    end match;
+  for e in inList loop
+    outVal := inFunc(e);
+
+    if isSome(outVal) then
+      return;
+    end if;
+  end for;
 end findSome;
-
-public function findSome1<T1,T2,Arg>
-  "Applies the given function with one extra argument over the list and returns first returned value that is not NONE()."
-  input list<T1> inList;
-  input FuncType inFunc;
-  input Arg inArg;
-  output T2 outVal;
-
-  partial function FuncType
-    input T1 inElement;
-    input Arg inArg;
-    output Option<T2> outValOpt;
-  end FuncType;
-protected
-  Option<T2> retOpt = NONE();
-  T1 e;
-  list<T1> rest = inList;
-algorithm
-  while isNone(retOpt)/*not listEmpty(rest) and not outFound*/ loop
-    e :: rest := rest;
-    retOpt := inFunc(e,inArg);
-  end while;
-  outVal := match retOpt
-    case SOME(outVal)
-      then outVal;
-    end match;
-end findSome1;
 
 public function splitEqualPrefix<T1, T2>
   input list<T1> inFullList;
@@ -7438,6 +7433,25 @@ algorithm
   outResult := false;
 end any;
 
+public function count<T>
+  "Counts the number of elements the function returns true for"
+  input list<T> inList;
+  input PredFunc inFunc;
+  output Integer outResult = 0;
+
+  partial function PredFunc
+    input T inElement;
+    output Boolean outMatch;
+  end PredFunc;
+algorithm
+  for e in inList loop
+    if inFunc(e) then
+      outResult := outResult + 1;
+      return;
+    end if;
+  end for;
+end count;
+
 public function separateOnTrue<T>
   "Takes a list of values and a filter function over the values and returns 2
    sub lists of values for which the matching function returns true and false."
@@ -7669,7 +7683,6 @@ algorithm
       then acc;
   end match;
 end allCombinations4;
-
 
 public function contains<T>
   input list<T> lst;

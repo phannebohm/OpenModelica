@@ -49,7 +49,6 @@ import NFClassTree.ClassTree;
 import ComplexType = NFComplexType;
 import Subscript = NFSubscript;
 import NFTyping.TypingError;
-import DAE;
 import Record = NFRecord;
 import InstContext = NFInstContext;
 
@@ -63,7 +62,6 @@ import MetaModelica.Dangerous.*;
 import Class = NFClass;
 import TypeCheck = NFTypeCheck;
 import ExpandExp = NFExpandExp;
-import ElementSource;
 import Prefixes = NFPrefixes;
 import UnorderedMap;
 import ErrorExt;
@@ -72,85 +70,39 @@ import Vector;
 
 public
 uniontype EvalTarget
-  record DIMENSION
-    InstNode component;
-    Integer index;
-    Expression exp;
+  record EVAL_TARGET
     SourceInfo info;
-  end DIMENSION;
+    InstContext.Type context;
+    Option<EvalTargetData> extra;
+  end EVAL_TARGET;
 
-  record ATTRIBUTE
-    Binding binding;
-  end ATTRIBUTE;
-
-  record RANGE
-    SourceInfo info;
-  end RANGE;
-
-  record CONDITION
-    SourceInfo info;
-  end CONDITION;
-
-  record GENERIC
-    SourceInfo info;
-  end GENERIC;
-
-  record STATEMENT
-    DAE.ElementSource source;
-  end STATEMENT;
-
-  record IGNORE_ERRORS end IGNORE_ERRORS;
-
-  function isRange
-    input EvalTarget target;
-    output Boolean isRange;
-  algorithm
-    isRange := match target
-      case RANGE() then true;
-      else false;
-    end match;
-  end isRange;
-
-  function isDimension
-    input EvalTarget target;
-    output Boolean isDim;
-  algorithm
-    isDim := match target
-      case DIMENSION() then true;
-      else false;
-    end match;
-  end isDimension;
+  function new
+    input SourceInfo info;
+    input InstContext.Type context = NFInstContext.NO_CONTEXT;
+    input Option<EvalTargetData> extra = NONE();
+    output EvalTarget target = EVAL_TARGET(info, context, extra);
+  end new;
 
   function hasInfo
     input EvalTarget target;
-    output Boolean hasInfo;
-  algorithm
-    hasInfo := match target
-      case DIMENSION() then true;
-      case ATTRIBUTE() then true;
-      case RANGE() then true;
-      case CONDITION() then true;
-      case GENERIC() then true;
-      case STATEMENT() then true;
-      else false;
-    end match;
+    output Boolean res = not stringEmpty(target.info.fileName);
   end hasInfo;
 
   function getInfo
     input EvalTarget target;
-    output SourceInfo info;
-  algorithm
-    info := match target
-      case DIMENSION() then target.info;
-      case ATTRIBUTE() then Binding.getInfo(target.binding);
-      case RANGE() then target.info;
-      case CONDITION() then target.info;
-      case GENERIC() then target.info;
-      case STATEMENT() then ElementSource.getInfo(target.source);
-      else AbsynUtil.dummyInfo;
-    end match;
+    output SourceInfo info = target.info;
   end getInfo;
 end EvalTarget;
+
+constant EvalTarget noTarget = EvalTarget.EVAL_TARGET(AbsynUtil.dummyInfo, NFInstContext.NO_CONTEXT, NONE());
+
+uniontype EvalTargetData
+  record DIMENSION_DATA
+    InstNode component;
+    Integer index;
+    Expression exp;
+  end DIMENSION_DATA;
+end EvalTargetData;
 
 function tryEvalExp
   input output Expression exp;
@@ -167,7 +119,7 @@ end tryEvalExp;
 
 function evalExp
   input output Expression exp;
-  input EvalTarget target = EvalTarget.IGNORE_ERRORS();
+  input EvalTarget target = noTarget;
 algorithm
   exp := match exp
     local
@@ -287,7 +239,7 @@ end evalExp;
 
 function evalExpOpt
   input output Option<Expression> oexp;
-  input EvalTarget target = EvalTarget.IGNORE_ERRORS();
+  input EvalTarget target = noTarget;
 algorithm
   oexp := match oexp
     local
@@ -312,7 +264,7 @@ function evalExpPartial
    expressions. This can be used to optimize an expression that is expected to
    be evaluated many times, for example the expression in an array constructor."
   input Expression exp;
-  input EvalTarget target = EvalTarget.IGNORE_ERRORS();
+  input EvalTarget target = noTarget;
   input Boolean evaluated = true;
   output Expression outExp;
   output Boolean outEvaluated "True if the whole expression is evaluated, otherwise false.";
@@ -699,7 +651,7 @@ algorithm
     // A record component without an explicit binding, create one from its children.
     case Component.COMPONENT(ty = Type.COMPLEX(complexTy = ComplexType.RECORD(rec_node)))
       algorithm
-        exp := makeRecordBindingExp(component.classInst, rec_node, component.ty, cref);
+        exp := makeRecordBindingExp(component.classInst, rec_node, component.ty, cref, target);
         binding := Binding.CEVAL_BINDING(exp);
 
         if not ComponentRef.hasSubscripts(cref) then
@@ -714,7 +666,7 @@ algorithm
       algorithm
         exp := Expression.mapCrefScalars(Expression.fromCref(cref),
           function makeRecordBindingExp(typeNode = component.classInst,
-            recordNode = rec_node, recordType = ty));
+            recordNode = rec_node, recordType = ty, target = target));
 
         binding := Binding.CEVAL_BINDING(exp);
 
@@ -771,6 +723,7 @@ function makeRecordBindingExp
   input InstNode recordNode;
   input Type recordType;
   input ComponentRef cref;
+  input EvalTarget target;
   output Expression exp;
 protected
   ClassTree tree;
@@ -792,7 +745,7 @@ algorithm
     arg := Expression.CREF(ty, cr);
 
     if Component.variability(InstNode.component(c)) <= Variability.PARAMETER then
-      arg := evalExp(arg, EvalTarget.IGNORE_ERRORS());
+      arg := evalExp(arg, target);
     end if;
 
     args := arg :: args;
@@ -809,7 +762,7 @@ function evalTypename
 algorithm
   // Only expand the typename into an array if it's used as a range, and keep
   // them as typenames when used as e.g. dimensions.
-  exp := if EvalTarget.isRange(target) then ExpandExp.expandTypename(ty) else originExp;
+  exp := if InstContext.inIterationRange(target.context) then ExpandExp.expandTypename(ty) else originExp;
 end evalTypename;
 
 function evalRange
@@ -828,7 +781,7 @@ algorithm
   step_exp := evalExpOpt(step_exp, target);
   stop_exp := evalExp(stop_exp, target);
 
-  if EvalTarget.isRange(target) then
+  if InstContext.inIterationRange(target.context) then
     ty := TypeCheck.getRangeType(start_exp, step_exp, stop_exp,
       Type.arrayElementType(ty), EvalTarget.getInfo(target));
     result := Expression.RANGE(ty, start_exp, step_exp, stop_exp);
@@ -949,7 +902,7 @@ function evalBinaryOp
   input Expression exp1;
   input Operator op;
   input Expression exp2;
-  input EvalTarget target = EvalTarget.IGNORE_ERRORS();
+  input EvalTarget target = noTarget;
   output Expression exp;
 algorithm
   exp := Expression.mapSplitExpressions(Expression.BINARY(exp1, op, exp2),
@@ -972,7 +925,7 @@ function evalBinaryOp_dispatch
   input Expression exp1;
   input Operator op;
   input Expression exp2;
-  input EvalTarget target = EvalTarget.IGNORE_ERRORS();
+  input EvalTarget target = noTarget;
   output Expression exp;
 algorithm
   exp := match op.op
@@ -1450,7 +1403,7 @@ function evalLogicBinaryOp
   input Expression exp1;
   input Operator op;
   input Expression exp2;
-  input EvalTarget target = EvalTarget.IGNORE_ERRORS();
+  input EvalTarget target = noTarget;
   output Expression exp;
 algorithm
   exp := Expression.mapSplitExpressions(Expression.LBINARY(exp1, op, exp2),
@@ -3163,7 +3116,7 @@ protected
   Type ty;
 algorithm
   if listEmpty(ranges) then
-    result := evalExp(exp, EvalTarget.IGNORE_ERRORS());
+    result := evalExp(exp);
   else
     range :: ranges_rest := ranges;
     range := evalExp(range);
@@ -3228,7 +3181,7 @@ algorithm
   end match;
 
   result := Expression.foldReduction(exp, iters, default_exp,
-    function evalExp(target = EvalTarget.IGNORE_ERRORS()), red_fn);
+    function evalExp(target = noTarget), red_fn);
 end evalReduction;
 
 function evalSize
@@ -3327,18 +3280,23 @@ function printUnboundError
   input Component component;
   input EvalTarget target;
   input Expression exp;
+protected
+  EvalTargetData extra;
 algorithm
-  () := match target
-    case EvalTarget.IGNORE_ERRORS() then ();
+  if not EvalTarget.hasInfo(target) then
+    return;
+  end if;
 
-    case EvalTarget.DIMENSION()
+  () := match target.extra
+    case SOME(extra as EvalTargetData.DIMENSION_DATA())
       algorithm
         Error.addSourceMessage(Error.STRUCTURAL_PARAMETER_OR_CONSTANT_WITH_NO_BINDING,
-          {Expression.toString(exp), InstNode.name(target.component)}, target.info);
+          {Expression.toString(extra.exp), InstNode.name(extra.component)}, target.info);
       then
         fail();
 
-    case EvalTarget.CONDITION()
+    case _
+      guard InstContext.inCondition(target.context)
       algorithm
         Error.addSourceMessage(Error.CONDITIONAL_EXP_WITHOUT_VALUE,
           {Expression.toString(exp)}, target.info);

@@ -327,7 +327,7 @@ void MessageWidget::openErrorMessageClass(QUrl url)
   } else {
     QMessageBox::information(MainWindow::instance(), QString("%1 - %2").arg(Helper::applicationName, Helper::information),
                              GUIMessages::getMessage(GUIMessages::CLASS_NOT_FOUND)
-                             .arg(className), Helper::ok);
+                             .arg(className), QMessageBox::Ok);
   }
 }
 
@@ -625,7 +625,7 @@ void MessagesWidget::addGUIMessage(MessageItem messageItem)
     if (!OptionsDialog::instance()->getMessagesPage()->getEnlargeMessageBrowserCheckBox()->isChecked()) {
       emit messageAdded();
     } else {
-      MainWindow::instance()->animateMessagesTabWidgetForNewMessage(messageItem.getErrorType());
+      MainWindow::instance()->markMessagesTabWidgetChangedForNewMessage(messageItem.getErrorType());
     }
   } else { // this block is called when some message appear during the startup. See #11985.
     emit messageAdded();

@@ -409,8 +409,7 @@ private:
     Line *getLine() const {return mpLine.get();}
     Text *getText() const {return mpText.get();}
     // Extend annotation
-    const IconDiagramMap &getIconMap() const {return mIconMap;}
-    const IconDiagramMap &getDiagramMap() const {return mDiagramMap;}
+    const IconDiagramMap &getMap(bool icon) const;
 
     static Annotation defaultAnnotation;
 
@@ -468,9 +467,10 @@ private:
     const QString &getName() const {return mName;}
     const QString &getType() const {return mType;}
     QString getValueWithoutQuotes() const {return StringHandler::removeFirstLastQuotes(getValue());}
+    bool isValueDefined() const {return mValueDefined;}
     QString toString(bool skipTopLevel = false) const;
     Modifier *getModifier(const QString &modifier) const;
-    QString getModifierValue(const QString &modifier) const;
+    QPair<QString, bool> getModifierValue(const QString &modifier) const;
     bool hasModifier(const QString &modifier) const;
     const QList<Modifier*> &getModifiers() const {return mModifiers;}
     bool isFinal() const {return mFinal;}
@@ -478,7 +478,7 @@ private:
     bool isRedeclare() const;
     bool isReplaceable() const;
     const QString &getValue() const {return mValue;}
-    QString getModifierValue(QStringList qualifiedModifierName) const;
+    QPair<QString, bool> getModifierValue(QStringList qualifiedModifierName) const;
   private:
     Model *mpParentModel;
     QString mName;
@@ -486,12 +486,13 @@ private:
     bool mFinal = false;
     bool mEach = false;
     QString mValue;
+    bool mValueDefined = false;
     Element *mpElement = 0;
     QList<Modifier*> mModifiers;
 
     QString toStringEach() const;
     QString toStringFinal() const;
-    static QString getModifierValue(const Modifier *pModifier, const QString &modifierName, QStringList qualifiedModifierName);
+    static QPair<QString, bool> getModifierValue(const Modifier *pModifier, const QString &modifierName, QStringList qualifiedModifierName);
   };
 
   class Replaceable
@@ -525,6 +526,7 @@ private:
     bool isOuter() const {return mOuter;}
     Replaceable *getReplaceable() const {return mpReplaceable.get();}
     bool isRedeclare() const {return mRedeclare;}
+    bool isPartial() const {return mPartial;}
     const QString &getConnector() const {return mConnector;}
     const QString &getVariability() const {return mVariability;}
     const QString &getDirection() const {return mDirection;}
@@ -573,11 +575,12 @@ private:
     Model(const QJsonObject &jsonObject, Element *pParentElement = 0);
     virtual ~Model();
     void deserialize();
+    void deserializeElements(const QJsonArray elements);
 
     Element *getParentElement() const {return mpParentElement;}
     Extend *getParentExtend() const;
     Component *getParentComponent() const;
-    const QJsonObject &getModelJson() const {return mModelJson;}
+    bool isModelJsonEmpty() const {return mModelJson.isEmpty();}
     void setModelJson(const QJsonObject &modelJson) {mModelJson = modelJson;}
     const QString &getName() const {return mName;}
     const QString &getRootType() const;
@@ -587,8 +590,10 @@ private:
     bool isConnector() const;
     bool isExpandableConnector() const;
     bool isEnumeration() const;
+    bool isRecord() const;
     bool isType() const;
     bool isDerivedType() const;
+    bool isPartial() const;
     QString getDirection() const;
     QString getComment() const {return mComment;}
     Annotation *getAnnotation() const;
@@ -605,8 +610,8 @@ private:
     bool isParameterConnectorSizing(const QString &parameter);
     bool isValidConnection(const Name &lhsConnector, const Name &rhsConnector) const;
     bool isTypeCompatibleWith(const Model &other, bool lhsOutside, bool rhsOutside) const;
-    QString getParameterValue(const QString &parameter, QString &typeName);
-    QString getParameterValueFromExtendsModifiers(const QString &parameter);
+    QPair<QString, bool> getParameterValue(const QString &parameter, QString &typeName);
+    QPair<QString, bool> getParameterValueFromExtendsModifiers(const QStringList &parameter);
 
     FlatModelica::Expression* getVariableBinding(const QString &variableName);
     const Element *lookupElement(const QString &name) const;
@@ -646,7 +651,7 @@ private:
     void setModel(Model *pModel) {mpModel = pModel;}
     Model *getModel() const {return mpModel;}
     Modifier *getModifier() const {return mpModifier;}
-    QString getModifierValueFromType(QStringList modifierNames);
+    QPair<QString, bool> getModifierValueFromType(QStringList modifierNames);
     const Dimensions &getDimensions() const {return mDims;}
     bool isPublic() const;
     bool isFinal() const;
@@ -663,6 +668,9 @@ private:
     FlatModelica::Expression &getBinding() {return mBinding;}
     void setBinding(const FlatModelica::Expression expression) {mBinding = expression;}
     void resetBinding() {mBinding = mBindingForReset;}
+    bool getIconDiagramMapPrimitivesVisible(bool icon) const;
+    bool getIconDiagramMapHasExtent(bool icon) const;
+    const ExtentAnnotation &getIconDiagramMapExtent(bool icon) const;
 
     virtual QString getName() const = 0;
     virtual QString getQualifiedName() const = 0;
@@ -677,7 +685,7 @@ private:
     QString getDirection() const;
   private:
     virtual void deserialize_impl(const QJsonObject &jsonObject) = 0;
-    static QString getModifierValueFromInheritedType(Model *pModel, QStringList modifierNames);
+    static QPair<QString, bool> getModifierValueFromInheritedType(Model *pModel, QStringList modifierNames);
   protected:
     Model *mpParentModel;
     Model *mpModel = 0;

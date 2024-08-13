@@ -64,6 +64,7 @@ protected
   // Backend imports
   import BVariable = NBVariable;
   import NBEquation.{EqData, Equation, EquationPointers};
+  import Inline = NBInline;
   import Solve = NBSolve;
   import StrongComponent = NBStrongComponent;
   import NBVariable.{VarData, VariablePointers};
@@ -124,7 +125,7 @@ public
           replace_exp := Equation.getRHS(solvedEq);
           replace_exp := Expression.map(replace_exp, function applySimpleExp(replacements = replacements));
           // add the new replacement rule
-          UnorderedMap.add(varName, SimplifyExp.simplify(replace_exp, true), replacements);
+          UnorderedMap.add(varName, SimplifyExp.simplifyDump(replace_exp, true, getInstanceName()), replacements);
         else
           Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because strong component cannot be solved explicitely: " + StrongComponent.toString(comp)});
           fail();
@@ -194,14 +195,14 @@ public
 
       case Expression.CREF() algorithm
         if UnorderedMap.contains(exp.cref, replacements) then
-          // the cref is (with subscripts) found in replacements
-          res := UnorderedMap.getSafe(exp.cref, replacements, sourceInfo());
+          // the cref (with subscripts) is found in replacements
+          res := UnorderedMap.getOrFail(exp.cref, replacements);
         else
           // try to strip the subscripts and see if that cref occurs
           stripped := ComponentRef.stripSubscriptsAll(exp.cref);
           if UnorderedMap.contains(stripped, replacements) then
-            subs  := ComponentRef.subscriptsAllWithWholeFlat(exp.cref);
-            res   := UnorderedMap.getSafe(stripped, replacements, sourceInfo());
+            subs  := ComponentRef.subscriptsAllFlat(exp.cref);
+            res   := UnorderedMap.getOrFail(stripped, replacements);
             res   := Expression.applySubscripts(subs, res);
           else
             // do nothing
@@ -265,17 +266,19 @@ public
     "replaces all function calls in the replacements map with their body expressions,
     if possible."
     input output EqData eqData;
+    input VariablePointers variables;
     input UnorderedMap<Absyn.Path, Function> replacements;
   algorithm
         // do nothing if replacements are empty
     if UnorderedMap.isEmpty(replacements) then return; end if;
-    eqData := EqData.mapExp(eqData, function applyFuncExp(replacements = replacements));
+    eqData := EqData.mapExp(eqData, function applyFuncExp(replacements = replacements, variables = variables));
   end replaceFunctions;
 
   function applyFuncExp
     "Needs to be mapped with Expression.map()"
     input output Expression exp                               "Replacement happens inside this expression";
     input UnorderedMap<Absyn.Path, Function> replacements     "rules for replacements are stored inside here";
+    input VariablePointers variables;
   algorithm
     exp := match exp
       local
@@ -289,7 +292,7 @@ public
 
       case Expression.CALL(call = call as Call.TYPED_CALL(fn = fn)) guard(UnorderedMap.contains(fn.path, replacements)) algorithm
         // use the function from the tree, in case it was changed
-        fn := UnorderedMap.getSafe(fn.path, replacements, sourceInfo());
+        fn := UnorderedMap.getOrFail(fn.path, replacements);
 
         // map all the inputs to the arguments and add to local replacement map
         local_replacements := UnorderedMap.new<Expression>(ComponentRef.hash, ComponentRef.isEqual);
@@ -318,7 +321,11 @@ public
 
         // replace input withs arguments in expression
         body_exp := Expression.map(body_exp, function applySimpleExp(replacements = local_replacements));
+        body_exp := SimplifyExp.combineBinaries(body_exp);
         body_exp := SimplifyExp.simplifyDump(body_exp, true, getInstanceName(), "\n");
+        // inline possible record constructors
+        //body_exp := Expression.map(body_exp, function applyFuncTupleExp(variables = variables));
+
 
         if Flags.isSet(Flags.DUMPBACKENDINLINE) then
           print("[" + getInstanceName() + "] Inlining: " + Expression.toString(exp) + "\n");
@@ -329,6 +336,26 @@ public
       else exp;
     end match;
   end applyFuncExp;
+
+  function applyFuncTupleExp
+    input output Expression exp;
+    input VariablePointers variables;
+  protected
+    Type ty;
+    Option<Integer> sz;
+    list<Expression> inlined_record = {};
+  algorithm
+    ty := Expression.typeOf(exp);
+    sz := Type.complexSize(ty);
+
+    // if the call returns a record constructor, it has to be inlined
+    if Util.isSome(sz) then
+      for i in Util.getOption(sz):-1:1 loop
+        inlined_record := Inline.inlineRecordExp(exp, i, variables) :: inlined_record;
+      end for;
+      exp := Expression.TUPLE(ty, inlined_record);
+    end if;
+  end applyFuncTupleExp;
 
   function addInputArgTpl
     "adds an input to argument replacement and also adds
@@ -358,7 +385,8 @@ public
         then list(Expression.fromCref(BVariable.getVarName(child)) for child in arg_children);
 
         // if it is a basic record, take its elements
-        case Expression.RECORD() then arg.elements;
+        case Expression.RECORD()  then arg.elements;
+        case Expression.TUPLE()   then arg.elements;
 
         // if the argument is a record constructor, map it to its attributes
         case Expression.CALL(call = call as Call.TYPED_CALL(fn = fn)) algorithm

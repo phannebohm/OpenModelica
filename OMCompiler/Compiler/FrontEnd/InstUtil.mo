@@ -3022,13 +3022,14 @@ algorithm
       Option<DAE.VariableAttributes> attr;
       Option<SCode.Comment> cmt;
       Absyn.InnerOuter io;
+      Boolean e;
       DAE.Exp bind_exp;
 
-    case (_, DAE.VAR(cref, kind, dir, prl, vis, ty, _, dims, ct, src, attr, cmt, io))
+    case (_, DAE.VAR(cref, kind, dir, prl, vis, ty, _, dims, ct, src, attr, cmt, io, e))
       equation
         bind_exp = moveBindings3(inEquation);
       then
-        DAE.VAR(cref, kind, dir, prl, vis, ty, SOME(bind_exp), dims, ct, src, attr, cmt, io);
+        DAE.VAR(cref, kind, dir, prl, vis, ty, SOME(bind_exp), dims, ct, src, attr, cmt, io, e);
 
     case (_, DAE.VAR(componentRef = cref))
       equation
@@ -3629,6 +3630,7 @@ algorithm
       Option<DAE.VariableAttributes> var_attrs;
       Option<SCode.Comment> cmt;
       Absyn.InnerOuter io1, io2;
+      Boolean e;
       SCode.Parallelism sprl;
       SCode.Variability var;
       Absyn.Direction dir;
@@ -3665,7 +3667,8 @@ algorithm
           source = source,
           variableAttributesOption = var_attrs,
           comment = cmt,
-          innerOuter = io2),
+          innerOuter = io2,
+          encrypted = e),
         SCode.ATTR(
           connectorType = ct1,
           parallelism = sprl,
@@ -3684,7 +3687,7 @@ algorithm
         io2 = propagateInnerOuter(io2, io1);
         ct2 = propagateConnectorType(ct2, ct1, cr, inInfo);
       then
-        DAE.VAR(cr, vk, vdir, vprl, vvis, ty, binding, dims, ct2, source, var_attrs, cmt, io2);
+        DAE.VAR(cr, vk, vdir, vprl, vvis, ty, binding, dims, ct2, source, var_attrs, cmt, io2, e);
 
     // Structured component.
     case (DAE.COMP(ident = ident, dAElist = el, source = source, comment = cmt), _, _, _)
@@ -8462,7 +8465,7 @@ algorithm
       then getNDcr(cr1);
     case DAE.CREF_IDENT(identType = DAE.T_COMPLEX(varLst = varLst))
       equation
-        N = List.findSome(varLst,findN);
+        SOME(N) = List.findSome(varLst,findN);
       then (N,dcr);
   end match;
 end getNDcr;
@@ -8672,7 +8675,7 @@ protected function getDomNFields
   output List<Absyn.ComponentRef> outFieldLst = {};
 algorithm
   try
-    (outN,outFieldLst) := List.findSome1(inDomFieldLst,domNFieldsFindFun,inDomainCr);
+    SOME((outN,outFieldLst)) := List.findSome(inDomFieldLst, function domNFieldsFindFun(inDomainCr = inDomainCr));
   else
     Error.addSourceMessageAndFail(Error.COMPILER_ERROR,{"There are no fields defined within the domain of this equation."}, info);
   end try;
@@ -8693,7 +8696,7 @@ algorithm
       equation
       true = absynDAECrefEqualName(inDomainCr,domainCr);
       DAE.CREF_IDENT(identType = DAE.T_COMPLEX(varLst = varLst)) = domainCr;
-      N = List.findSome(varLst,findN);
+      SOME(N) = List.findSome(varLst,findN);
     then
       SOME((N,fieldCrLst));
     else

@@ -262,8 +262,8 @@ end StartString;
 template ScalarVariableTypeRealAttribute(String unit, String displayUnit)
  "Generates code for ScalarVariable Type Real file for FMU target."
 ::=
-  let unit_ = if unit then 'unit="<%unit%>"'
-  let displayUnit_ = if displayUnit then 'displayUnit="<%displayUnit%>"'
+  let unit_ = if unit then 'unit="<%Util.escapeModelicaStringToXmlString(unit)%>"'
+  let displayUnit_ = if displayUnit then 'displayUnit="<%Util.escapeModelicaStringToXmlString(displayUnit)%>"'
   <<
    <%unit_%> <%displayUnit_%>
   >>
@@ -475,6 +475,7 @@ template ScalarVariableAttribute2(SimVar simVar, SimCode simCode)
 ::=
 match simVar
   case SIMVAR(__) then
+  let name = Util.escapeModelicaStringToXmlString(System.stringReplace(crefStrNoUnderscore(Util.getOption(exportVar)),"$", "_D_"))
   let defaultValueReference = '<%System.tmpTick()%>'
   let valueReference = getValueReference(simVar, simCode, false)
   let description = if comment then 'description="<%Util.escapeModelicaStringToXmlString(comment)%>"'
@@ -484,7 +485,7 @@ match simVar
   let caus = getCausality2(causality)
   let initial = getFmiInitialAttributeStr(simVar)
   <<
-  name="<%System.stringReplace(crefStrNoUnderscore(Util.getOption(exportVar)),"$", "_D_")%>"
+  name="<%name%>"
   valueReference="<%valueReference%>"
   <%description%>
   <%if boolNot(stringEq(variability_, "")) then 'variability="'+variability_+'"' %>
@@ -554,7 +555,7 @@ template ScalarVariableTypeCommonAttribute2(SimVar simvar, list<SimVar> stateVar
 match simvar
 case SIMVAR(__) then
   let startString = StartString2(simvar)
-  let extraAttributes = '<%DerivativeVarIndex(simvar,stateVars)%><%MinString2(simvar)%><%MaxString2(simvar)%><%NominalString2(simvar)%><%UnitString2(simvar)%>'
+  let extraAttributes = '<%DerivativeVarIndex(simvar,stateVars)%><%MinString2(simvar)%><%MaxString2(simvar)%><%NominalString2(simvar)%><%UnitString2(simvar)%><%relativeQuantity(simvar)%>'
   <<
   <%startString%><%extraAttributes%>
   >>
@@ -653,11 +654,20 @@ template UnitString2(SimVar simvar)
 ::=
 match simvar
 case SIMVAR(unit = unit, displayUnit = displayUnit) then
-  let unitString = if unit then ' unit="<%unit%>"'
-  let displayUnitString = if displayUnit then ' displayUnit="<%displayUnit%>"'
+  let unitString = if unit then ' unit="<%Util.escapeModelicaStringToXmlString(unit)%>"'
+  let displayUnitString = if displayUnit then ' displayUnit="<%Util.escapeModelicaStringToXmlString(displayUnit)%>"'
   //'<%unitString%><%displayUnitString%>' skip displayUnit because FMI2XML fails for e.g. bar
   '<%unitString%>'
 end UnitString2;
+
+template relativeQuantity(SimVar simvar)
+::=
+match simvar
+case SIMVAR(relativeQuantity = relativeQuantity) then
+  match relativeQuantity
+    case true then ' relativeQuantity="true"'
+    else ''
+end relativeQuantity;
 
 template statesnumwithDummy(list<SimVar> vars)
 " return number of states without dummy vars"
@@ -793,21 +803,26 @@ match type_
   >>
 end TypeDefinitionType;
 
-template DefaultExperiment(Option<SimulationSettings> simulationSettingsOpt)
+template DefaultExperiment(Option<SimulationSettings> simulationSettingsOpt, String FMUVersion)
  "Generates code for DefaultExperiment file for FMU target."
 ::=
 match simulationSettingsOpt
   case SOME(v) then
     <<
-    <DefaultExperiment <%DefaultExperimentAttribute(v)%>/>
+    <DefaultExperiment <%DefaultExperimentAttribute(v, FMUVersion)%>/>
     >>
 end DefaultExperiment;
 
-template DefaultExperimentAttribute(SimulationSettings simulationSettings)
+template DefaultExperimentAttribute(SimulationSettings simulationSettings, String FMUVersion)
  "Generates code for DefaultExperiment Attribute file for FMU target."
 ::=
 match simulationSettings
   case SIMULATION_SETTINGS(__) then
+    if isFMIVersion20(FMUVersion) then
+    <<
+    startTime="<%startTime%>" stopTime="<%stopTime%>" tolerance="<%tolerance%>" stepSize="<%stepSize%>"
+    >>
+    else
     <<
     startTime="<%startTime%>" stopTime="<%stopTime%>" tolerance="<%tolerance%>"
     >>

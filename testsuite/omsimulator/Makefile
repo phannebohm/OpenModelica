@@ -8,6 +8,7 @@ DualMassOscillator.mos \
 enumeration.mos \
 enumeration2.mos \
 enumeration3.mos \
+experimentAnnotation.mos \
 fmi_interpolate_cs.mos \
 fmiBlackBox.mos \
 fmiProtected.mos \
@@ -27,6 +28,7 @@ testDirectionalDerivatives.mos \
 testLoopsOverFMUs.mos \
 testSynchronousFMU_01.mos \
 testSynchronousFMU_02.mos \
+whenTest.mos \
 
 FAILINGTESTFILES = \
 test03.mos \

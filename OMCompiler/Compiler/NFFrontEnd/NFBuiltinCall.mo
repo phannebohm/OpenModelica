@@ -339,7 +339,7 @@ protected
     input SourceInfo info;
   algorithm
     if not listEmpty(namedArgs) then
-      Error.addSourceMessage(Error.NO_SUCH_PARAMETER,
+      Error.addSourceMessage(Error.NO_SUCH_INPUT_PARAMETER,
         {fnName, Util.tuple21(listHead(namedArgs))}, info);
       fail();
     end if;
@@ -821,7 +821,7 @@ protected
          Expression.toString(n_arg), Prefixes.variabilityString(n_var)}, info);
     end if;
 
-    n_arg := Ceval.evalExp(n_arg, Ceval.EvalTarget.GENERIC(info));
+    n_arg := Ceval.evalExp(n_arg, Ceval.EvalTarget.new(info, context));
     n := Expression.integerValue(n_arg);
 
     if n < Type.dimensionCount(exp_ty) then
@@ -953,7 +953,7 @@ protected
       (arg, arg_ty, arg_var, arg_pur) := Typing.typeExp(arg, context, info);
 
       if not (InstContext.inAlgorithm(context) or InstContext.inFunction(context)) then
-        if arg_var > Variability.PARAMETER then
+        if arg_var > Variability.PARAMETER and not InstContext.inInstanceAPI(context) then
           Error.addSourceMessageAndFail(Error.NON_PARAMETER_EXPRESSION_DIMENSION,
             {Expression.toString(arg), String(index),
              List.toString(fillArg :: dimensionArgs, Expression.toString,
@@ -962,7 +962,7 @@ protected
 
         if arg_pur == Purity.PURE and not Structural.isExpressionNotFixed(arg) then
           Structural.markExp(arg);
-          arg := Ceval.evalExp(arg);
+          arg := if InstContext.inInstanceAPI(context) then Ceval.tryEvalExp(arg) else Ceval.evalExp(arg);
           arg_ty := Expression.typeOf(arg);
         end if;
       end if;
@@ -1218,7 +1218,7 @@ protected
     if variability > Variability.PARAMETER or purity <> Purity.PURE then
       Error.addSourceMessageAndFail(Error.NF_CAT_FIRST_ARG_EVAL, {Expression.toString(arg), Prefixes.variabilityString(variability)}, info);
     end if;
-    Expression.INTEGER(n) := Ceval.evalExp(arg, Ceval.EvalTarget.GENERIC(info));
+    Expression.INTEGER(n) := Ceval.evalExp(arg, Ceval.EvalTarget.new(info, context));
 
     res := {};
     tys := {};
@@ -1468,7 +1468,7 @@ protected
       if name == "priority" then
         args := List.appendElt(arg2, args);
       else
-        Error.addSourceMessageAndFail(Error.NO_SUCH_PARAMETER,
+        Error.addSourceMessageAndFail(Error.NO_SUCH_INPUT_PARAMETER,
           {ComponentRef.toString(fn_ref), name}, info);
       end if;
     end for;
@@ -1613,7 +1613,7 @@ protected
       if name == "message" then
         args := List.appendElt(arg2, args);
       else
-        Error.addSourceMessageAndFail(Error.NO_SUCH_PARAMETER,
+        Error.addSourceMessageAndFail(Error.NO_SUCH_INPUT_PARAMETER,
           {ComponentRef.toString(fn_ref), name}, info);
       end if;
     end for;
@@ -1686,7 +1686,7 @@ protected
       if name == "message" then
         args := List.appendElt(arg3, args);
       else
-        Error.addSourceMessageAndFail(Error.NO_SUCH_PARAMETER,
+        Error.addSourceMessageAndFail(Error.NO_SUCH_INPUT_PARAMETER,
           {ComponentRef.toString(fn_ref), name}, info);
       end if;
     end for;

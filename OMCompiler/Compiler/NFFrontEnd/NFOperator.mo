@@ -888,9 +888,38 @@ public
       case Op.SUB_ARRAY_SCALAR  then true;
       case Op.DIV_SCALAR_ARRAY  then true;
       case Op.DIV_ARRAY_SCALAR  then true;
-      else false;
+                                else false;
     end match;
   end isSoftCommutative;
+
+  function repetition
+    input Operator operator;
+    output tuple<Boolean, Boolean> b;
+  algorithm
+    b := match operator.op
+      case Op.ADD_SCALAR_ARRAY  then (true, false);
+      case Op.ADD_ARRAY_SCALAR  then (false, true);
+      case Op.MUL_SCALAR_ARRAY  then (true, false);
+      case Op.MUL_ARRAY_SCALAR  then (false, true);
+      case Op.MUL_VECTOR_MATRIX then (true, true);
+      case Op.MUL_MATRIX_VECTOR then (true, true);
+      case Op.MATRIX_PRODUCT    then (true, true);
+                                else (false, false);
+    end match;
+  end repetition;
+
+  function reduction
+    input Operator operator;
+    output Boolean b;
+  algorithm
+    b := match operator.op
+      case Op.MUL_MATRIX_VECTOR then true;
+      case Op.MUL_VECTOR_MATRIX then true;
+      case Op.MATRIX_PRODUCT    then true;
+      case Op.SCALAR_PRODUCT    then true;
+                                else false;
+    end match;
+  end reduction;
 
   function isCombineable
     input Operator op1;

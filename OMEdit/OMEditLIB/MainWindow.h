@@ -83,7 +83,6 @@ class OMSSimulationDialog;
 class ModelWidgetContainer;
 class ModelWidget;
 class WelcomePageWidget;
-class InfoBar;
 class AboutOMEditDialog;
 class Label;
 class FileDataNotifier;
@@ -270,7 +269,7 @@ public:
   void addSystemLibraries();
   QString getLibraryIndexFilePath() const;
   void writeNewApiProfiling(const QString &str);
-  void animateMessagesTabWidgetForNewMessage(StringHandler::OpenModelicaErrors errorType);
+  void markMessagesTabWidgetChangedForNewMessage(StringHandler::OpenModelicaErrors errorType);
 
   QList<QString> mFMUDirectoriesList;
   QList<QString> mMOLDirectoriesList;
@@ -492,7 +491,7 @@ private:
   QToolBar *mpOMSimulatorToolbar;
   QHash<QString, TransformationsWidget*> mTransformationsWidgetHash;
 signals:
-  void stopMessagesTabWidgetAnimation();
+  void resetMessagesTabWidgetNames();
 public slots:
   void showMessageBrowser();
   void switchToWelcomePerspectiveSlot();
@@ -652,22 +651,18 @@ class MessageTab : public QWidget
 {
   Q_OBJECT
 public:
-  MessageTab(bool fixedTab);
+  MessageTab(const QString &name, bool fixedTab);
   void setIndex(int index) {mIndex = index;}
-  void setColor(const QColor &color) {mColor = color;}
-  void startAnimation();
+  void markTabChanged();
 private:
   int mIndex = -1;
-  QColor mColor;
+  QString mName;
   Label *mpProgressLabel;
   QProgressBar *mpProgressBar;
-  QTimer mTimer;
-  int mAnimationCounter = 0;
 public slots:
   void updateText(const QString &text);
   void updateProgress(QProgressBar *pProgressBar);
-  void stopAnimation();
-  void updateTabTextColor();
+  void resetTabText();
 signals:
   void clicked(int index);
   // QObject interface
