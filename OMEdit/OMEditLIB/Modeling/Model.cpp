@@ -733,6 +733,8 @@ namespace ModelInstance
           mFinal = true;
         } else if (modifierKey.compare(QStringLiteral("each")) == 0) {
           mEach = true;
+        } else if (modifierKey.compare(QStringLiteral("comment")) == 0) {
+          mComment = modifierValue.toString();
         } else if (modifierKey.compare(QStringLiteral("$value")) == 0) {
           if (modifierValue.isObject()) {
             QJsonObject valueObject = modifierValue.toObject();
@@ -759,7 +761,7 @@ namespace ModelInstance
     }
   }
 
-  QString Modifier::toString(bool skipTopLevel) const
+  QString Modifier::toString(bool skipTopLevel, bool includeComment) const
   {
     if (mpElement) {
       return mpElement->toString(skipTopLevel);
@@ -777,15 +779,14 @@ namespace ModelInstance
       if (!subModifiers.isEmpty()) {
         value.append("(" % subModifiers.join(", ") % ")");
       }
-      if (mValue.isEmpty()) {
-        if (value.compare(mName) != 0) {
-          return value;
-        } else {
-          return "";
-        }
-      } else {
-        return value.append(mName.isEmpty() ? mValue : " = " % mValue);
+      if (!mValue.isEmpty()) {
+        value.append(mName.isEmpty() ? mValue : " = " % mValue);
       }
+      if (includeComment && !mComment.isEmpty()) {
+        value.append(" \"" % mComment % "\"");
+      }
+
+      return value.compare(mName) == 0 ? "" : value;
     }
   }
 
@@ -1762,11 +1763,20 @@ namespace ModelInstance
     }
   }
 
-  QStringList Choices::getChoicesStringList() const
+  QStringList Choices::getChoicesValueStringList() const
   {
     QStringList choices;
     foreach (auto *pChoice, mChoices) {
       choices.append(pChoice->toString());
+    }
+    return choices;
+  }
+
+  QStringList Choices::getChoicesCommentStringList() const
+  {
+    QStringList choices;
+    foreach (auto *pChoice, mChoices) {
+      choices.append(pChoice->toString(false, true));
     }
     return choices;
   }

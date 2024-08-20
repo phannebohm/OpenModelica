@@ -312,20 +312,22 @@ algorithm
       else Expression.CALL(call);
     end match;
 
-    case "delay"           then simplifyDelay(args, call);
-    case "der"             then simplifyDer(listHead(args), call);
-    case "fill"            then simplifyFill(listHead(args), listRest(args), call, expand);
-    case "homotopy"        then simplifyHomotopy(args, call);
-    case "max"             then simplifyMinMax(args, call, isMin = false);
-    case "min"             then simplifyMinMax(args, call, isMin = true);
-    case "ones"            then simplifyFill(Expression.INTEGER(1), args, call, expand);
-    case "product"         then simplifySumProduct(listHead(args), call, expand, isSum = false);
-    case "sum"             then simplifySumProduct(listHead(args), call, expand, isSum = true);
-    case "transpose"       then simplifyTranspose(listHead(args), call, expand);
-    case "vector"          then simplifyVector(listHead(args), call);
-    case "zeros"           then simplifyFill(Expression.INTEGER(0), args, call, expand);
-    case "semiLinear"      then simplifySemiLinear(args, call);
-    case "getInstanceName" then Ceval.evalGetInstanceName(listHead(args));
+    case "delay"            then simplifyDelay(args, call);
+    case "der"              then simplifyDer(listHead(args), call);
+    case "fill"             then simplifyFill(listHead(args), listRest(args), call, expand);
+    case "homotopy"         then simplifyHomotopy(args, call);
+    case "max"              then simplifyMinMax(args, call, isMin = false);
+    case "min"              then simplifyMinMax(args, call, isMin = true);
+    case "ones"             then simplifyFill(Expression.INTEGER(1), args, call, expand);
+    case "product"          then simplifySumProduct(listHead(args), call, expand, isSum = false);
+    case "sum"              then simplifySumProduct(listHead(args), call, expand, isSum = true);
+    case "transpose"        then simplifyTranspose(listHead(args), call, expand);
+    case "vector"           then simplifyVector(listHead(args), call);
+    case "zeros"            then simplifyFill(Expression.INTEGER(0), args, call, expand);
+    case "semiLinear"       then simplifySemiLinear(args, call);
+    case "getInstanceName"  then Ceval.evalGetInstanceName(listHead(args));
+    case "$OMC$PositiveMax" then simplifyPositiveMax(args, call);
+    case "$OMC$inStreamDiv" then simplifyInStreamDiv(args, call);
 
     else Expression.CALL(call);
   end match;
@@ -377,6 +379,95 @@ algorithm
     exp := Expression.CALL(call);
   end if;
 end simplifyMinMax;
+
+function simplifyPositiveMax
+  "Simplifies internal `$OMC$PositiveMax`-call if min/max attributes allow it.
+  This is needed because some min/max attributes are updated after alias removal."
+  input list<Expression> args;
+  input Call call;
+  output Expression exp;
+protected
+  Expression flow_exp, eps;
+algorithm
+  {flow_exp, eps} := args;
+  if Expression.isNonPositive(flow_exp) then
+    // positiveMax(flow_exp, eps) = 0 if flow_exp <= 0
+    exp := Expression.makeZero(Expression.typeOf(flow_exp));
+  elseif Expression.isGreaterOrEqual(flow_exp, eps) then
+    // positiveMax(flow_exp, eps) = flow_exp if flow_exp >= eps
+    exp := flow_exp;
+  else
+    exp := Expression.CALL(call);
+  end if;
+end simplifyPositiveMax;
+
+function simplifyInStreamDiv
+  "Simplifies internal `$OMC$inStreamDiv`-call if first argument is `0/0`."
+  input list<Expression> args;
+  input Call call;
+  input Boolean removeStream = false;
+  output Expression exp;
+protected
+  Expression stream_exp, fallback;
+algorithm
+  {stream_exp, fallback} := args;
+  if Expression.isNaN(stream_exp) then
+    // inStreamDiv(0/0, fallback) = fallback
+    exp := fallback;
+  elseif removeStream then
+    // inStreamDiv(stream_exp, fallback) = stream_exp in the general case
+    exp := stream_exp;
+  else
+    exp := Expression.CALL(call);
+  end if;
+end simplifyInStreamDiv;
+
+function simplifyStream
+  "Removes all internal calls related to stream connectors,
+  i.e. $OMC$inStreamDiv and $OMC$PositiveMax."
+  input output Expression exp;
+algorithm
+  exp := Expression.mapReverse(exp, removeInStream);
+end simplifyStream;
+
+function removeInStream
+  input output Expression exp;
+algorithm
+  exp := match exp
+    local
+      Call call;
+      Expression res;
+    case Expression.CALL(call = call as Call.TYPED_CALL())
+      guard "$OMC$inStreamDiv" == AbsynUtil.pathFirstIdent(Function.nameConsiderBuiltin(call.fn))
+      algorithm
+        res := simplify(Expression.map(listHead(call.arguments), removePositiveMax), true);
+        print(getInstanceName() + ": " + Expression.toString(res) + "\n");
+      then simplifyInStreamDiv(res :: listRest(call.arguments), call, true);
+    else exp;
+  end match;
+end removeInStream;
+
+function removePositiveMax
+  input output Expression exp;
+algorithm
+  exp := match exp
+    local
+      Call call;
+      Expression res;
+    case Expression.CALL(call = call as Call.TYPED_CALL())
+      guard "$OMC$PositiveMax" == AbsynUtil.pathFirstIdent(Function.nameConsiderBuiltin(call.fn))
+      algorithm
+        // positiveMax(flow_exp, eps) = max(flow_exp, eps) in the general case
+        res := Expression.CALL(Call.makeTypedCall(
+          fn          = NFBuiltinFuncs.MAX_REAL,
+          args        = call.arguments,
+          variability = Expression.variability(listHead(call.arguments)),
+          purity      = NFPrefixes.Purity.PURE
+        ));
+      then res;
+    else exp;
+  end match;
+end removePositiveMax;
 
 function simplifySumProduct
   input Expression arg;
@@ -1036,7 +1127,7 @@ algorithm
   outExp :=
     if Expression.isOne(exp2) then exp1
     elseif Expression.isMinusOne(exp2) then Expression.negate(exp1)
-    elseif Expression.isZero(exp1) and not Expression.isZero(exp2) then exp1
+    elseif Expression.isZero(exp1) and Expression.isNonZero(exp2) then exp1
     // fix minus signs
     // (-e1)/(-e2) = e1/e2
     // e1/(-e2) = -(e1/e2)
@@ -1207,17 +1298,25 @@ end simplifyLogicBinaryOr;
 function simplifyLogicUnary
   input output Expression unaryExp;
 protected
-  Expression e, se;
+  Expression e, se, newExp;
   Operator op;
 algorithm
-  Expression.LUNARY(op, e) := unaryExp;
-  se := simplify(e);
+  unaryExp := match unaryExp
+    case Expression.LUNARY(_, Expression.LUNARY(_, e))
+    then simplify(e);
 
-  if Expression.isLiteral(se) then
-    unaryExp := Ceval.evalLogicUnaryOp(se, op);
-  elseif not referenceEq(e, se) then
-    unaryExp := Expression.LUNARY(op, se);
-  end if;
+    case Expression.LUNARY(op, e) algorithm
+      se := simplify(e);
+
+      if Expression.isLiteral(se) then
+        newExp := Ceval.evalLogicUnaryOp(se, op);
+      elseif not referenceEq(e, se) then
+        newExp := Expression.LUNARY(op, se);
+      else
+        newExp := unaryExp;
+      end if;
+    then newExp;
+  end match;
 end simplifyLogicUnary;
 
 function simplifyRelation
@@ -1368,7 +1467,7 @@ public function combineConstantNumbers
 protected
   Real tmp, result;
 algorithm
-  result := match mcl
+  res := match mcl
 
     case NFOperator.MathClassification.ADDITION algorithm
       result := 0.0;
@@ -1382,7 +1481,9 @@ algorithm
         tmp := getConstantValue(exp);
         result := result - tmp;
       end for;
-    then result;
+      res := if Type.isInteger(ty)  then Expression.INTEGER(realInt(result))
+                                    else Expression.REAL(result);
+    then res;
 
     case NFOperator.MathClassification.MULTIPLICATION algorithm
       result := 1.0;
@@ -1391,12 +1492,23 @@ algorithm
         tmp := getConstantValue(exp);
         result := result * tmp;
       end for;
-      // divide all inverse constants
-      for exp in inv_const loop
-        tmp := getConstantValue(exp);
-        result := result / tmp;
-      end for;
-    then result;
+      if result == 0.0 then
+        // numerator is zero
+        if List.any(inv_const, Expression.isZero) then
+          res := Expression.makeNaN(ty);
+        else
+          res := Expression.makeZero(ty);
+        end if;
+      else
+        // divide all inverse constants
+        for exp in inv_const loop
+          tmp := getConstantValue(exp);
+          result := result / tmp;
+        end for;
+        res := if Type.isInteger(ty)  then Expression.INTEGER(realInt(result))
+                                      else Expression.REAL(result);
+      end if;
+    then res;
 
     else algorithm
       Error.assertion(false, getInstanceName() + " detected non-commutative operator in MULTARY(): [" + Operator.mathSymbol(mcl) +
@@ -1406,8 +1518,6 @@ algorithm
     then fail();
 
   end match;
-
-  res := if Type.isInteger(ty) then Expression.INTEGER(realInt(result)) else Expression.REAL(result);
 end combineConstantNumbers;
 
 protected function getConstantValue

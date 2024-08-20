@@ -665,7 +665,7 @@ algorithm
     comp_name := AbsynUtil.pathRest(inComponentName);
     comp_rest := comp_name;
 
-    // Try to find the submod whose path matches the best. If the have a
+    // Try to find the submod whose path matches the best. If we have a
     // component name a.b.c, then first check a.b.c, then a.b, then a.
     while true loop
       if AbsynUtil.pathEqual(comp_name, AbsynUtil.elementArgName(submod)) then
@@ -688,7 +688,8 @@ algorithm
 
           case Absyn.REDECLARATION()
             algorithm
-              rest_submods := List.append_reverse(inNewMod.elementArgLst, rest_submods);
+              submod.elementSpec := setSubmodifierInElementSpec(comp_rest, inNewMod, submod.elementSpec);
+              rest_submods := submod :: rest_submods;
             then
               ();
 
@@ -696,7 +697,7 @@ algorithm
         end match;
 
         outSubMods := List.append_reverse(outSubMods, rest_submods);
-return;
+        return;
       end if;
 
       if AbsynUtil.pathIsIdent(comp_name) then
@@ -1684,7 +1685,7 @@ algorithm
 
             (cache, c, env2) := Lookup.lookupClassIdent(cache, inEnv, ann_name);
             smod := AbsynToSCode.translateMod(SOME(Absyn.CLASSMOD(mod,
-              Absyn.NOMOD())), SCode.NOT_FINAL(), SCode.NOT_EACH(), info);
+              Absyn.NOMOD())), SCode.NOT_FINAL(), SCode.NOT_EACH(), NONE(), info);
             (cache, dmod) := Mod.elabMod(cache, env, InnerOuter.emptyInstHierarchy, DAE.NOPRE(),
               smod, false, Mod.COMPONENT(ann_name), AbsynUtil.dummyInfo);
 
@@ -1712,7 +1713,7 @@ algorithm
             end try;
 
             smod := AbsynToSCode.translateMod(SOME(Absyn.CLASSMOD(stripped_mod, Absyn.NOMOD())),
-              SCode.NOT_FINAL(), SCode.NOT_EACH(), info);
+              SCode.NOT_FINAL(), SCode.NOT_EACH(), NONE(), info);
             (cache, dmod) := Mod.elabMod(cache, env, InnerOuter.emptyInstHierarchy,
               DAE.NOPRE(), smod, false, Mod.COMPONENT(ann_name), info);
 
@@ -6057,17 +6058,19 @@ algorithm
         // Check if we have any more inherited annotations.
         extends_path :: extends_paths := extends_paths;
         for a in listRest(extends_oannl) loop
-          SOME(extends_ann2) := a;
-          if not valueEq(extends_ann, extends_ann2) then
-            // Found an inherited annotation that's not equal to the first one, print a warning.
-            Error.addMessage(Error.CONFLICTING_INHERITED_ANNOTATIONS,
-              {annotationName, AbsynUtil.pathString(modelPath),
-               Dump.unparseModificationStr(extends_ann), AbsynUtil.pathString(extends_path),
-               Dump.unparseModificationStr(extends_ann2), AbsynUtil.pathString(listHead(extends_paths))});
-            break;
-          end if;
+          if isSome(a) then
+            SOME(extends_ann2) := a;
+            if not valueEq(extends_ann, extends_ann2) then
+              // Found an inherited annotation that's not equal to the first one, print a warning.
+              Error.addMessage(Error.CONFLICTING_INHERITED_ANNOTATIONS,
+                {annotationName, AbsynUtil.pathString(modelPath),
+                 Dump.unparseModificationStr(extends_ann), AbsynUtil.pathString(extends_path),
+                 Dump.unparseModificationStr(extends_ann2), AbsynUtil.pathString(listHead(extends_paths))});
+              break;
+            end if;
 
-          extends_paths := listRest(extends_paths);
+            extends_paths := listRest(extends_paths);
+          end if;
         end for;
       end if;
 

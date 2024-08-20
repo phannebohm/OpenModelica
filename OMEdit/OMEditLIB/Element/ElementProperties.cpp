@@ -473,11 +473,20 @@ void Parameter::setValueWidget(QString value, bool defaultValue, QString fromUni
       } else {
         // update the value combobox index when setting the value on the line edit
         bool state = mpValueComboBox->blockSignals(true);
-        int index = mpValueComboBox->findData(value);
-        if (index > -1) {
-          mpValueComboBox->setCurrentIndex(index);
-        } else { // if we fail to find the value in the combobox then add it to the combobox
-          mpValueComboBox->insertItem(1, value, value);
+        /* Issue #12756
+         * Reset the value combobox selection for choices.
+         * Since we always want to update the unit combobox when value selection changes for choices.
+         * Also don't add the new value to the combobox.
+         */
+        if (mValueType == Parameter::Choices) {
+          mpValueComboBox->setCurrentIndex(-1);
+        } else {
+          int index = mpValueComboBox->findData(value);
+          if (index > -1) {
+            mpValueComboBox->setCurrentIndex(index);
+          } else { // if we fail to find the value in the combobox then add it to the combobox
+            mpValueComboBox->insertItem(1, value, value);
+          }
         }
         mpValueComboBox->lineEdit()->setText(value);
         mpValueComboBox->lineEdit()->setModified(valueModified);
@@ -675,7 +684,7 @@ void Parameter::createValueWidget()
   }
   QString constrainedByClassName = QStringLiteral("$Any");
   QString replaceable = "", replaceableText = "", replaceableChoice = "", parentClassName = "", restriction = "", elementName = "";
-  QStringList enumerationLiterals, enumerationLiteralsDisplay, replaceableChoices, choices;
+  QStringList enumerationLiterals, enumerationLiteralsDisplay, replaceableChoices, choices, choicesComment;
 
   switch (mValueType) {
     case Parameter::Boolean:
@@ -731,7 +740,8 @@ void Parameter::createValueWidget()
           }
         }
         if (mpModelInstanceElement->getAnnotation()->getChoices()) {
-          choices = mpModelInstanceElement->getAnnotation()->getChoices()->getChoicesStringList();
+          choices = mpModelInstanceElement->getAnnotation()->getChoices()->getChoicesValueStringList();
+          choicesComment = mpModelInstanceElement->getAnnotation()->getChoices()->getChoicesCommentStringList();
         }
         parentClassName = mpElementParameters->getElementParentClassName();
         if (mpModelInstanceElement->getModel()) {
@@ -763,7 +773,7 @@ void Parameter::createValueWidget()
         QString choice = choices[i];
         QString comment;
         if (MainWindow::instance()->isNewApi()) {
-          comment = choice;
+          comment = i < choicesComment.size() ? choicesComment[i] : choice;
         } else {
           comment = StringHandler::removeFirstLastQuotes(FlatModelica::Parser::getModelicaComment(choice));
         }
@@ -834,13 +844,7 @@ void Parameter::enableDisableUnitComboBox(const QString &value)
    * We only want to disbale and switch to unit when literalConstant is false and we got a symbolic or expression parameter.
    */
   if (!literalConstant) {
-    bool state = mpUnitComboBox->blockSignals(true);
-    int index = mpUnitComboBox->findData(mUnit);
-    if (index > -1 && index != mpUnitComboBox->currentIndex()) {
-      mpUnitComboBox->setCurrentIndex(index);
-      mPreviousUnit = mpUnitComboBox->itemData(mpUnitComboBox->currentIndex()).toString();
-    }
-    mpUnitComboBox->blockSignals(state);
+    resetUnitCombobox();
   }
 }
 
@@ -880,6 +884,21 @@ bool Parameter::isValueModifiedHelper() const
   } else {
     return false;
   }
+}
+
+/*!
+ * \brief Parameter::resetUnitCombobox
+ * Resets the unit combobox to the default unit.
+ */
+void Parameter::resetUnitCombobox()
+{
+  bool state = mpUnitComboBox->blockSignals(true);
+  int index = mpUnitComboBox->findData(mUnit);
+  if (index > -1 && index != mpUnitComboBox->currentIndex()) {
+    mpUnitComboBox->setCurrentIndex(index);
+    mPreviousUnit = mpUnitComboBox->itemData(mpUnitComboBox->currentIndex()).toString();
+  }
+  mpUnitComboBox->blockSignals(state);
 }
 
 /*!
@@ -1068,13 +1087,13 @@ void Parameter::valueComboBoxChanged(int index)
   }
 
   try {
-    switch (mValueType) {
-      case Parameter::Enumeration:
-        updateValueBinding(FlatModelica::Expression(value.toStdString(), index));
-        break;
-      default:
-        updateValueBinding(FlatModelica::Expression::parse(value));
-        break;
+    if (mValueType == Parameter::Enumeration) {
+      updateValueBinding(FlatModelica::Expression(value.toStdString(), index));
+    } else {
+      if (mValueType == Parameter::Choices) {
+        resetUnitCombobox();
+      }
+      updateValueBinding(FlatModelica::Expression::parse(value));
     }
   } catch (const std::exception &e) {
     qDebug() << "Failed to parse value: " << value;

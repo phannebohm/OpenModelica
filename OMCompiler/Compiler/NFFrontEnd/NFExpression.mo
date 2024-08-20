@@ -4367,6 +4367,11 @@ public
     end match;
   end isZero;
 
+  function isNonZero
+    input Expression exp;
+    output Boolean res = isPositive(exp) or isNegative(exp);
+  end isNonZero;
+
   function isOne
     input Expression exp;
     output Boolean isOne;
@@ -4393,13 +4398,23 @@ public
     end match;
   end isMinusOne;
 
+  function isNaN
+    input Expression nan;
+    output Boolean b;
+  algorithm
+    b := match nan
+      case BINARY() then Operator.getMathClassification(nan.operator) == NFOperator.MathClassification.DIVISION and isZero(nan.exp1) and isZero(nan.exp2);
+      else false;
+    end match;
+  end isNaN;
+
   function isPositive
     input Expression exp;
-    output Boolean positive "true if exp is known to be > 0, otherwise false.";
+    output Boolean positive "true if exp is known to be > 0, otherwise false";
   algorithm
     positive := match exp
       case INTEGER() then exp.value > 0;
-      case REAL() then exp.value > 0;
+      case REAL() then exp.value > 0.0;
       case CAST() then isPositive(exp.exp);
       case UNARY() then isNegative(exp.exp);
       case CREF() then Util.applyOptionOrDefault(ComponentRef.lookupVarAttr(exp.cref, "min"), isPositive, false);
@@ -4409,11 +4424,11 @@ public
 
   function isNegative
     input Expression exp;
-    output Boolean negative "true if exp is known to be < 0, otherwise false.";
+    output Boolean negative "true if exp is known to be < 0, otherwise false";
   algorithm
     negative := match exp
       case INTEGER() then exp.value < 0;
-      case REAL() then exp.value < 0;
+      case REAL() then exp.value < 0.0;
       case CAST() then isNegative(exp.exp);
       case UNARY() then isPositive(exp.exp);
       case CREF() then Util.applyOptionOrDefault(ComponentRef.lookupVarAttr(exp.cref, "max"), isNegative, false);
@@ -4423,11 +4438,11 @@ public
 
   function isNonPositive
     input Expression exp;
-    output Boolean res "true if exp is known to be <= 0, otherwise false.";
+    output Boolean res "true if exp is known to be <= 0, otherwise false";
   algorithm
     res := match exp
       case INTEGER() then exp.value <= 0;
-      case REAL() then exp.value <= 0;
+      case REAL() then exp.value <= 0.0;
       case CAST() then isNonPositive(exp.exp);
       case UNARY() then isNonNegative(exp.exp);
       case CREF() then Util.applyOptionOrDefault(ComponentRef.lookupVarAttr(exp.cref, "max"), isNonPositive, false);
@@ -4437,17 +4452,32 @@ public
 
   function isNonNegative
     input Expression exp;
-    output Boolean res "true if exp is known to be <= 0, otherwise false.";
+    output Boolean res "true if exp is known to be <= 0, otherwise false";
   algorithm
     res := match exp
       case INTEGER() then exp.value >= 0;
-      case REAL() then exp.value >= 0;
+      case REAL() then exp.value >= 0.0;
       case CAST() then isNonNegative(exp.exp);
       case UNARY() then isNonPositive(exp.exp);
       case CREF() then Util.applyOptionOrDefault(ComponentRef.lookupVarAttr(exp.cref, "min"), isNonNegative, false);
       else false;
     end match;
   end isNonNegative;
+
+  function isGreaterOrEqual
+    input Expression lhs;
+    input Expression rhs;
+    output Boolean res "true if we know that lhs >= rhs, otherwise false";
+  algorithm
+    res := match (lhs, rhs)
+      case (REAL(), REAL()) then lhs.value >= rhs.value;
+      case (CREF(), _) then Util.applyOptionOrDefault(ComponentRef.lookupVarAttr(lhs.cref, "min"), function isGreaterOrEqual(rhs=rhs), false);
+      case (_, CREF()) then Util.applyOptionOrDefault(ComponentRef.lookupVarAttr(rhs.cref, "max"), function isGreaterOrEqual(lhs=lhs), false);
+      case (UNARY(exp = CREF()), _) then isGreaterOrEqual(negate(rhs), lhs.exp);
+      case (_, UNARY(exp = CREF())) then isGreaterOrEqual(rhs.exp, negate(lhs));
+      else false;
+    end match;
+  end isGreaterOrEqual;
 
   function isScalar
     input Expression exp;
@@ -4717,6 +4747,15 @@ public
       then fail();
     end match;
   end makeMinusOne;
+
+  function makeNaN
+    input Type ty;
+    output Expression nan;
+  protected
+    Expression zero = Expression.makeZero(ty);
+  algorithm
+    nan := BINARY(zero, Operator.makeDiv(ty), zero);
+  end makeNaN;
 
   function makeMaxValue
     input Type ty;
@@ -6363,7 +6402,7 @@ public
           Pointer.update(idx_ptr, idx + 1);
           UnorderedMap.add(exp, idx, map);
         end if;
-        new_exp := Expression.SHARED_LITERAL(idx, exp);
+        new_exp := SHARED_LITERAL(idx, exp);
       then new_exp;
 
       else exp;
