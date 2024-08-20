@@ -39,6 +39,7 @@ protected
   import ComponentRef = NFComponentRef;
   import Expression = NFExpression;
   import NFFunction.Function;
+  import GCExt;
   import Global;
   import Operator = NFOperator;
   import System;
@@ -71,6 +72,22 @@ public
     exp := strToExp(expStr, idToCref);
   end simplifyExp;
 
+  function free
+  protected
+    Option<EGraph> oegraph = getGlobalRoot(Global.eGraph);
+  algorithm
+    () := match oegraph
+      local
+        EGraph egraph;
+      case SOME(egraph) algorithm
+        EGraph_internal.destructor(egraph.egraph);
+        Rules.destructor(egraph.rules);
+        setGlobalRoot(Global.eGraph, NONE());
+      then ();
+      else();
+    end match;
+  end free;
+
 protected
 
   record E_GRAPH
@@ -89,7 +106,7 @@ protected
       case SOME(egraph) then egraph;
       else algorithm
         egraph := E_GRAPH(
-          egraph = EGraph_internal(),
+          egraph = EGraph_internal("egraph.json"),
           rules = Rules());
         setGlobalRoot(Global.eGraph, SOME(egraph));
       then egraph;
@@ -99,8 +116,9 @@ protected
   class EGraph_internal
     extends ExternalObject;
     function constructor
+      input String file;
       output EGraph_internal egraph;
-      external "C" egraph = egg_make_egraph() annotation(Library="omcruntime");
+      external "C" egraph = egg_make_egraph(file) annotation(Library="omcruntime");
     end constructor;
     function destructor
       input EGraph_internal egraph;

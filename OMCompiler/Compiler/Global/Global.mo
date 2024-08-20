@@ -37,6 +37,7 @@ encapsulated package Global
 
   The Global package contains structures that are available globally."
 
+import EGraph;
 
 constant Integer recursionDepthLimit = 256;
 constant Integer maxFunctionFileLength = 50;
@@ -106,6 +107,21 @@ algorithm
   setGlobalRoot(sharedLibraryCacheIndex, {});
   setGlobalRoot(eGraph, NONE());
 end initialize;
+
+public function deinitialize "Called to free global roots"
+algorithm
+  setGlobalRoot(instOnlyForcedFunctions,  NONE());
+  setGlobalRoot(rewriteRulesIndex,  NONE());
+  setGlobalRoot(stackoverFlowIndex, NONE());
+  setGlobalRoot(inlineHashTable, NONE());
+  setGlobalRoot(currentInstVar, NONE());
+  setGlobalRoot(interactiveCache, NONE());
+  setGlobalRoot(instNFInstCacheIndex, {});
+  setGlobalRoot(instNFNodeCacheIndex, {});
+  setGlobalRoot(instNFLookupCacheIndex, {});
+  setGlobalRoot(sharedLibraryCacheIndex, {});
+  EGraph.free();
+end deinitialize;
 
 annotation(__OpenModelica_Interface="util");
 end Global;

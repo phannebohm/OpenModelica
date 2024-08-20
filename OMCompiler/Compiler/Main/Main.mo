@@ -728,6 +728,7 @@ algorithm
       print(ErrorExt.printMessagesStr(false)); print("\n");
       fail();
     end try;
+    Global.deinitialize();
     if Flags.isSet(Flags.GC_PROF) then
       print(GCExt.profStatsStr(GCExt.getProfStats(), head="GC stats at end of program:") + "\n");
     end if;
