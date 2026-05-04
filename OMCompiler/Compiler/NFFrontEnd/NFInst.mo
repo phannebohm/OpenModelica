@@ -106,6 +106,7 @@ import NFFunction.Function;
 import FlatModel = NFFlatModel;
 import ElementSource;
 import SimplifyModel = NFSimplifyModel;
+import StateMachineFlatten = NFStateMachineFlatten;
 import Record = NFRecord;
 import Variable = NFVariable;
 import OperatorOverloading = NFOperatorOverloading;
@@ -214,6 +215,10 @@ algorithm
   if not Flags.getConfigBool(Flags.NO_SIMPLIFY) then
     flatModel := SimplifyModel.simplify(flatModel);
   end if;
+
+  // Flatten state machines to data-flow equations (MLS §17).
+  flatModel := StateMachineFlatten.flatten(flatModel);
+  InstUtil.dumpFlatModelDebug("stateMachineFlatten", flatModel);
 
   // Collect package constants that couldn't be substituted with their values
   // (e.g. because they where used with non-constant subscripts), and add them
