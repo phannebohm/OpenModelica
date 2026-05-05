@@ -739,6 +739,31 @@ public
     end for;
   end difference_list;
 
+  function equal_list
+    "Takes two lists and returns true if they contain the same elements.
+    Ignores duplicates."
+    input list<T> inList1;
+    input list<T> inList2;
+    input Hash hashFunc;
+    input KeyEq keyEqFunc;
+    output Boolean b = false;
+  protected
+    UnorderedSet<T> set1 = fromList(inList1, hashFunc, keyEqFunc);
+    UnorderedSet<T> set2 = fromList(inList2, hashFunc, keyEqFunc);
+  algorithm
+    for k in inList1 loop
+      if not contains(k, set2) then
+        return;
+      end if;
+    end for;
+    for k in inList2 loop
+      if not contains(k, set1) then
+        return;
+      end if;
+    end for;
+    b := true;
+  end equal_list;
+
   function difference
     "set1 / set2"
     input UnorderedSet<T> set1;
