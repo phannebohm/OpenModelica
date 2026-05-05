@@ -751,13 +751,12 @@ public
     UnorderedSet<T> set1 = fromList(inList1, hashFunc, keyEqFunc);
     UnorderedSet<T> set2 = fromList(inList2, hashFunc, keyEqFunc);
   algorithm
+    if size(set1) <> size(set2) then
+      return;
+    end if;
+    
     for k in inList1 loop
       if not contains(k, set2) then
-        return;
-      end if;
-    end for;
-    for k in inList2 loop
-      if not contains(k, set1) then
         return;
       end if;
     end for;
