@@ -46,7 +46,7 @@ import ExpandableArray;
 import FCore;
 import HashTable3;
 import HashTableCG;
-import MMath;
+import Rational;
 import SCode;
 import ZeroCrossings;
 import SimCode;
@@ -90,15 +90,15 @@ end EqSystem;
 
 public uniontype SubClock
   record SUBCLOCK
-    MMath.Rational factor;
-    MMath.Rational shift;
+    Rational factor;
+    Rational shift;
     Option<String> solver;
   end SUBCLOCK;
   record INFERED_SUBCLOCK
   end INFERED_SUBCLOCK;
 end SubClock;
 
-public constant SubClock DEFAULT_SUBCLOCK = SUBCLOCK(MMath.RAT1, MMath.RAT0, NONE());
+public constant SubClock DEFAULT_SUBCLOCK = SUBCLOCK(Rational.ONE, Rational.ZERO, NONE());
 
 public
 uniontype BaseClockPartitionKind

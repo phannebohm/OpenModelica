@@ -62,7 +62,7 @@ import Expression;
 import Flags;
 import HashTable;
 import List;
-import MMath;
+import Rational;
 import StringUtil;
 import Types;
 import Util;
@@ -784,13 +784,13 @@ algorithm
       Integer i1,i2,i3,i4;
       Real r1,r2;
     case(DAE.RATIONAL_CLOCK(DAE.ICONST(i1),DAE.ICONST(i2)), DAE.INFERRED_CLOCK())
-      then BackendDAE.SUBCLOCK(MMath.RATIONAL(i2,i1), MMath.RAT0,NONE());
+      then BackendDAE.SUBCLOCK(Rational.RATIONAL(i2,i1), Rational.ZERO,NONE());
     case(DAE.RATIONAL_CLOCK(DAE.ICONST(i1),DAE.ICONST(i2)), DAE.RATIONAL_CLOCK(DAE.ICONST(i3),DAE.ICONST(i4)))
-      then BackendDAE.SUBCLOCK(MMath.divRational(MMath.RATIONAL(i2,i1),MMath.RATIONAL(i4,i3)),MMath.RAT0,NONE());
+      then BackendDAE.SUBCLOCK(Rational.div(Rational.RATIONAL(i2,i1),Rational.RATIONAL(i4,i3)),Rational.ZERO,NONE());
     case(DAE.REAL_CLOCK(DAE.RCONST(r1)), DAE.INFERRED_CLOCK())
-      then BackendDAE.SUBCLOCK(MMath.RATIONAL(1, realInt(1.0/r1)), MMath.RAT0, NONE());
+      then BackendDAE.SUBCLOCK(Rational.RATIONAL(1, realInt(1.0/r1)), Rational.ZERO, NONE());
     case(DAE.REAL_CLOCK(DAE.RCONST(r1)), DAE.REAL_CLOCK(DAE.RCONST(r2)))
-      then BackendDAE.SUBCLOCK(MMath.divRational(MMath.RATIONAL(1, realInt(1.0/r1)),MMath.RATIONAL(1,realInt(1.0/r2))), MMath.RAT0, NONE());
+      then BackendDAE.SUBCLOCK(Rational.div(Rational.RATIONAL(1, realInt(1.0/r1)),Rational.RATIONAL(1,realInt(1.0/r2))), Rational.ZERO, NONE());
     else
       algorithm
         //Please add the missing cases.
@@ -898,13 +898,13 @@ author: vwaurich 2017-06"
 algorithm
   subClk := match(preClock, subSeqClock)
     local
-      MMath.Rational f1,f2;
-      MMath.Rational s1,s2;
+      Rational f1,f2;
+      Rational s1,s2;
       Option<String> solver1,solver2;
     case(BackendDAE.SUBCLOCK(f1,s1,solver1), BackendDAE.SUBCLOCK(f2,s2,solver2))
       algorithm
         solver1 := mergeSolver(solver1,solver2);
-      then BackendDAE.SUBCLOCK(MMath.divRational(f1, f2), MMath.addRational(MMath.multRational(s1, f2), s2), solver1);
+      then BackendDAE.SUBCLOCK(Rational.div(f1, f2), Rational.add(Rational.mul(s1, f2), s2), solver1);
     case(BackendDAE.SUBCLOCK(_,_,_),BackendDAE.INFERED_SUBCLOCK())
       then subSeqClock;
     else
@@ -968,12 +968,12 @@ protected function setSubClockFactor
 "sets the factor of a sub clock
 author: vwaurich 2017-06"
   input BackendDAE.SubClock subClk;
-  input MMath.Rational factor;
+  input Rational factor;
   output BackendDAE.SubClock subClkOut;
 algorithm
   subClkOut := match(subClk)
   local
-    MMath.Rational shift;
+    Rational shift;
     Option<String> solver;
     case(BackendDAE.SUBCLOCK(_,shift,solver))
       then BackendDAE.SUBCLOCK(factor,shift,solver);
@@ -986,16 +986,16 @@ protected function getSubClockFactor
 "gets the factor of a sub clock
 author: vwaurich 2017-06"
   input BackendDAE.SubClock subClk;
-  output MMath.Rational factor;
+  output Rational factor;
 algorithm
   factor := match(subClk)
   local
-    MMath.Rational shift;
+    Rational shift;
     Option<String> solver;
     case(BackendDAE.SUBCLOCK(factor,_,_))
       then factor;
     else
-      then MMath.RAT1;
+      then Rational.ONE;
   end match;
 end getSubClockFactor;
 
@@ -1003,16 +1003,16 @@ protected function getSubClockShift
 "gets the shift value of a sub clock
 author: vwaurich 2017-06"
   input BackendDAE.SubClock subClk;
-  output MMath.Rational shift;
+  output Rational shift;
 algorithm
   shift := match(subClk)
   local
-    MMath.Rational factor;
+    Rational factor;
     Option<String> solver;
     case(BackendDAE.SUBCLOCK(_,shift,_))
       then shift;
     else
-      then MMath.RAT0;
+      then Rational.ZERO;
   end match;
 end getSubClockShift;
 
@@ -1024,7 +1024,7 @@ author: vwaurich 2017-06"
 algorithm
   solver := match(subClk)
   local
-    MMath.Rational factor,shift;
+    Rational factor,shift;
     case(BackendDAE.SUBCLOCK(_,_,solver))
       then solver;
     else
@@ -1036,12 +1036,12 @@ protected function setSubClockShift
 "sets the shift value of a sub clock
 author: vwaurich 2017-06"
   input BackendDAE.SubClock subClk;
-  input MMath.Rational shift;
+  input Rational shift;
   output BackendDAE.SubClock subClkOut;
 algorithm
   subClkOut := match(subClk)
   local
-    MMath.Rational factor;
+    Rational factor;
     Option<String> solver;
     case(BackendDAE.SUBCLOCK(factor,_,solver))
       then BackendDAE.SUBCLOCK(factor,shift,solver);
@@ -1059,7 +1059,7 @@ author: vwaurich 2017-06"
 algorithm
   subClkOut := match(subClk)
   local
-    MMath.Rational factor,shift;
+    Rational factor,shift;
     case(BackendDAE.SUBCLOCK(factor,shift,_))
       then BackendDAE.SUBCLOCK(factor,shift,solver);
     else
@@ -1101,8 +1101,8 @@ algorithm
         sub1 := BackendDAE.INFERED_SUBCLOCK();
         sub2 := BackendDAE.INFERED_SUBCLOCK();
       else
-        sub1 := setSubClockFactor(sub1, MMath.divRational(MMath.RAT1, MMath.RATIONAL(factor,1)));
-        sub2 := setSubClockFactor(sub2,MMath.RATIONAL(factor,1));
+        sub1 := setSubClockFactor(sub1, Rational.div(Rational.ONE, Rational.RATIONAL(factor,1)));
+        sub2 := setSubClockFactor(sub2, Rational.RATIONAL(factor,1));
       end if;
     then (p1,v1,p2,v2);
   case(BackendDAE.EQUATION(exp=DAE.CREF(componentRef=cref1), scalar=DAE.CALL(path=Absyn.IDENT("subSample"),expLst={DAE.CREF(componentRef=cref2),DAE.ICONST(factor)})))
@@ -1116,8 +1116,8 @@ algorithm
         sub1 := BackendDAE.INFERED_SUBCLOCK();
         sub2 := BackendDAE.INFERED_SUBCLOCK();
       else
-        sub1 := setSubClockFactor(sub1, MMath.RATIONAL(factor,1));
-        sub2 := setSubClockFactor(sub2, MMath.divRational(MMath.RAT1, MMath.RATIONAL(factor,1)));
+        sub1 := setSubClockFactor(sub1, Rational.RATIONAL(factor,1));
+        sub2 := setSubClockFactor(sub2, Rational.div(Rational.ONE, Rational.RATIONAL(factor,1)));
       end if;
     then (p1,v1,p2,v2);
   case(BackendDAE.EQUATION(exp=DAE.CREF(componentRef=cref1), scalar=DAE.CALL(path=Absyn.IDENT("shiftSample"),expLst={DAE.CREF(componentRef=cref2),DAE.ICONST(counter),DAE.ICONST(resolution)})))
@@ -1126,8 +1126,8 @@ algorithm
       p1 := varPartMap[v1];
       (_,{v2}) := BackendVariable.getVar(cref2,vars);
       p2 := varPartMap[v2];
-      sub1 := setSubClockShift(sub1, MMath.subRational(MMath.RAT0, MMath.RATIONAL(counter, resolution)));
-      sub2 := setSubClockShift(sub2,MMath.RATIONAL(counter,resolution));
+      sub1 := setSubClockShift(sub1, Rational.sub(Rational.ZERO, Rational.RATIONAL(counter, resolution)));
+      sub2 := setSubClockShift(sub2, Rational.RATIONAL(counter,resolution));
     then (p1,v1,p2,v2);
   case(BackendDAE.EQUATION(exp=DAE.CREF(componentRef=cref1), scalar=DAE.CALL(path=Absyn.IDENT("backSample"),expLst={DAE.CREF(componentRef=cref2),DAE.ICONST(counter),DAE.ICONST(resolution)})))
     algorithm
@@ -1135,8 +1135,8 @@ algorithm
       p1 := varPartMap[v1];
       (_,{v2}) := BackendVariable.getVar(cref2,vars);
       p2 := varPartMap[v2];
-      sub1 := setSubClockShift(sub1, MMath.RATIONAL(counter,resolution));
-      sub2 := setSubClockShift(sub2, MMath.subRational(MMath.RAT0, MMath.RATIONAL(counter, resolution)));
+      sub1 := setSubClockShift(sub1, Rational.RATIONAL(counter,resolution));
+      sub2 := setSubClockShift(sub2, Rational.sub(Rational.ZERO, Rational.RATIONAL(counter, resolution)));
     then (p1,v1,p2,v2);
   case(BackendDAE.EQUATION(exp=DAE.CREF(componentRef=cref1), scalar=DAE.CLKCONST(clk=DAE.SOLVER_CLOCK(c=DAE.CREF(componentRef=cref2), solverMethod=DAE.SCONST(solver)))))
     algorithm
@@ -1479,7 +1479,7 @@ protected
   BackendDAE.Variables vars, clockVars;
   BackendDAE.EqSystem clockSyst,outSys;
   BackendDAE.AdjacencyMatrix m, mT, rm, rmT;
-  MMath.Rational subClkFactor;
+  Rational subClkFactor;
   Integer partitionsCnt;
   array<Integer> partitions, remEqPartMap;
   list<BackendDAE.Equation> newClockEqs;
@@ -1717,17 +1717,17 @@ algorithm
 end isInferedBaseClock;
 
 protected function setFactor
-  input MMath.Rational oldVal;
-  input MMath.Rational newVal;
-  output MMath.Rational outVal;
+  input Rational oldVal;
+  input Rational newVal;
+  output Rational outVal;
 algorithm
   outVal := match (oldVal, newVal)
-    case (MMath.RATIONAL(1, 1), _) then newVal;
-    case (_, MMath.RATIONAL(1, 1)) then oldVal;
+    case (Rational.RATIONAL(1, 1), _) then newVal;
+    case (_, Rational.RATIONAL(1, 1)) then oldVal;
     else
       algorithm
-        if not MMath.equals(oldVal, newVal) then
-          Error.addMessage(Error.SUBCLOCK_CONFLICT, {"factor", MMath.rationalString(oldVal), MMath.rationalString(newVal)});
+        if not Rational.isEqual(oldVal, newVal) then
+          Error.addMessage(Error.SUBCLOCK_CONFLICT, {"factor", Rational.toString(oldVal), Rational.toString(newVal)});
           fail();
         end if;
      then newVal;
@@ -1735,17 +1735,17 @@ algorithm
 end setFactor;
 
 protected function setShift
-  input MMath.Rational oldVal;
-  input MMath.Rational newVal;
-  output MMath.Rational outVal;
+  input Rational oldVal;
+  input Rational newVal;
+  output Rational outVal;
 algorithm
   outVal := match (oldVal, newVal)
-    case (MMath.RATIONAL(0, _), _) then newVal;
-    case (_, MMath.RATIONAL(0, _)) then oldVal;
+    case (Rational.RATIONAL(0, _), _) then newVal;
+    case (_, Rational.RATIONAL(0, _)) then oldVal;
     else
       algorithm
-        if not MMath.equals(oldVal, newVal) then
-          Error.addMessage(Error.SUBCLOCK_CONFLICT, {"shift", MMath.rationalString(oldVal), MMath.rationalString(newVal)});
+        if not Rational.isEqual(oldVal, newVal) then
+          Error.addMessage(Error.SUBCLOCK_CONFLICT, {"shift", Rational.toString(oldVal), Rational.toString(newVal)});
           fail();
         end if;
      then newVal;
@@ -3123,7 +3123,7 @@ algorithm
   case(BackendDAE.INFERED_SUBCLOCK(), BackendDAE.INFERED_SUBCLOCK())
     then true;
   case(BackendDAE.SUBCLOCK(), BackendDAE.SUBCLOCK())
-    then MMath.equals(sc1.factor,sc2.factor) and MMath.equals(sc1. shift,sc2. shift) and Util.optionEqual(sc1.solver,sc2.solver,stringEqual);
+    then Rational.isEqual(sc1.factor,sc2.factor) and Rational.isEqual(sc1. shift,sc2. shift) and Util.optionEqual(sc1.solver,sc2.solver,stringEqual);
   else
     then false;
   end match;

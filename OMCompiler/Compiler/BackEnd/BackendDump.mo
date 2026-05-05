@@ -81,6 +81,7 @@ import Initialization;
 import IOStream;
 import List;
 import Matching;
+import Rational;
 import System;
 import Util;
 import ZeroCrossings;
@@ -318,8 +319,8 @@ algorithm
       then "INFERED_SUBCLOCK";
     case(BackendDAE.SUBCLOCK(_))
       algorithm
-        factorStr := "factor(" + MMath.rationalString(subClock.factor) + ")";
-        shiftStr := "shift(" + MMath.rationalString(subClock.shift) + ")";
+        factorStr := "factor(" + Rational.toString(subClock.factor) + ")";
+        shiftStr := "shift(" + Rational.toString(subClock.shift) + ")";
         solverStr := "solver(" + optionString(subClock.solver) + ")";
         if stringLength(solverStr) > 8 then
           subClockString := factorStr + " " + shiftStr + " " + solverStr;
